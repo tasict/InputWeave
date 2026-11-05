@@ -1,0 +1,4 @@
+# Text files are LF everywhere, Windows checkouts included: the generated
+# key code tables are compared byte for byte with the generator's output,
+# and the build scripts and packaging expect LF.
+* text=auto eol=lf
