@@ -655,6 +655,26 @@ refresh() {
     *) release_state=none ;;
     esac
 }
+
+# GitHub's list of releases lags its writes by a few seconds: after
+# creating, uploading to or publishing a release, wait until the list
+# shows it (the release in state $1, and every file of $assets when
+# uploaded is given).
+refresh_until() {
+    for attempt in 1 2 3 4 5 6 7 8 9 10 11 12; do
+        refresh
+        if [ "$release_state" = "$1" ]; then
+            [ "${2-}" = uploaded ] || return 0
+            missing=""
+            for path in "${assets[@]}"; do
+                [ -n "$(tool releases "$releases" asset "$tag" "$(basename "$path")" size)" ] || missing=1
+            done
+            [ -n "$missing" ] || return 0
+        fi
+        sleep 5
+    done
+    return 1
+}
 if [ "$dry_run" = 0 ]; then
     command -v gh >/dev/null || die "gh is not installed"
     gh auth status >/dev/null 2>&1 || die "gh is not signed in (gh auth login)"
@@ -861,8 +881,7 @@ if [ "$release_state" = none ]; then
     say "Creating $tag as a draft"
     gh release create "$tag" --repo "$github_repo" --draft --target "$target" \
         --title "InputWeave $version" --notes-file "$work/description.md" >/dev/null
-    refresh
-    [ "$release_state" = draft ] || die "GitHub does not list the draft $tag just made"
+    refresh_until draft || die "GitHub does not list the draft $tag just made"
 elif [ "$release_state" = draft ]; then
     gh release edit "$tag" --repo "$github_repo" --notes-file "$work/description.md" >/dev/null
 fi
@@ -885,7 +904,7 @@ for path in "${assets[@]}"; do
 done
 
 say "Checking what GitHub holds"
-refresh
+refresh_until "$release_state" uploaded || die "GitHub does not list every file uploaded to $tag"
 for path in "${assets[@]}"; do
     name="$(basename "$path")"
     remote_size="$(tool releases "$releases" asset "$tag" "$name" size)"
@@ -901,7 +920,7 @@ if [ "$release_state" = draft ]; then
         say "Publishing $tag; v$highest_other stays the latest release"
         gh release edit "$tag" --repo "$github_repo" --draft=false --latest=false >/dev/null
     fi
-    refresh
+    refresh_until published || die "GitHub does not list $tag as published"
 fi
 
 say "Checking releases/latest"

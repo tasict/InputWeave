@@ -448,18 +448,23 @@ mod tests {
 
     #[test]
     fn paths_may_name_the_receive_folder_and_the_log() {
-        let config: Config = "[paths]\nreceive_folder = \"/srv/inputweave/received\"\n\
-             log_file = \"/var/log/agent.log\"\n"
+        let config: Config = "[paths]\nlog_file = \"/var/log/agent.log\"\n"
             .parse()
             .unwrap();
-        assert_eq!(
-            config.paths.receive_folder.as_deref(),
-            Some(Path::new("/srv/inputweave/received"))
-        );
         assert_eq!(
             config.paths.log_file.as_deref(),
             Some(Path::new("/var/log/agent.log"))
         );
+        let receive = "[paths]\nreceive_folder = \"/srv/inputweave/received\"\n".parse::<Config>();
+        if cfg!(windows) {
+            // The broker saves received files in the user's Downloads.
+            assert!(matches!(receive, Err(ConfigError::Invalid(_))));
+        } else {
+            assert_eq!(
+                receive.unwrap().paths.receive_folder.as_deref(),
+                Some(Path::new("/srv/inputweave/received"))
+            );
+        }
         let none: Config = "".parse().unwrap();
         assert!(none.paths.receive_folder.is_none() && none.paths.log_file.is_none());
     }
