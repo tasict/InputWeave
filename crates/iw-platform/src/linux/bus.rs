@@ -36,7 +36,7 @@ pub(crate) async fn session(address: Option<&str>) -> zbus::Result<zbus::Connect
         .filter(|address| !address.is_empty());
     match address {
         Some(address) => {
-            zbus::connection::Builder::address(without_guid(&address).as_str())?
+            zbus::connection::Builder::address(without_guid(&address).as_str())
                 .build()
                 .await
         }

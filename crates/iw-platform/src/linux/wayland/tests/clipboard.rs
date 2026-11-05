@@ -1221,10 +1221,10 @@ struct FakeClipboard {
     board: Arc<Mutex<Board>>,
 }
 
-fn owner(mimes: &[String], ours: bool) -> HashMap<&'static str, Value<'static>> {
-    let mut options = HashMap::from([("mime_types", Value::from(mimes.to_vec()))]);
+fn owner(mimes: &[String], ours: bool) -> HashMap<&'static str, Variant<'static>> {
+    let mut options = HashMap::from([("mime_types", Variant::from(mimes.to_vec()))]);
     if ours {
-        options.insert("session_is_owner", Value::from(true));
+        options.insert("session_is_owner", Variant::from(true));
     }
     options
 }
@@ -1253,7 +1253,7 @@ impl FakeClipboard {
         &self,
         #[zbus(header)] header: zbus::message::Header<'_>,
         _session: ObjectPath<'_>,
-        _options: HashMap<String, OwnedValue>,
+        _options: HashMap<String, OwnedVariant>,
     ) -> zbus::fdo::Result<()> {
         let (unanswered, refused, late) = {
             let mut board = self.board.lock().unwrap();
@@ -1291,11 +1291,11 @@ impl FakeClipboard {
         &self,
         #[zbus(connection)] conn: &zbus::Connection,
         session: ObjectPath<'_>,
-        options: HashMap<String, OwnedValue>,
+        options: HashMap<String, OwnedVariant>,
     ) -> zbus::fdo::Result<()> {
         let mimes: Vec<String> = options
             .get("mime_types")
-            .and_then(|v| v.downcast_ref::<zbus::zvariant::Array<'_>>().ok())
+            .and_then(|v| v.downcast_ref::<zbus::Array<'_>>().ok())
             .map(|a| {
                 a.iter()
                     .filter_map(|m| m.downcast_ref::<&str>().ok().map(str::to_owned))
@@ -1348,11 +1348,7 @@ impl FakeClipboard {
         Ok(())
     }
 
-    async fn selection_write(
-        &self,
-        _session: ObjectPath<'_>,
-        serial: u32,
-    ) -> zbus::zvariant::OwnedFd {
+    async fn selection_write(&self, _session: ObjectPath<'_>, serial: u32) -> zbus::OwnedFd {
         let (reader, writer) = std::io::pipe().unwrap();
         let board = self.board.clone();
         std::thread::spawn(move || {
@@ -1371,7 +1367,7 @@ impl FakeClipboard {
         &self,
         _session: ObjectPath<'_>,
         mime_type: &str,
-    ) -> zbus::fdo::Result<zbus::zvariant::OwnedFd> {
+    ) -> zbus::fdo::Result<zbus::OwnedFd> {
         let data = {
             let mut board = self.board.lock().unwrap();
             board.read.push(mime_type.to_owned());
@@ -1389,7 +1385,7 @@ impl FakeClipboard {
     async fn selection_owner_changed(
         emitter: &SignalEmitter<'_>,
         session: ObjectPath<'_>,
-        options: HashMap<&str, Value<'_>>,
+        options: HashMap<&str, Variant<'_>>,
     ) -> zbus::Result<()>;
 
     #[zbus(signal)]
@@ -1951,7 +1947,6 @@ fn signals_only_the_portal_sends_are_heard() {
     // Another app on the bus, to everyone and to the agent alone.
     desktop.runtime.block_on(async {
         let spoof = zbus::connection::Builder::address(desktop.bus.address.as_str())
-            .unwrap()
             .build()
             .await
             .unwrap();

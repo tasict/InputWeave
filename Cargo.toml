@@ -51,11 +51,12 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 windows = "0.62"
 # Linux: pure Rust, so nothing needs the
 # system's development packages. zbus matches the version and runtime
-# ashpd brings.
+# ashpd brings; proxies on the client side, served objects in the tests'
+# fake portals.
 x11rb = { version = "0.14", default-features = false }
-zbus = { version = "5.13", default-features = false, features = ["tokio"] }
+zbus = { version = "6", default-features = false, features = ["tokio", "proxy", "service"] }
 # remote_desktop builds only with screencast, whose streams it names.
-ashpd = { version = "0.13", default-features = false, features = ["tokio", "remote_desktop", "screencast", "clipboard", "input_capture"] }
+ashpd = { version = "0.14", default-features = false, features = ["tokio", "remote_desktop", "screencast", "clipboard", "input_capture"] }
 futures-util = { version = "0.3", default-features = false }
 reis = { version = "0.7", features = ["tokio"] }
 wayland-client = "0.31"

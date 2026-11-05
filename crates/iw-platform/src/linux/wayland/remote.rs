@@ -432,7 +432,7 @@ async fn started(
         }
     }
     let mut select = SelectDevicesOptions::default()
-        .set_devices(DeviceType::Keyboard | DeviceType::Pointer)
+        .set_devices(DeviceType::KEYBOARD | DeviceType::POINTER)
         .set_persist_mode(PersistMode::ExplicitlyRevoked);
     if let Some(token) = token.as_deref() {
         select = select.set_restore_token(token);
@@ -501,7 +501,7 @@ async fn started(
     }
     if !selected
         .devices()
-        .contains(DeviceType::Keyboard | DeviceType::Pointer)
+        .contains(DeviceType::KEYBOARD | DeviceType::POINTER)
     {
         info!(devices = ?selected.devices(), "the desktop allowed only some devices");
     }

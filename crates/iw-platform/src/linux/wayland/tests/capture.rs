@@ -16,7 +16,7 @@ use reis::PendingRequestResult;
 use reis::eis;
 use reis::request::{DeviceCapability, EisRequest, EisRequestConverter};
 use zbus::object_server::SignalEmitter;
-use zbus::zvariant::{ObjectPath, OwnedObjectPath, OwnedValue, Value};
+use zbus::{ObjectPath, OwnedObjectPath, OwnedVariant, Variant};
 
 use super::super::capture::{Capture, CaptureOptions, PortalCapture, Waits};
 use super::super::portal_session::Lifecycle;
@@ -91,7 +91,7 @@ struct FakeCapture {
 impl FakeCapture {
     fn session_at(
         header: &zbus::message::Header<'_>,
-        options: &HashMap<String, OwnedValue>,
+        options: &HashMap<String, OwnedVariant>,
     ) -> OwnedObjectPath {
         let sender = header
             .sender()
@@ -123,16 +123,16 @@ impl FakeCapture {
 
     /// What `Start` (or version 1's `CreateSession`) answers: the user's
     /// answer, with a token from version 2.
-    fn answer(asked: &mut Asked) -> (u32, HashMap<String, OwnedValue>) {
+    fn answer(asked: &mut Asked) -> (u32, HashMap<String, OwnedVariant>) {
         match asked.answers.pop_front().unwrap_or(Answer::Allow) {
             Answer::Allow => {
                 let mut results =
-                    HashMap::from([("capabilities".to_owned(), value(Value::from(3u32)))]);
+                    HashMap::from([("capabilities".to_owned(), value(Variant::from(3u32)))]);
                 if asked.version >= 2 {
                     asked.tokens_given += 1;
                     results.insert(
                         "restore_token".to_owned(),
-                        value(Value::from(format!("token-{}", asked.tokens_given))),
+                        value(Variant::from(format!("token-{}", asked.tokens_given))),
                     );
                 }
                 (0, results)
@@ -143,8 +143,8 @@ impl FakeCapture {
     }
 }
 
-fn object_path(path: &OwnedObjectPath) -> OwnedValue {
-    value(Value::from(ObjectPath::try_from(path.as_str()).unwrap()))
+fn object_path(path: &OwnedObjectPath) -> OwnedVariant {
+    value(Variant::from(ObjectPath::try_from(path.as_str()).unwrap()))
 }
 
 #[zbus::interface(name = "org.freedesktop.portal.InputCapture")]
@@ -166,7 +166,7 @@ impl FakeCapture {
         #[zbus(connection)] conn: &zbus::Connection,
         #[zbus(object_server)] server: &zbus::ObjectServer,
         _parent_window: &str,
-        options: HashMap<String, OwnedValue>,
+        options: HashMap<String, OwnedVariant>,
     ) -> OwnedObjectPath {
         let session = Self::session_at(&header, &options);
         self.serve_session(server, &session).await;
@@ -186,8 +186,8 @@ impl FakeCapture {
         &self,
         #[zbus(header)] header: zbus::message::Header<'_>,
         #[zbus(object_server)] server: &zbus::ObjectServer,
-        options: HashMap<String, OwnedValue>,
-    ) -> HashMap<String, OwnedValue> {
+        options: HashMap<String, OwnedVariant>,
+    ) -> HashMap<String, OwnedVariant> {
         let session = Self::session_at(&header, &options);
         self.serve_session(server, &session).await;
         let mut asked = self.asked.lock().unwrap();
@@ -202,7 +202,7 @@ impl FakeCapture {
         #[zbus(connection)] conn: &zbus::Connection,
         _session: ObjectPath<'_>,
         _parent_window: &str,
-        options: HashMap<String, OwnedValue>,
+        options: HashMap<String, OwnedVariant>,
     ) -> OwnedObjectPath {
         let mut asked = self.asked.lock().unwrap();
         asked.calls.push("Start");
@@ -223,7 +223,7 @@ impl FakeCapture {
         #[zbus(header)] header: zbus::message::Header<'_>,
         #[zbus(connection)] conn: &zbus::Connection,
         _session: ObjectPath<'_>,
-        options: HashMap<String, OwnedValue>,
+        options: HashMap<String, OwnedVariant>,
     ) -> OwnedObjectPath {
         let mut asked = self.asked.lock().unwrap();
         asked.calls.push("GetZones");
@@ -233,8 +233,11 @@ impl FakeCapture {
             request.clone(),
             0,
             HashMap::from([
-                ("zones".to_owned(), value(Value::from(asked.zones.clone()))),
-                ("zone_set".to_owned(), value(Value::from(asked.zone_set))),
+                (
+                    "zones".to_owned(),
+                    value(Variant::from(asked.zones.clone())),
+                ),
+                ("zone_set".to_owned(), value(Variant::from(asked.zone_set))),
             ]),
         );
         request
@@ -245,8 +248,8 @@ impl FakeCapture {
         #[zbus(header)] header: zbus::message::Header<'_>,
         #[zbus(connection)] conn: &zbus::Connection,
         _session: ObjectPath<'_>,
-        options: HashMap<String, OwnedValue>,
-        barriers: Vec<HashMap<String, OwnedValue>>,
+        options: HashMap<String, OwnedVariant>,
+        barriers: Vec<HashMap<String, OwnedVariant>>,
         zone_set: u32,
     ) -> OwnedObjectPath {
         let mut asked = self.asked.lock().unwrap();
@@ -257,7 +260,7 @@ impl FakeCapture {
             .iter()
             .map(|b| {
                 let id = b["barrier_id"].downcast_ref::<u32>().unwrap();
-                let position: Value<'_> = b["position"].try_clone().unwrap().into();
+                let position: Variant<'_> = b["position"].try_clone().unwrap().into();
                 (id, position.try_into().unwrap())
             })
             .collect();
@@ -272,7 +275,7 @@ impl FakeCapture {
             conn,
             request.clone(),
             0,
-            HashMap::from([("failed_barriers".to_owned(), value(Value::from(failed)))]),
+            HashMap::from([("failed_barriers".to_owned(), value(Variant::from(failed)))]),
         );
         request
     }
@@ -280,7 +283,7 @@ impl FakeCapture {
     async fn enable(
         &self,
         _session: ObjectPath<'_>,
-        _options: HashMap<String, OwnedValue>,
+        _options: HashMap<String, OwnedVariant>,
     ) -> zbus::fdo::Result<()> {
         let (fail, slow) = {
             let mut asked = self.asked.lock().unwrap();
@@ -308,7 +311,7 @@ impl FakeCapture {
         &self,
         #[zbus(connection)] conn: &zbus::Connection,
         session: ObjectPath<'_>,
-        _options: HashMap<String, OwnedValue>,
+        _options: HashMap<String, OwnedVariant>,
     ) -> zbus::fdo::Result<()> {
         let (fail, hang) = {
             let mut asked = self.asked.lock().unwrap();
@@ -335,7 +338,7 @@ impl FakeCapture {
             asked.echo_disabled
         };
         if echo {
-            let options: HashMap<&str, Value<'_>> = HashMap::new();
+            let options: HashMap<&str, Variant<'_>> = HashMap::new();
             conn.emit_signal(
                 None::<()>,
                 "/org/freedesktop/portal/desktop",
@@ -349,10 +352,10 @@ impl FakeCapture {
         Ok(())
     }
 
-    async fn release(&self, _session: ObjectPath<'_>, options: HashMap<String, OwnedValue>) {
+    async fn release(&self, _session: ObjectPath<'_>, options: HashMap<String, OwnedVariant>) {
         let id = option(&options, "activation_id").and_then(|v| v.downcast_ref::<u32>().ok());
         let at = option(&options, "cursor_position").map(|v| {
-            let v: Value<'_> = v.try_clone().unwrap().into();
+            let v: Variant<'_> = v.try_clone().unwrap().into();
             v.try_into().unwrap()
         });
         let mut asked = self.asked.lock().unwrap();
@@ -364,8 +367,8 @@ impl FakeCapture {
     async fn connect_to_eis(
         &self,
         _session: ObjectPath<'_>,
-        _options: HashMap<String, OwnedValue>,
-    ) -> zbus::zvariant::OwnedFd {
+        _options: HashMap<String, OwnedVariant>,
+    ) -> zbus::OwnedFd {
         let (ours, theirs) = UnixStream::pair().unwrap();
         self.asked.lock().unwrap().calls.push("ConnectToEIS");
         self.eis.send(ours).unwrap();
@@ -414,11 +417,8 @@ impl Desktop {
         };
         let conn = runtime.block_on(async {
             zbus::connection::Builder::address(bus.address.as_str())
-                .unwrap()
                 .name("org.freedesktop.portal.Desktop")
-                .unwrap()
                 .serve_at("/org/freedesktop/portal/desktop", portal)
-                .unwrap()
                 .build()
                 .await
                 .unwrap()
@@ -482,7 +482,7 @@ impl Desktop {
         }
     }
 
-    fn signal(&self, name: &str, options: HashMap<&str, Value<'_>>) {
+    fn signal(&self, name: &str, options: HashMap<&str, Variant<'_>>) {
         let session = self.asked.lock().unwrap().sessions.last().unwrap().clone();
         self.runtime.block_on(async {
             self.conn
@@ -504,9 +504,9 @@ impl Desktop {
         self.signal(
             "Activated",
             HashMap::from([
-                ("activation_id", Value::from(id)),
-                ("barrier_id", Value::from(barrier)),
-                ("cursor_position", Value::from(at)),
+                ("activation_id", Variant::from(id)),
+                ("barrier_id", Variant::from(barrier)),
+                ("cursor_position", Variant::from(at)),
             ]),
         );
         self.emit(&[Emit::Start(id)]);
@@ -860,7 +860,7 @@ fn input_capture_is_asked_for_and_puts_its_barriers_where_the_cursor_leaves() {
     }
     desktop.signal(
         "ZonesChanged",
-        HashMap::from([("zone_set", Value::from(7u32))]),
+        HashMap::from([("zone_set", Variant::from(7u32))]),
     );
     wait_until("barriers on the new zones", || {
         desktop.barriers().len() == 3
@@ -872,7 +872,7 @@ fn input_capture_is_asked_for_and_puts_its_barriers_where_the_cursor_leaves() {
     );
     desktop.signal(
         "ZonesChanged",
-        HashMap::from([("zone_set", Value::from(8u32))]),
+        HashMap::from([("zone_set", Variant::from(8u32))]),
     );
     std::thread::sleep(Duration::from_millis(300));
     assert_eq!(desktop.barriers().len(), 3, "older than the zones in use");
@@ -987,9 +987,9 @@ fn input_is_handed_over_at_a_barrier_and_given_back_where_the_cursor_returns() {
     desktop.signal(
         "Activated",
         HashMap::from([
-            ("activation_id", Value::from(6u32)),
-            ("barrier_id", Value::from(1u32)),
-            ("cursor_position", Value::from((1921.0, 60.0))),
+            ("activation_id", Variant::from(6u32)),
+            ("barrier_id", Variant::from(1u32)),
+            ("cursor_position", Variant::from((1921.0, 60.0))),
         ]),
     );
     std::thread::sleep(Duration::from_millis(100));
@@ -1003,7 +1003,7 @@ fn input_is_handed_over_at_a_barrier_and_given_back_where_the_cursor_returns() {
     // down goes up, and control comes back.
     desktop.signal(
         "Deactivated",
-        HashMap::from([("activation_id", Value::from(6u32))]),
+        HashMap::from([("activation_id", Variant::from(6u32))]),
     );
     captured.expect(&[key(b, false), ENDED]);
     assert_eq!(desktop.releases().len(), 1, "not released by the agent");
@@ -1017,13 +1017,13 @@ fn input_is_handed_over_at_a_barrier_and_given_back_where_the_cursor_returns() {
     desktop.signal(
         "Activated",
         HashMap::from([
-            ("activation_id", Value::from(7u32)),
-            ("barrier_id", Value::from(1u32)),
+            ("activation_id", Variant::from(7u32)),
+            ("barrier_id", Variant::from(1u32)),
         ]),
     );
     desktop.signal(
         "Deactivated",
-        HashMap::from([("activation_id", Value::from(7u32))]),
+        HashMap::from([("activation_id", Variant::from(7u32))]),
     );
     // Heard before libei's start comes, as the test cannot tell when.
     std::thread::sleep(Duration::from_millis(100));
@@ -1213,9 +1213,9 @@ fn signals_only_the_portal_sends_about_this_session_are_heard() {
     };
     let activated = |id: u32| {
         HashMap::from([
-            ("activation_id", Value::from(id)),
-            ("barrier_id", Value::from(1u32)),
-            ("cursor_position", Value::from((1921.0, 100.0))),
+            ("activation_id", Variant::from(id)),
+            ("barrier_id", Variant::from(1u32)),
+            ("cursor_position", Variant::from((1921.0, 100.0))),
         ])
     };
 
@@ -1223,7 +1223,6 @@ fn signals_only_the_portal_sends_about_this_session_are_heard() {
     // the capture alone: not heard.
     desktop.runtime.block_on(async {
         let spoof = zbus::connection::Builder::address(desktop.bus.address.as_str())
-            .unwrap()
             .build()
             .await
             .unwrap();
@@ -1284,9 +1283,9 @@ fn modifiers_told_just_after_libei_starts_the_devices_count() {
     desktop.signal(
         "Activated",
         HashMap::from([
-            ("activation_id", Value::from(1u32)),
-            ("barrier_id", Value::from(1u32)),
-            ("cursor_position", Value::from((1921.0, 100.0))),
+            ("activation_id", Variant::from(1u32)),
+            ("barrier_id", Variant::from(1u32)),
+            ("cursor_position", Variant::from((1921.0, 100.0))),
         ]),
     );
     std::thread::sleep(Duration::from_millis(100));
@@ -1702,9 +1701,9 @@ fn an_activation_superseded_before_it_began_leaves_nothing_to_the_next() {
         desktop.signal(
             "Activated",
             HashMap::from([
-                ("activation_id", Value::from(id)),
-                ("barrier_id", Value::from(1u32)),
-                ("cursor_position", Value::from((1921.0, y))),
+                ("activation_id", Variant::from(id)),
+                ("barrier_id", Variant::from(1u32)),
+                ("cursor_position", Variant::from((1921.0, y))),
             ]),
         );
     };
@@ -1743,9 +1742,9 @@ fn input_before_the_modifiers_waits_for_them() {
     desktop.signal(
         "Activated",
         HashMap::from([
-            ("activation_id", Value::from(1u32)),
-            ("barrier_id", Value::from(1u32)),
-            ("cursor_position", Value::from((1921.0, 100.0))),
+            ("activation_id", Variant::from(1u32)),
+            ("barrier_id", Variant::from(1u32)),
+            ("cursor_position", Variant::from((1921.0, 100.0))),
         ]),
     );
     std::thread::sleep(Duration::from_millis(100));

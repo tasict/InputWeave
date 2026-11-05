@@ -82,7 +82,7 @@ use futures_util::{FutureExt, StreamExt};
 use tokio::sync::mpsc;
 use tokio::task::JoinSet;
 use tracing::{debug, info, warn};
-use zbus::zvariant::{OwnedObjectPath, OwnedValue, Value};
+use zbus::{OwnedObjectPath, OwnedVariant, Variant};
 
 use crate::linux::clipboard_formats::Wire;
 use crate::linux::common::{lock, wait_timeout};
@@ -343,9 +343,9 @@ impl Portal {
 /// The path of `session`: what ashpd sends for it in its calls, the only
 /// way it tells it.
 fn path_of(session: &Session<RemoteDesktop>) -> Option<OwnedObjectPath> {
-    use zbus::zvariant::{LE, serialized::Context, to_bytes};
+    use zbus::wire::{LE, serialized::Context, to_bytes};
 
-    let data = to_bytes(Context::new_dbus(LE, 0), session).ok()?;
+    let data = to_bytes(Context::new(LE, 0), session).ok()?;
     data.deserialize::<OwnedObjectPath>()
         .ok()
         .map(|(path, _)| path)
@@ -368,12 +368,12 @@ async fn signals(
 ) -> zbus::Result<zbus::MessageStream> {
     let rule = zbus::MatchRule::builder()
         .msg_type(zbus::message::Type::Signal)
-        .sender(portal.as_str())?
-        .interface(INTERFACE)?
-        .member(member)?
-        .path(PATH)?
-        .build();
-    zbus::MessageStream::for_match_rule(rule, conn, Some(64)).await
+        .sender(portal.as_str())
+        .interface(INTERFACE)
+        .member(member)
+        .path(PATH)
+        .build()?;
+    zbus::MessageStream::for_match_rule(rule, conn, std::num::NonZeroUsize::new(64)).await
 }
 
 /// What asking for the clipboard came to.
@@ -848,7 +848,7 @@ impl Task {
         let mimes = write.mimes.clone();
         self.spawned.spawn(async move {
             // By hand, for the serial of the answer.
-            let options = HashMap::from([("mime_types", Value::from(mimes))]);
+            let options = HashMap::from([("mime_types", Variant::from(mimes))]);
             let body = (&*session, options);
             let call =
                 conn.call_method(Some(DESKTOP), PATH, Some(INTERFACE), "SetSelection", &body);
@@ -861,6 +861,10 @@ impl Task {
                         zbus::Error::MethodError(_, _, reply) => {
                             reply.primary_header().serial_num().get()
                         }
+                        // An error named by the D-Bus specification comes
+                        // without the reply, so without its serial: as if
+                        // unanswered.
+                        zbus::Error::FDO(_) => u32::MAX,
                         _ => u32::MAX,
                     };
                     (serial, Err(NotTaken::Refused(e.to_string())))
@@ -894,14 +898,14 @@ fn owner_of(path: &OwnedObjectPath, message: &zbus::Message) -> Option<Heard> {
     {
         return None;
     }
-    let (session, options): (OwnedObjectPath, HashMap<String, OwnedValue>) =
+    let (session, options): (OwnedObjectPath, HashMap<String, OwnedVariant>) =
         message.body().deserialize().ok()?;
     if session != *path {
         return None;
     }
     let mimes = options
         .get("mime_types")
-        .and_then(|v| v.downcast_ref::<zbus::zvariant::Array<'_>>().ok())
+        .and_then(|v| v.downcast_ref::<zbus::Array<'_>>().ok())
         .map(|array| {
             array
                 .iter()

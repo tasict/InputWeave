@@ -256,10 +256,10 @@ mod platform {
             let conn = crate::linux::bus::session(None).await?;
             let rule = zbus::MatchRule::builder()
                 .msg_type(zbus::message::Type::Signal)
-                .interface("ca.desrt.dconf.Writer")?
-                .member("Notify")?
-                .build();
-            zbus::MessageStream::for_match_rule(rule, &conn, Some(64)).await
+                .interface("ca.desrt.dconf.Writer")
+                .member("Notify")
+                .build()?;
+            zbus::MessageStream::for_match_rule(rule, &conn, std::num::NonZeroUsize::new(64)).await
         };
         match subscribe.await {
             Ok(stream) => Some(Box::new(stream)),

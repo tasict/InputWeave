@@ -35,8 +35,8 @@ pub(crate) fn activate() -> bool {
             };
             let result = runtime.block_on(tokio::time::timeout(WAIT, async {
                 let conn = super::bus::session(None).await?;
-                let empty: Vec<zbus::zvariant::Value<'_>> = Vec::new();
-                let data: std::collections::HashMap<&str, zbus::zvariant::Value<'_>> =
+                let empty: Vec<zbus::Variant<'_>> = Vec::new();
+                let data: std::collections::HashMap<&str, zbus::Variant<'_>> =
                     std::collections::HashMap::new();
                 conn.call_method(
                     Some(super::wayland::APP_ID),

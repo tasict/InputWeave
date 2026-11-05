@@ -1,14 +1,13 @@
 //! The agent's systemd user unit, through the user manager's D-Bus API
 //! (`org.freedesktop.systemd1` on the session bus): its state, and
-//! starting, restarting and enabling it. All of it blocks, so it runs on
-//! threads of its own.
+//! starting, restarting and enabling it. All of it blocks (in
+//! `zbus::block_on`), so it runs on threads of its own.
 
 use std::time::Duration;
 
 use inputweave_app_core::log;
 use inputweave_app_core::service::{self, AGENT_UNIT, ServiceAction, ServiceState};
-use zbus::blocking::{Connection, Proxy};
-use zbus::zvariant::OwnedObjectPath;
+use zbus::{Connection, OwnedObjectPath, Proxy};
 
 const DESTINATION: &str = "org.freedesktop.systemd1";
 const MANAGER_PATH: &str = "/org/freedesktop/systemd1";
@@ -22,21 +21,22 @@ const POLL_FAILING: Duration = Duration::from_secs(30);
 
 /// A proxy that asks for properties each time rather than cache them (a
 /// caching proxy subscribes to their changes, which nothing here needs).
-fn proxy(
+async fn proxy(
     connection: &Connection,
-    path: impl TryInto<zbus::zvariant::ObjectPath<'static>, Error: Into<zbus::Error>>,
+    path: impl TryInto<zbus::ObjectPath<'static>, Error: Into<zbus::Error>>,
     interface: &'static str,
 ) -> zbus::Result<Proxy<'static>> {
-    zbus::blocking::proxy::Builder::new(connection)
-        .destination(DESTINATION)?
-        .path(path)?
-        .interface(interface)?
+    zbus::proxy::Builder::new(connection)
+        .destination(DESTINATION)
+        .path(path)
+        .interface(interface)
         .cache_properties(zbus::proxy::CacheProperties::No)
         .build()
+        .await
 }
 
-fn manager(connection: &Connection) -> zbus::Result<Proxy<'static>> {
-    proxy(connection, MANAGER_PATH, MANAGER)
+async fn manager(connection: &Connection) -> zbus::Result<Proxy<'static>> {
+    proxy(connection, MANAGER_PATH, MANAGER).await
 }
 
 /// What reads the unit's state: one connection and its proxies, kept.
@@ -46,17 +46,17 @@ struct Watcher {
 }
 
 impl Watcher {
-    fn open() -> zbus::Result<Watcher> {
+    async fn open() -> zbus::Result<Watcher> {
         Ok(Watcher {
-            manager: manager(&Connection::session()?)?,
+            manager: manager(&Connection::session().await?).await?,
             unit: None,
         })
     }
 
-    fn state(&mut self) -> zbus::Result<Reading> {
+    async fn state(&mut self) -> zbus::Result<Reading> {
         if self.unit.is_none() {
             // LoadUnit loads it if it is not, and fails for no unit file.
-            let path: OwnedObjectPath = match self.manager.call("LoadUnit", &(AGENT_UNIT,)) {
+            let path: OwnedObjectPath = match self.manager.call("LoadUnit", &(AGENT_UNIT,)).await {
                 Ok(path) => path,
                 Err(zbus::Error::MethodError(name, _, _))
                     if name.as_str() == "org.freedesktop.systemd1.NoSuchUnit" =>
@@ -68,13 +68,13 @@ impl Watcher {
                 }
                 Err(e) => return Err(e),
             };
-            self.unit = Some(proxy(self.manager.connection(), path, UNIT)?);
+            self.unit = Some(proxy(self.manager.connection(), path, UNIT).await?);
         }
         let unit = self.unit.as_ref().expect("made above");
-        let load: String = unit.get_property("LoadState")?;
-        let active: String = unit.get_property("ActiveState")?;
+        let load: String = unit.get_property("LoadState").await?;
+        let active: String = unit.get_property("ActiveState").await?;
         // New each time the unit starts: tells a restart from none.
-        let invocation: Vec<u8> = unit.get_property("InvocationID").unwrap_or_default();
+        let invocation: Vec<u8> = unit.get_property("InvocationID").await.unwrap_or_default();
         let state = ServiceState::from_systemd(&load, &active);
         if state == ServiceState::NotInstalled {
             // Installed later, it is loaded under the same path again.
@@ -104,14 +104,19 @@ pub fn watch(changes: async_channel::Sender<Reading>) {
             // failure, as when the session bus restarted.
             let mut watcher: Option<Watcher> = None;
             loop {
-                let read = match watcher.as_mut() {
-                    Some(w) => w.state(),
-                    None => Watcher::open().and_then(|mut w| {
-                        let read = w.state();
-                        watcher = Some(w);
-                        read
-                    }),
-                };
+                let read = zbus::block_on(async {
+                    match watcher.as_mut() {
+                        Some(w) => w.state().await,
+                        None => match Watcher::open().await {
+                            Ok(mut w) => {
+                                let read = w.state().await;
+                                watcher = Some(w);
+                                read
+                            }
+                            Err(e) => Err(e),
+                        },
+                    }
+                });
                 let now = match read {
                     Ok(reading) => {
                         failing = false;
@@ -149,7 +154,7 @@ pub fn watch(changes: async_channel::Sender<Reading>) {
 /// session having given them at login (graphical-session.target, or the
 /// package's `start-agent`). A failure is logged and the unit started
 /// anyway.
-fn import_session(manager: &Proxy<'static>) {
+async fn import_session(manager: &Proxy<'static>) {
     // Run by systemd (D-Bus activation): the variables are the manager's
     // own; the session gave them at login.
     let cgroup = std::fs::read_to_string("/proc/self/cgroup").unwrap_or_default();
@@ -159,7 +164,10 @@ fn import_session(manager: &Proxy<'static>) {
         ));
         return;
     }
-    let theirs: Vec<String> = manager.get_property("Environment").unwrap_or_default();
+    let theirs: Vec<String> = manager
+        .get_property("Environment")
+        .await
+        .unwrap_or_default();
     let Some(environment) = service::session_import(
         |name| std::env::var(name).ok(),
         |name| service::variable(&theirs, name).map(str::to_owned),
@@ -170,14 +178,18 @@ fn import_session(manager: &Proxy<'static>) {
         return;
     };
     if !environment.unset.is_empty()
-        && let Err(e) = manager.call::<_, _, ()>("UnsetEnvironment", &(&environment.unset,))
+        && let Err(e) = manager
+            .call::<_, _, ()>("UnsetEnvironment", &(&environment.unset,))
+            .await
     {
         log::info(&format!(
             "cannot clear the session's variables for {AGENT_UNIT}: {e}"
         ));
     }
     if !environment.set.is_empty()
-        && let Err(e) = manager.call::<_, _, ()>("SetEnvironment", &(&environment.set,))
+        && let Err(e) = manager
+            .call::<_, _, ()>("SetEnvironment", &(&environment.set,))
+            .await
     {
         log::info(&format!(
             "cannot pass the session's variables to {AGENT_UNIT}: {e}"
@@ -194,22 +206,26 @@ fn import_session(manager: &Proxy<'static>) {
 /// restart can be told done (`ServiceWatch::restarting_from`); empty when
 /// unknown.
 pub fn control(what: ServiceAction) -> zbus::Result<Vec<u8>> {
-    let connection = Connection::session()?;
-    let manager = manager(&connection)?;
-    let before = match what {
-        ServiceAction::Start => Vec::new(),
-        ServiceAction::Restart => manager
-            .call::<_, _, OwnedObjectPath>("LoadUnit", &(AGENT_UNIT,))
-            .and_then(|path| proxy(&connection, path, UNIT))
-            .and_then(|unit| unit.get_property::<Vec<u8>>("InvocationID"))
+    zbus::block_on(async {
+        let connection = Connection::session().await?;
+        let manager = manager(&connection).await?;
+        let before = match what {
+            ServiceAction::Start => Vec::new(),
+            ServiceAction::Restart => async {
+                let path: OwnedObjectPath = manager.call("LoadUnit", &(AGENT_UNIT,)).await?;
+                let unit = proxy(&connection, path, UNIT).await?;
+                unit.get_property::<Vec<u8>>("InvocationID").await
+            }
+            .await
             .unwrap_or_default(),
-    };
-    import_session(&manager);
-    let method = match what {
-        ServiceAction::Start => "StartUnit",
-        ServiceAction::Restart => "RestartUnit",
-    };
-    let _job: OwnedObjectPath = manager.call(method, &(AGENT_UNIT, "replace"))?;
-    log::info(&format!("asked systemd to {method} {AGENT_UNIT}"));
-    Ok(before)
+        };
+        import_session(&manager).await;
+        let method = match what {
+            ServiceAction::Start => "StartUnit",
+            ServiceAction::Restart => "RestartUnit",
+        };
+        let _job: OwnedObjectPath = manager.call(method, &(AGENT_UNIT, "replace")).await?;
+        log::info(&format!("asked systemd to {method} {AGENT_UNIT}"));
+        zbus::Result::Ok(before)
+    })
 }

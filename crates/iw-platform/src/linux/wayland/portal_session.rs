@@ -508,7 +508,7 @@ async fn bus<C: Command, X: Idle<C>>(
 /// Older portals take the app id from the systemd unit's name, and do not
 /// know the call.
 async fn register(conn: &zbus::Connection, app_id: &str) {
-    let options: std::collections::HashMap<&str, zbus::zvariant::Value<'_>> = Default::default();
+    let options: std::collections::HashMap<&str, zbus::Variant<'_>> = Default::default();
     let reply = conn
         .call_method(
             Some("org.freedesktop.portal.Desktop"),

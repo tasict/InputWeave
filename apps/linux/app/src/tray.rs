@@ -1,8 +1,9 @@
 //! The tray icon: a StatusNotifierItem with a `com.canonical.dbusmenu`
 //! menu, on the session bus, which KDE Plasma shows natively and GNOME
 //! through the AppIndicator extension (Ubuntu turns it on). Its D-Bus
-//! connection runs zbus's own executor thread; menu clicks reach the GTK
-//! main loop through a channel.
+//! connection runs on zbus's own runtime, which a helper thread drives
+//! whenever the GTK thread is not waiting on it in `zbus::block_on`; menu
+//! clicks reach the GTK main loop through a channel.
 //!
 //! The icon comes two ways: by name, from symbolic SVGs the app writes to
 //! an icon theme folder of its own (`IconThemePath`), which panels tint
@@ -15,10 +16,9 @@ use std::sync::{Arc, Mutex};
 use inputweave_app_core::log;
 use inputweave_app_core::status_text::TrayState;
 use inputweave_app_core::tray_icon;
-use zbus::blocking::Connection;
+use zbus::export::futures_core::Stream;
 use zbus::object_server::SignalEmitter;
-use zbus::zvariant::{OwnedValue, Value};
-use zbus::{fdo, interface};
+use zbus::{Connection, OwnedVariant, Variant, fdo, interface};
 
 /// Icons of several sizes: width, height, ARGB32 in network byte order.
 pub type Pixmaps = Vec<(i32, i32, Vec<u8>)>;
@@ -191,8 +191,8 @@ impl Item {
     }
 
     #[zbus(property)]
-    fn menu(&self) -> zbus::zvariant::OwnedObjectPath {
-        zbus::zvariant::OwnedObjectPath::try_from(MENU_PATH).expect("a valid path")
+    fn menu(&self) -> zbus::OwnedObjectPath {
+        zbus::OwnedObjectPath::try_from(MENU_PATH).expect("a valid path")
     }
 
     fn activate(&self, _x: i32, _y: i32) {
@@ -221,26 +221,26 @@ impl Item {
 }
 
 /// One item's properties as dbusmenu wants them.
-type Properties = HashMap<String, OwnedValue>;
-type Layout = (i32, Properties, Vec<OwnedValue>);
+type Properties = HashMap<String, OwnedVariant>;
+type Layout = (i32, Properties, Vec<OwnedVariant>);
 
-fn owned(value: Value<'_>) -> OwnedValue {
-    OwnedValue::try_from(value).expect("plain values hold no file descriptors")
+fn owned(value: Variant<'_>) -> OwnedVariant {
+    OwnedVariant::try_from(value).expect("plain values hold no file descriptors")
 }
 
 fn properties(item: &MenuItem) -> Properties {
     let mut props = Properties::new();
     if item.is_separator() {
-        props.insert("type".into(), owned(Value::from("separator")));
+        props.insert("type".into(), owned(Variant::from("separator")));
         return props;
     }
     props.insert(
         "label".into(),
-        owned(Value::from(item.label.replace('_', "__"))),
+        owned(Variant::from(item.label.replace('_', "__"))),
     );
     props.insert(
         "enabled".into(),
-        owned(Value::from(item.enabled && item.action.is_some())),
+        owned(Variant::from(item.enabled && item.action.is_some())),
     );
     props
 }
@@ -252,11 +252,11 @@ fn layout(menu: &[MenuItem]) -> Layout {
         .enumerate()
         .map(|(i, item)| {
             let child: Layout = (i as i32 + 1, properties(item), Vec::new());
-            owned(Value::from(child))
+            owned(Variant::from(child))
         })
         .collect();
     let mut root = Properties::new();
-    root.insert("children-display".into(), owned(Value::from("submenu")));
+    root.insert("children-display".into(), owned(Variant::from("submenu")));
     (0, root, children)
 }
 
@@ -321,7 +321,7 @@ impl Menu {
             .collect()
     }
 
-    fn get_property(&self, id: i32, name: String) -> fdo::Result<OwnedValue> {
+    fn get_property(&self, id: i32, name: String) -> fdo::Result<OwnedVariant> {
         let shared = lock(&self.state);
         shared
             .model
@@ -331,7 +331,7 @@ impl Menu {
             .ok_or_else(|| fdo::Error::InvalidArgs(format!("no {name} on {id}")))
     }
 
-    fn event(&self, id: i32, event_id: String, _data: OwnedValue, _timestamp: u32) {
+    fn event(&self, id: i32, event_id: String, _data: OwnedVariant, _timestamp: u32) {
         if event_id != "clicked" {
             return;
         }
@@ -346,7 +346,7 @@ impl Menu {
         }
     }
 
-    fn event_group(&self, events: Vec<(i32, String, OwnedValue, u32)>) -> Vec<i32> {
+    fn event_group(&self, events: Vec<(i32, String, OwnedVariant, u32)>) -> Vec<i32> {
         for (id, event_id, data, timestamp) in events {
             self.event(id, event_id, data, timestamp);
         }
@@ -395,25 +395,23 @@ impl Tray {
             actions,
         }));
         let name = format!("org.kde.StatusNotifierItem-{}-1", std::process::id());
-        let connection = zbus::blocking::connection::Builder::session()
-            .and_then(|b| b.name(name.as_str()))
-            .and_then(|b| {
-                b.serve_at(
+        let connection = zbus::block_on(
+            zbus::connection::Builder::session()
+                .name(name.as_str())
+                .serve_at(
                     ITEM_PATH,
                     Item {
                         state: state.clone(),
                     },
                 )
-            })
-            .and_then(|b| {
-                b.serve_at(
+                .serve_at(
                     MENU_PATH,
                     Menu {
                         state: state.clone(),
                     },
                 )
-            })
-            .and_then(|b| b.build());
+                .build(),
+        );
         let connection = match connection {
             Ok(c) => c,
             Err(e) => {
@@ -433,24 +431,20 @@ impl Tray {
 
     /// Whether a panel shows tray icons now.
     pub fn shown(&self) -> bool {
-        zbus::blocking::fdo::DBusProxy::new(&self.connection)
-            .ok()
-            .and_then(|proxy| {
-                let name = zbus::names::BusName::try_from(WATCHER).ok()?;
-                proxy.name_has_owner(name).ok()
-            })
-            .unwrap_or(false)
+        zbus::block_on(async {
+            let proxy = fdo::DBusProxy::new(&self.connection).await.ok()?;
+            let name = zbus::names::BusName::try_from(WATCHER).ok()?;
+            proxy.name_has_owner(name).await.ok()
+        })
+        .unwrap_or(false)
     }
 
     fn register(&self) {
-        let result = zbus::blocking::Proxy::new(
-            &self.connection,
-            WATCHER,
-            "/StatusNotifierWatcher",
-            WATCHER,
-        )
-        .and_then(|watcher| {
-            watcher.call::<_, _, ()>("RegisterStatusNotifierItem", &(self.name.as_str(),))
+        let result = zbus::block_on(async {
+            zbus::Proxy::new(&self.connection, WATCHER, "/StatusNotifierWatcher", WATCHER)
+                .await?
+                .call::<_, _, ()>("RegisterStatusNotifierItem", &(self.name.as_str(),))
+                .await
         });
         match result {
             Ok(()) => log::info("tray icon registered"),
@@ -459,38 +453,49 @@ impl Tray {
     }
 
     /// Registers again whenever a watcher starts, as when the shell
-    /// restarts or the AppIndicator extension is turned on.
+    /// restarts or the AppIndicator extension is turned on: on a thread
+    /// that waits for that, all along, in `zbus::block_on`.
     fn watch_for_watchers(&self) {
         let connection = self.connection.clone();
         let name = self.name.clone();
         std::thread::Builder::new()
             .name("tray-watcher".into())
             .spawn(move || {
-                let Ok(proxy) = zbus::blocking::fdo::DBusProxy::new(&connection) else {
-                    return;
-                };
-                let Ok(changes) = proxy.receive_name_owner_changed_with_args(&[(0, WATCHER)])
-                else {
-                    return;
-                };
-                for change in changes {
-                    let Ok(args) = change.args() else { continue };
-                    if args.new_owner().is_some() {
-                        let registered = zbus::blocking::Proxy::new(
-                            &connection,
-                            WATCHER,
-                            "/StatusNotifierWatcher",
-                            WATCHER,
-                        )
-                        .and_then(|w| {
-                            w.call::<_, _, ()>("RegisterStatusNotifierItem", &(name.as_str(),))
-                        });
-                        log::info(&format!(
-                            "tray watcher appeared; registered: {}",
-                            registered.is_ok()
-                        ));
+                zbus::block_on(async {
+                    let Ok(proxy) = fdo::DBusProxy::new(&connection).await else {
+                        return;
+                    };
+                    let Ok(changes) = proxy
+                        .receive_name_owner_changed_with_args(&[(0, WATCHER)])
+                        .await
+                    else {
+                        return;
+                    };
+                    let mut changes = std::pin::pin!(changes);
+                    while let Some(change) =
+                        std::future::poll_fn(|cx| changes.as_mut().poll_next(cx)).await
+                    {
+                        let Ok(args) = change.args() else { continue };
+                        if args.new_owner().is_some() {
+                            let registered = async {
+                                zbus::Proxy::new(
+                                    &connection,
+                                    WATCHER,
+                                    "/StatusNotifierWatcher",
+                                    WATCHER,
+                                )
+                                .await?
+                                .call::<_, _, ()>("RegisterStatusNotifierItem", &(name.as_str(),))
+                                .await
+                            }
+                            .await;
+                            log::info(&format!(
+                                "tray watcher appeared; registered: {}",
+                                registered.is_ok()
+                            ));
+                        }
                     }
-                }
+                })
             })
             .ok();
     }
@@ -519,21 +524,23 @@ impl Tray {
             (icon, tooltip, menu.then_some(shared.revision), status)
         };
         let server = self.connection.object_server();
-        if let Ok(item) = server.interface::<_, Item>(ITEM_PATH) {
-            let emitter = item.signal_emitter();
-            if icon {
-                let _ = zbus::block_on(Item::new_icon(emitter));
-                let _ = zbus::block_on(Item::new_status(emitter, status));
+        zbus::block_on(async {
+            if let Ok(item) = server.interface::<_, Item>(ITEM_PATH).await {
+                let emitter = item.signal_emitter();
+                if icon {
+                    let _ = Item::new_icon(emitter).await;
+                    let _ = Item::new_status(emitter, status).await;
+                }
+                if tooltip {
+                    let _ = Item::new_tool_tip(emitter).await;
+                }
             }
-            if tooltip {
-                let _ = zbus::block_on(Item::new_tool_tip(emitter));
+            if let Some(revision) = menu
+                && let Ok(menu) = server.interface::<_, Menu>(MENU_PATH).await
+            {
+                let _ = Menu::layout_updated(menu.signal_emitter(), revision, 0).await;
             }
-        }
-        if let Some(revision) = menu
-            && let Ok(menu) = server.interface::<_, Menu>(MENU_PATH)
-        {
-            let _ = zbus::block_on(Menu::layout_updated(menu.signal_emitter(), revision, 0));
-        }
+        });
     }
 }
 

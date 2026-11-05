@@ -20,7 +20,7 @@ use reis::PendingRequestResult;
 use reis::eis;
 use reis::request::{DeviceCapability, EisRequest, EisRequestConverter};
 use zbus::object_server::SignalEmitter;
-use zbus::zvariant::{ObjectPath, OwnedObjectPath, OwnedValue, Value};
+use zbus::{ObjectPath, OwnedObjectPath, OwnedVariant, Variant};
 
 use super::portal_session::Lifecycle;
 use super::remote::{Remote, RemoteOptions};
@@ -132,17 +132,17 @@ struct FakePortal {
     eis: std::sync::mpsc::Sender<UnixStream>,
 }
 
-fn option<'a>(options: &'a HashMap<String, OwnedValue>, key: &str) -> Option<&'a OwnedValue> {
+fn option<'a>(options: &'a HashMap<String, OwnedVariant>, key: &str) -> Option<&'a OwnedVariant> {
     options.get(key)
 }
 
-fn string(options: &HashMap<String, OwnedValue>, key: &str) -> Option<String> {
+fn string(options: &HashMap<String, OwnedVariant>, key: &str) -> Option<String> {
     option(options, key).and_then(|v| v.downcast_ref::<&str>().ok().map(str::to_owned))
 }
 
 fn request_path(
     header: &zbus::message::Header<'_>,
-    options: &HashMap<String, OwnedValue>,
+    options: &HashMap<String, OwnedVariant>,
 ) -> OwnedObjectPath {
     let sender = header
         .sender()
@@ -162,7 +162,7 @@ fn respond(
     conn: &zbus::Connection,
     path: OwnedObjectPath,
     code: u32,
-    results: HashMap<String, OwnedValue>,
+    results: HashMap<String, OwnedVariant>,
 ) {
     respond_after(conn, path, code, results, Duration::from_millis(20));
 }
@@ -172,7 +172,7 @@ fn respond_after(
     conn: &zbus::Connection,
     path: OwnedObjectPath,
     code: u32,
-    results: HashMap<String, OwnedValue>,
+    results: HashMap<String, OwnedVariant>,
     delay: Duration,
 ) {
     let conn = conn.clone();
@@ -190,7 +190,7 @@ fn respond_after(
     });
 }
 
-fn value(v: Value<'_>) -> OwnedValue {
+fn value(v: Variant<'_>) -> OwnedVariant {
     v.try_to_owned().unwrap()
 }
 
@@ -211,7 +211,7 @@ impl FakePortal {
         #[zbus(header)] header: zbus::message::Header<'_>,
         #[zbus(connection)] conn: &zbus::Connection,
         #[zbus(object_server)] server: &zbus::ObjectServer,
-        options: HashMap<String, OwnedValue>,
+        options: HashMap<String, OwnedVariant>,
     ) -> OwnedObjectPath {
         let hang = {
             let mut asked = self.asked.lock().unwrap();
@@ -254,7 +254,7 @@ impl FakePortal {
             0,
             HashMap::from([(
                 "session_handle".to_owned(),
-                value(Value::from(session.as_str().to_owned())),
+                value(Variant::from(session.as_str().to_owned())),
             )]),
         );
         request
@@ -265,7 +265,7 @@ impl FakePortal {
         #[zbus(header)] header: zbus::message::Header<'_>,
         #[zbus(connection)] conn: &zbus::Connection,
         _session: ObjectPath<'_>,
-        options: HashMap<String, OwnedValue>,
+        options: HashMap<String, OwnedVariant>,
     ) -> OwnedObjectPath {
         let mut asked = self.asked.lock().unwrap();
         asked.calls.push("SelectDevices");
@@ -285,7 +285,7 @@ impl FakePortal {
         #[zbus(connection)] conn: &zbus::Connection,
         _session: ObjectPath<'_>,
         _parent_window: &str,
-        options: HashMap<String, OwnedValue>,
+        options: HashMap<String, OwnedVariant>,
     ) -> OwnedObjectPath {
         let mut asked = self.asked.lock().unwrap();
         asked.calls.push("Start");
@@ -296,11 +296,11 @@ impl FakePortal {
                 asked.tokens_given += 1;
                 let token = format!("token-{}", asked.tokens_given);
                 let mut results = HashMap::from([
-                    ("devices".to_owned(), value(Value::from(3u32))),
-                    ("restore_token".to_owned(), value(Value::from(token))),
+                    ("devices".to_owned(), value(Variant::from(3u32))),
+                    ("restore_token".to_owned(), value(Variant::from(token))),
                 ]);
                 if std::mem::take(&mut asked.clipboard_requested) && !asked.clipboard_refused {
-                    results.insert("clipboard_enabled".to_owned(), value(Value::from(true)));
+                    results.insert("clipboard_enabled".to_owned(), value(Variant::from(true)));
                 }
                 respond_after(conn, request.clone(), 0, results, delay);
             }
@@ -315,8 +315,8 @@ impl FakePortal {
     async fn connect_to_eis(
         &self,
         _session: ObjectPath<'_>,
-        _options: HashMap<String, OwnedValue>,
-    ) -> zbus::zvariant::OwnedFd {
+        _options: HashMap<String, OwnedVariant>,
+    ) -> zbus::OwnedFd {
         let (ours, theirs) = UnixStream::pair().unwrap();
         let (silent, lifetime) = {
             let mut asked = self.asked.lock().unwrap();
@@ -359,7 +359,7 @@ impl FakeSession {
     #[zbus(signal)]
     async fn closed(
         emitter: &SignalEmitter<'_>,
-        details: HashMap<&str, Value<'_>>,
+        details: HashMap<&str, Variant<'_>>,
     ) -> zbus::Result<()>;
 }
 
@@ -408,11 +408,8 @@ impl Desktop {
         };
         let conn = runtime.block_on(async {
             zbus::connection::Builder::address(bus.address.as_str())
-                .unwrap()
                 .name("org.freedesktop.portal.Desktop")
-                .unwrap()
                 .serve_at("/org/freedesktop/portal/desktop", portal)
-                .unwrap()
                 .build()
                 .await
                 .unwrap()

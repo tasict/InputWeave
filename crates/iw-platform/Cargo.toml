@@ -51,6 +51,11 @@ tempfile.workspace = true
 # The virtual keyboard's modifiers, unit tested on every Unix.
 kbvm.workspace = true
 
+[target.'cfg(target_os = "linux")'.dev-dependencies]
+# The fake portals run on a multi-threaded runtime, whose threads serve
+# them while a test waits outside it.
+tokio = { workspace = true, features = ["rt-multi-thread"] }
+
 [target.'cfg(windows)'.dev-dependencies]
 # Raw Input, which the test of relative movements reads.
 windows = { workspace = true, features = ["Win32_UI_Input"] }

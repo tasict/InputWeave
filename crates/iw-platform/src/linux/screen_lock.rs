@@ -103,7 +103,7 @@ mod watch {
     use std::time::{Duration, Instant};
 
     use zbus::Connection;
-    use zbus::zvariant::{OwnedObjectPath, OwnedValue, Value};
+    use zbus::{OwnedObjectPath, OwnedVariant, Variant};
 
     use super::{SessionLookup, Slow, locked, screen_savers_on, session_lookups};
 
@@ -272,7 +272,7 @@ mod watch {
                 "LockedHint",
             )
             .await
-            .and_then(|v| bool::try_from(v).map_err(zbus::Error::from));
+            .and_then(bool::try_from);
             match hint {
                 Ok(hint) => {
                     self.last_hint = Some(hint);
@@ -375,8 +375,8 @@ mod watch {
                             "Display",
                         )
                         .await?;
-                        let (_, path) = <(String, OwnedObjectPath)>::try_from(Value::from(display))
-                            .map_err(zbus::Error::from)?;
+                        let (_, path) =
+                            <(String, OwnedObjectPath)>::try_from(Variant::from(display))?;
                         Ok(path)
                     }
                     .await
@@ -399,7 +399,7 @@ mod watch {
     /// A method of logind's manager that answers with an object.
     async fn manager<B>(conn: &Connection, method: &str, body: &B) -> zbus::Result<OwnedObjectPath>
     where
-        B: zbus::export::serde::Serialize + zbus::zvariant::DynamicType,
+        B: zbus::export::serde::Serialize + zbus::DynamicType,
     {
         ask(
             conn,
@@ -423,7 +423,7 @@ mod watch {
         body: &B,
     ) -> zbus::Result<zbus::Message>
     where
-        B: zbus::export::serde::Serialize + zbus::zvariant::DynamicType,
+        B: zbus::export::serde::Serialize + zbus::DynamicType,
     {
         tokio::time::timeout(
             ASK,
@@ -446,7 +446,7 @@ mod watch {
         path: &str,
         interface: &str,
         name: &str,
-    ) -> zbus::Result<OwnedValue> {
+    ) -> zbus::Result<OwnedVariant> {
         ask(
             conn,
             destination,
@@ -457,7 +457,7 @@ mod watch {
         )
         .await?
         .body()
-        .deserialize::<OwnedValue>()
+        .deserialize::<OwnedVariant>()
     }
 
     #[cfg(test)]

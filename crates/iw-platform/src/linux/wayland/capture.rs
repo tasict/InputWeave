@@ -71,7 +71,7 @@ use reis::ei;
 use reis::event::{DeviceCapability, EiEvent};
 use tokio::sync::mpsc;
 use tracing::{debug, info, warn};
-use zbus::zvariant::OwnedObjectPath;
+use zbus::OwnedObjectPath;
 
 use super::barriers::{self, Activation, Barrier, GrabTaken, Handover, Pressed, Verdict};
 use super::portal_session::{
@@ -509,8 +509,8 @@ impl portal_session::Idle<Command> for Kept {
 
 /// A session's object path, as the portal's signals name it.
 fn path_of(session: &Session<Portal>) -> Option<OwnedObjectPath> {
-    use zbus::zvariant::{Endian, serialized::Context, to_bytes};
-    let data = to_bytes(Context::new_dbus(Endian::Little, 0), session).ok()?;
+    use zbus::wire::{Endian, serialized::Context, to_bytes};
+    let data = to_bytes(Context::new(Endian::Little, 0), session).ok()?;
     data.deserialize::<OwnedObjectPath>().ok().map(|(p, _)| p)
 }
 
@@ -551,7 +551,7 @@ async fn session(
             before_start: false,
         };
     }
-    let capabilities = Capabilities::Keyboard | Capabilities::Pointer;
+    let capabilities = Capabilities::KEYBOARD | Capabilities::POINTER;
     let session = if portal.version() >= TOKEN_VERSION {
         let session = match outcome(
             commands
@@ -607,7 +607,7 @@ async fn session(
             warn!(error = %e, "cannot keep the portal's restore token");
         }
         if !started.capabilities().contains(capabilities) {
-            info!(capabilities = %started.capabilities(), "the desktop allowed capturing only some devices");
+            info!(capabilities = ?started.capabilities(), "the desktop allowed capturing only some devices");
         }
         session
     } else {
@@ -619,7 +619,7 @@ async fn session(
         match commands.step(wait, create).await {
             Step::Done(Ok((session, granted))) => {
                 if !granted.contains(capabilities) {
-                    info!(capabilities = %granted, "the desktop allowed capturing only some devices");
+                    info!(capabilities = ?granted, "the desktop allowed capturing only some devices");
                 }
                 session
             }
@@ -690,15 +690,15 @@ async fn signals<'a>(
 ) -> ashpd::Result<Signals<'a>> {
     let bus = zbus::fdo::DBusProxy::new(portal.connection()).await?;
     let owner = bus
-        .get_name_owner(zbus::names::BusName::try_from(DESKTOP).map_err(zbus::Error::from)?)
+        .get_name_owner(zbus::names::BusName::try_from(DESKTOP)?)
         .await
         .map_err(zbus::Error::from)?;
     let rule = zbus::MatchRule::builder()
         .msg_type(zbus::message::Type::Signal)
-        .sender(owner.as_str())?
-        .interface(INTERFACE)?
-        .path(DESKTOP_PATH)?
-        .build();
+        .sender(owner.as_str())
+        .interface(INTERFACE)
+        .path(DESKTOP_PATH)
+        .build()?;
     let said = zbus::MessageStream::for_match_rule(rule, portal.connection(), None)
         .await?
         .filter_map(|message| {
@@ -1099,8 +1099,7 @@ impl Running<'_> {
     /// Enables capture; the serial of the portal's answer. Made by hand for
     /// that serial, which orders the answer among the portal's signals.
     async fn enable(&self) -> Result<u32, String> {
-        let options: std::collections::HashMap<&str, zbus::zvariant::Value<'_>> =
-            Default::default();
+        let options: std::collections::HashMap<&str, zbus::Variant<'_>> = Default::default();
         let body = (self.session, options);
         let enable = self.portal.connection().call_method(
             Some(DESKTOP),
