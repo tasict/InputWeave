@@ -295,6 +295,7 @@ Every version is published as a GitHub release `v<version>` of `tasict/InputWeav
 | `https://inputweave.ctsite.cc/download/v<v>/<file>` | `https://github.com/tasict/InputWeave/releases/download/v<v>/<file>` |
 | `https://inputweave.ctsite.cc/releases/v<v>` | the release's page on GitHub |
 | `https://inputweave.ctsite.cc/user-guide`, `/zh-Hant/user-guide` | the user guide in the repository, which release notes link to |
+| `https://inputweave.ctsite.cc/issues` | the repository's issues |
 
 What an update installs is checked against InputWeave's own keys (12.2–12.4), not against the host it came from. The release script checks, before creating a release, that the deployed site leads these addresses to the repository it publishes to, and afterwards that the site serves the new release's feeds. The release is created as a draft, every file is uploaded and checked, and only then is it published, so `latest` moves once and never to a half-uploaded release. It is marked latest only when no published release has a higher version, so publishing a fix for an older line never moves `latest` back; the script checks afterwards that `latest` leads to the highest version.
 

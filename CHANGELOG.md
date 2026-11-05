@@ -2,6 +2,18 @@
 
 All notable changes to InputWeave are recorded here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and versions follow [Semantic Versioning](https://semver.org/). Each release's full notes are in [`docs/release-notes/`](docs/release-notes/README.md) and on its [GitHub release](https://github.com/tasict/InputWeave/releases).
 
+## [1.0.1] - 2026-11-06
+
+### Fixed
+
+- A crash, or rarely memory corruption, of the background service: Tokio 1.54.0 could free an `Interval`'s timer while the runtime was firing it (RUSTSEC-2026-0384). Now Tokio 1.54.1.
+- Non-constant-time mask generation in `ctutils` (RUSTSEC-2026-0385). Now 0.4.8.
+
+### Changed
+
+- Linux: zbus 6 and ashpd 0.14 for D-Bus and the desktop portals; zbus 5's `zvariant` and `zbus_names` are no longer maintained.
+- The website has stable addresses for the user guide and for reporting a problem, which the release notes link to.
+
 ## [1.0.0] - 2026-11-05
 
 The first public release.
@@ -19,4 +31,5 @@ The first public release.
 - An optional license (US$10, up to 5 computers) that shows "Licensed" instead of "Trial" in Settings and About; every feature works without it.
 - `inputweave ctl`, the command line for the background service.
 
+[1.0.1]: https://github.com/tasict/InputWeave/releases/tag/v1.0.1
 [1.0.0]: https://github.com/tasict/InputWeave/releases/tag/v1.0.0

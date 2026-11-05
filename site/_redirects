@@ -8,3 +8,4 @@
 /releases/*  https://github.com/tasict/InputWeave/releases/tag/:splat  302
 /user-guide  https://github.com/tasict/InputWeave/blob/main/docs/user-guide.md  302
 /zh-Hant/user-guide  https://github.com/tasict/InputWeave/blob/main/docs/user-guide.zh-TW.md  302
+/issues  https://github.com/tasict/InputWeave/issues  302

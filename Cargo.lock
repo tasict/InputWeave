@@ -820,7 +820,7 @@ dependencies = [
 
 [[package]]
 name = "inputweave"
-version = "1.0.0"
+version = "1.0.1"
 dependencies = [
  "blake3",
  "clap",
@@ -867,7 +867,7 @@ dependencies = [
 
 [[package]]
 name = "iw-core"
-version = "1.0.0"
+version = "1.0.1"
 dependencies = [
  "iw-keymap",
  "thiserror",
@@ -875,7 +875,7 @@ dependencies = [
 
 [[package]]
 name = "iw-ipc"
-version = "1.0.0"
+version = "1.0.1"
 dependencies = [
  "bytes",
  "iw-proto",
@@ -887,11 +887,11 @@ dependencies = [
 
 [[package]]
 name = "iw-keymap"
-version = "1.0.0"
+version = "1.0.1"
 
 [[package]]
 name = "iw-net"
-version = "1.0.0"
+version = "1.0.1"
 dependencies = [
  "bytes",
  "hmac 0.13.0",
@@ -910,7 +910,7 @@ dependencies = [
 
 [[package]]
 name = "iw-platform"
-version = "1.0.0"
+version = "1.0.1"
 dependencies = [
  "ashpd",
  "futures-util",
@@ -942,7 +942,7 @@ dependencies = [
 
 [[package]]
 name = "iw-proto"
-version = "1.0.0"
+version = "1.0.1"
 dependencies = [
  "bytes",
  "prost",
@@ -954,7 +954,7 @@ dependencies = [
 
 [[package]]
 name = "iw-winsvc"
-version = "1.0.0"
+version = "1.0.1"
 dependencies = [
  "blake3",
  "iw-ipc",
@@ -2677,7 +2677,7 @@ dependencies = [
 
 [[package]]
 name = "xtask"
-version = "1.0.0"
+version = "1.0.1"
 dependencies = [
  "prost",
  "prost-types",
