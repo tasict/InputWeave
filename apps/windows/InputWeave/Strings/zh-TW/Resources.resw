@@ -1,0 +1,1408 @@
+<?xml version="1.0" encoding="utf-8"?>
+<root>
+  <xsd:schema id="root" xmlns="" xmlns:xsd="http://www.w3.org/2001/XMLSchema" xmlns:msdata="urn:schemas-microsoft-com:xml-msdata">
+    <xsd:import namespace="http://www.w3.org/XML/1998/namespace" />
+    <xsd:element name="root" msdata:IsDataSet="true">
+      <xsd:complexType>
+        <xsd:choice maxOccurs="unbounded">
+          <xsd:element name="data">
+            <xsd:complexType>
+              <xsd:sequence>
+                <xsd:element name="value" type="xsd:string" minOccurs="0" msdata:Ordinal="1" />
+                <xsd:element name="comment" type="xsd:string" minOccurs="0" msdata:Ordinal="2" />
+              </xsd:sequence>
+              <xsd:attribute name="name" type="xsd:string" use="required" msdata:Ordinal="1" />
+              <xsd:attribute ref="xml:space" />
+            </xsd:complexType>
+          </xsd:element>
+        </xsd:choice>
+      </xsd:complexType>
+    </xsd:element>
+  </xsd:schema>
+  <resheader name="resmimetype">
+    <value>text/microsoft-resx</value>
+  </resheader>
+  <resheader name="version">
+    <value>2.0</value>
+  </resheader>
+  <resheader name="reader">
+    <value>System.Resources.ResXResourceReader, System.Windows.Forms, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089</value>
+  </resheader>
+  <resheader name="writer">
+    <value>System.Resources.ResXResourceWriter, System.Windows.Forms, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089</value>
+  </resheader>
+
+  <!-- Panel title -->
+  <data name="TitleUpdating" xml:space="preserve">
+    <value>正在更新背景服務…</value>
+  </data>
+  <data name="TitleStarting" xml:space="preserve">
+    <value>正在啟動背景服務…</value>
+  </data>
+  <data name="TitleNotResponding" xml:space="preserve">
+    <value>背景服務沒有回應。</value>
+  </data>
+  <data name="TitleNotWorking" xml:space="preserve">
+    <value>鍵鼠共享沒有在運作</value>
+  </data>
+  <data name="TitlePaused" xml:space="preserve">
+    <value>鍵鼠共享已暫停</value>
+  </data>
+  <data name="TitleControlledBy" xml:space="preserve">
+    <value>由 {0} 控制中</value>
+  </data>
+  <data name="TitleLockedTo" xml:space="preserve">
+    <value>已鎖定在 {0}</value>
+  </data>
+  <data name="TitleControlling" xml:space="preserve">
+    <value>正在控制 {0}</value>
+  </data>
+  <data name="TitleSharing" xml:space="preserve">
+    <value>鍵鼠共享中</value>
+  </data>
+
+  <!-- Under the title -->
+  <data name="SubtitleControlled" xml:space="preserve">
+    <value>動一下這台的滑鼠，就會切回這台。</value>
+  </data>
+  <data name="SubtitleLocked" xml:space="preserve">
+    <value>按 {0} 解除鎖定。</value>
+  </data>
+  <data name="SubtitleControlling" xml:space="preserve">
+    <value>按 {0} 切回這台。</value>
+  </data>
+  <data name="SubtitleCursorOn" xml:space="preserve">
+    <value>游標在：{0}</value>
+  </data>
+
+  <!-- Exception rows -->
+  <data name="ExceptionServiceStopped" xml:space="preserve">
+    <value>InputWeave 服務已停止。</value>
+  </data>
+  <data name="ExceptionUnreachable" xml:space="preserve">
+    <value>無法連線到「{0}」。</value>
+  </data>
+  <data name="ExceptionNoDevices" xml:space="preserve">
+    <value>還沒有其他電腦。</value>
+  </data>
+  <data name="ActionStartService" xml:space="preserve">
+    <value>啟動服務</value>
+  </data>
+
+  <!-- The tray icon's tooltip -->
+  <data name="TrayNormal" xml:space="preserve">
+    <value>InputWeave，鍵鼠共享中</value>
+  </data>
+  <data name="TrayControlling" xml:space="preserve">
+    <value>InputWeave，正在控制其他電腦</value>
+  </data>
+  <data name="TrayControlled" xml:space="preserve">
+    <value>InputWeave，由其他電腦控制中</value>
+  </data>
+  <data name="TrayPaused" xml:space="preserve">
+    <value>InputWeave，鍵鼠共享已暫停</value>
+  </data>
+  <data name="TrayAttention" xml:space="preserve">
+    <value>InputWeave，需要處理</value>
+  </data>
+
+  <!-- The tray icon's menu and the panel's More menu -->
+  <data name="MenuPauseSharing" xml:space="preserve">
+    <value>暫停共享</value>
+  </data>
+  <data name="MenuResumeSharing" xml:space="preserve">
+    <value>繼續共享</value>
+  </data>
+  <data name="MenuLock" xml:space="preserve">
+    <value>鎖定在這台電腦</value>
+  </data>
+  <data name="MenuUnlock" xml:space="preserve">
+    <value>解除鎖定</value>
+  </data>
+  <data name="MenuSettings" xml:space="preserve">
+    <value>設定…</value>
+  </data>
+  <data name="MenuQuit" xml:space="preserve">
+    <value>結束 InputWeave…</value>
+  </data>
+
+  <!-- The quit dialog -->
+  <data name="QuitTitle" xml:space="preserve">
+    <value>要結束 InputWeave 嗎？</value>
+  </data>
+  <data name="QuitMessage" xml:space="preserve">
+    <value>InputWeave 服務會在背景繼續執行，這台電腦仍會和其他電腦共享鍵鼠。要停止共享，請改用「暫停共享」。再開啟一次 InputWeave，圖示就會重新出現。</value>
+  </data>
+  <data name="QuitConfirm" xml:space="preserve">
+    <value>結束 InputWeave</value>
+  </data>
+  <data name="QuitCancel" xml:space="preserve">
+    <value>取消</value>
+  </data>
+
+  <!-- XAML (x:Uid) -->
+  <data name="PanelSharing.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve">
+    <value>鍵鼠共享</value>
+  </data>
+  <data name="PanelSendFiles.Content" xml:space="preserve">
+    <value>傳送檔案…</value>
+  </data>
+  <data name="PanelSettings.Content" xml:space="preserve">
+    <value>設定…</value>
+  </data>
+  <data name="PanelMore.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve">
+    <value>更多</value>
+  </data>
+  <data name="PanelMore.[using:Microsoft.UI.Xaml.Controls]ToolTipService.ToolTip" xml:space="preserve">
+    <value>更多</value>
+  </data>
+
+  <!-- Shared words and actions -->
+  <data name="Verbatim" xml:space="preserve">
+    <value>{0}</value>
+  </data>
+  <data name="Ok" xml:space="preserve">
+    <value>確定</value>
+  </data>
+  <data name="Cancel" xml:space="preserve">
+    <value>取消</value>
+  </data>
+  <data name="ActionRestartService" xml:space="preserve">
+    <value>重新啟動服務</value>
+  </data>
+  <data name="ActionTroubleshoot" xml:space="preserve">
+    <value>疑難排解</value>
+  </data>
+  <data name="ActionAddDevice" xml:space="preserve">
+    <value>新增裝置…</value>
+  </data>
+  <data name="MenuAddDevice" xml:space="preserve">
+    <value>新增裝置…</value>
+  </data>
+
+  <!-- The panel's transfers and clipboard line, and the File Transfers page -->
+  <data name="TransfersHeader" xml:space="preserve">
+    <value>傳輸中</value>
+  </data>
+  <data name="TransfersMore" xml:space="preserve">
+    <value>還有 {0} 個…</value>
+  </data>
+  <data name="TransferSending" xml:space="preserve">
+    <value>傳送</value>
+  </data>
+  <data name="TransferReceiving" xml:space="preserve">
+    <value>接收</value>
+  </data>
+  <data name="TransferPreparing" xml:space="preserve">
+    <value>正在準備…</value>
+  </data>
+  <data name="TransferQueued" xml:space="preserve">
+    <value>等待傳送…</value>
+  </data>
+  <data name="TransferWaitingForConnection" xml:space="preserve">
+    <value>等待連線…</value>
+  </data>
+  <data name="TransferWaitingForAccept" xml:space="preserve">
+    <value>等待「{0}」接受…</value>
+  </data>
+  <data name="TransferOffer" xml:space="preserve">
+    <value>「{0}」想傳送這個檔案給你（{1}）。</value>
+  </data>
+  <data name="TransferChecking" xml:space="preserve">
+    <value>正在檢查檔案…</value>
+  </data>
+  <data name="TransferSent" xml:space="preserve">
+    <value>已傳送</value>
+  </data>
+  <data name="TransferReceived" xml:space="preserve">
+    <value>已收到</value>
+  </data>
+  <data name="TransferCancelled" xml:space="preserve">
+    <value>已取消</value>
+  </data>
+  <data name="TransferProgress" xml:space="preserve">
+    <value>{0}・{1}/s・{2}</value>
+  </data>
+  <data name="TransferSecondsLeft" xml:space="preserve">
+    <value>剩下 {0} 秒</value>
+  </data>
+  <data name="TransferMinutesLeft" xml:space="preserve">
+    <value>剩下 {0} 分鐘</value>
+  </data>
+  <data name="TransferHoursLeft" xml:space="preserve">
+    <value>剩下 {0} 小時</value>
+  </data>
+  <data name="TransferPeerDeclined" xml:space="preserve">
+    <value>「{0}」拒絕了這個檔案。</value>
+  </data>
+  <data name="TransferPeerNeedsSpace" xml:space="preserve">
+    <value>「{0}」還需要 {1} 的可用空間。</value>
+  </data>
+  <data name="TransferPeerDoesNotReceive" xml:space="preserve">
+    <value>「{0}」不接收檔案。</value>
+  </data>
+  <data name="TransferPeerCouldNotTake" xml:space="preserve">
+    <value>「{0}」無法接收這個檔案。</value>
+  </data>
+  <data name="TransferDeclined" xml:space="preserve">
+    <value>已拒絕</value>
+  </data>
+  <data name="TransferNoSpace" xml:space="preserve">
+    <value>可用空間不足，還需要 {0}。</value>
+  </data>
+  <data name="TransferNotReceiving" xml:space="preserve">
+    <value>這台電腦不接收檔案。</value>
+  </data>
+  <data name="TransferTooMany" xml:space="preserve">
+    <value>同時傳來的檔案太多。</value>
+  </data>
+  <data name="TransferUnreadable" xml:space="preserve">
+    <value>無法讀取檔案。</value>
+  </data>
+  <data name="TransferFileChanged" xml:space="preserve">
+    <value>檔案在傳送時被修改了。</value>
+  </data>
+  <data name="TransferCorrupt" xml:space="preserve">
+    <value>檔案在傳送途中損毀了。</value>
+  </data>
+  <data name="TransferWriteFailed" xml:space="preserve">
+    <value>無法儲存檔案。</value>
+  </data>
+  <data name="TransferFailed" xml:space="preserve">
+    <value>傳輸失敗。</value>
+  </data>
+  <data name="TransferAccept" xml:space="preserve">
+    <value>接受</value>
+  </data>
+  <data name="TransferDecline" xml:space="preserve">
+    <value>拒絕</value>
+  </data>
+  <data name="TransferCancel" xml:space="preserve">
+    <value>取消</value>
+  </data>
+  <data name="TransferCancelNamed" xml:space="preserve">
+    <value>取消 {0}</value>
+  </data>
+  <data name="TransferShow" xml:space="preserve">
+    <value>在檔案總管中顯示</value>
+  </data>
+  <data name="TransferShowNamed" xml:space="preserve">
+    <value>在檔案總管中顯示 {0}</value>
+  </data>
+  <data name="TransferDismiss" xml:space="preserve">
+    <value>關閉</value>
+  </data>
+  <data name="TransferRemove" xml:space="preserve">
+    <value>從紀錄移除</value>
+  </data>
+  <data name="TransferRemoveNamed" xml:space="preserve">
+    <value>從紀錄移除 {0}</value>
+  </data>
+  <data name="TransferFolderFiles" xml:space="preserve">
+    <value>{0} 個檔案 · {1}</value>
+  </data>
+  <data name="TransferFolderFilesOne" xml:space="preserve">
+    <value>1 個檔案 · {0}</value>
+  </data>
+  <data name="TransferFolderProgress" xml:space="preserve">
+    <value>{1} 個檔案中的 {0} 個</value>
+  </data>
+  <data name="TransferSentSome" xml:space="preserve">
+    <value>{0} 個已傳送，{1} 個失敗</value>
+  </data>
+  <data name="TransferReceivedSome" xml:space="preserve">
+    <value>{0} 個已收到，{1} 個失敗</value>
+  </data>
+  <data name="TransferShowFailures" xml:space="preserve">
+    <value>顯示明細</value>
+  </data>
+  <data name="TransferHideFailures" xml:space="preserve">
+    <value>隱藏明細</value>
+  </data>
+  <data name="TransferFailureLine" xml:space="preserve">
+    <value>{0}：{1}</value>
+  </data>
+  <data name="TransferFailuresMore" xml:space="preserve">
+    <value>還有 {0} 個</value>
+  </data>
+  <data name="TransferFolder" xml:space="preserve">
+    <value>資料夾</value>
+  </data>
+  <data name="TransferSymlink" xml:space="preserve">
+    <value>這是捷徑（符號連結），不會傳送。</value>
+  </data>
+  <data name="TransferNotAFile" xml:space="preserve">
+    <value>這不是檔案或資料夾。</value>
+  </data>
+  <data name="TransferPeerTooLarge" xml:space="preserve">
+    <value>對方一次不收這麼多。</value>
+  </data>
+  <data name="TransferPeerInvalidName" xml:space="preserve">
+    <value>對方無法用這個名稱存檔。</value>
+  </data>
+  <data name="TransferInvalidName" xml:space="preserve">
+    <value>這台電腦無法用這個名稱存檔。</value>
+  </data>
+  <data name="TransferNoSpaceShort" xml:space="preserve">
+    <value>可用空間不足。</value>
+  </data>
+  <data name="ClipboardSensitive" xml:space="preserve">
+    <value>剪貼簿內容來自密碼管理器，所以沒有同步。</value>
+  </data>
+  <data name="ClipboardTooLarge" xml:space="preserve">
+    <value>剪貼簿內容超過 8 MB，所以沒有同步。可以改用「傳送檔案」。</value>
+  </data>
+  <data name="ClipboardSyncedFrom" xml:space="preserve">
+    <value>剪貼簿：{1}從「{0}」同步（{2}）</value>
+  </data>
+  <data name="ClipboardSentTo" xml:space="preserve">
+    <value>剪貼簿：{1}同步到「{0}」（{2}）</value>
+  </data>
+  <data name="ClipboardKindImage" xml:space="preserve">
+    <value>圖片</value>
+  </data>
+  <data name="ClipboardKindRichText" xml:space="preserve">
+    <value>格式化文字</value>
+  </data>
+  <data name="ClipboardKindText" xml:space="preserve">
+    <value>文字</value>
+  </data>
+  <data name="RelativeJustNow" xml:space="preserve">
+    <value>剛剛</value>
+  </data>
+  <data name="RelativeMinutesAgo" xml:space="preserve">
+    <value>{0} 分鐘前</value>
+  </data>
+
+  <!-- Sending files -->
+  <data name="SendFilesTitle" xml:space="preserve">
+    <value>傳送檔案</value>
+  </data>
+  <data name="SendFilesTo" xml:space="preserve">
+    <value>傳送到：</value>
+  </data>
+  <data name="SendFilesSend" xml:space="preserve">
+    <value>傳送</value>
+  </data>
+  <data name="SendFilesFailed" xml:space="preserve">
+    <value>無法把檔案傳送到「{0}」。</value>
+  </data>
+  <data name="SendFilesOnlyFiles" xml:space="preserve">
+    <value>只能傳送檔案，不能傳送資料夾。</value>
+  </data>
+  <data name="SendFilesCheckConnected" xml:space="preserve">
+    <value>請確認「{0}」已連線，再試一次。</value>
+  </data>
+
+  <!-- Computers in lists, the inspector and the canvas -->
+  <data name="ConnectionConnected" xml:space="preserve">
+    <value>已連線</value>
+  </data>
+  <data name="ConnectionConnectedRtt" xml:space="preserve">
+    <value>已連線・{0} ms</value>
+  </data>
+  <data name="ConnectionScreenLocked" xml:space="preserve">
+    <value>螢幕已鎖定</value>
+  </data>
+  <data name="ConnectionScreenLockedRtt" xml:space="preserve">
+    <value>螢幕已鎖定・{0} ms</value>
+  </data>
+  <data name="ConnectionScreenLockedNoInput" xml:space="preserve">
+    <value>螢幕已鎖定，無法輸入</value>
+  </data>
+  <data name="ConnectionScreenLockedNoInputRtt" xml:space="preserve">
+    <value>螢幕已鎖定，無法輸入・{0} ms</value>
+  </data>
+  <data name="ConnectionNoInput" xml:space="preserve">
+    <value>無法輸入</value>
+  </data>
+  <data name="ConnectionNoInputRtt" xml:space="preserve">
+    <value>無法輸入・{0} ms</value>
+  </data>
+  <data name="ConnectionPeerPaused" xml:space="preserve">
+    <value>已暫停共享</value>
+  </data>
+  <data name="ConnectionPeerPausedRtt" xml:space="preserve">
+    <value>已暫停共享・{0} ms</value>
+  </data>
+  <data name="ConnectionOffline" xml:space="preserve">
+    <value>離線</value>
+  </data>
+  <data name="ConnectionThisComputer" xml:space="preserve">
+    <value>這台電腦</value>
+  </data>
+  <data name="OsUnknown" xml:space="preserve">
+    <value>未知的系統</value>
+  </data>
+  <data name="ScreenMain" xml:space="preserve">
+    <value>主螢幕</value>
+  </data>
+  <data name="SwapCommandAndControl" xml:space="preserve">
+    <value>交換 ⌘ 與 Ctrl</value>
+  </data>
+  <data name="SwapWindowsAndControl" xml:space="preserve">
+    <value>交換 Windows 鍵與 Ctrl</value>
+  </data>
+  <data name="RemoveDeviceTitle" xml:space="preserve">
+    <value>要移除「{0}」嗎？</value>
+  </data>
+  <data name="RemoveDeviceMessage" xml:space="preserve">
+    <value>這台電腦將不再信任它。要再次使用，請重新配對。</value>
+  </data>
+  <data name="RemoveDeviceConfirm" xml:space="preserve">
+    <value>移除</value>
+  </data>
+  <data name="CanvasKeyboardMouseHere" xml:space="preserve">
+    <value>鍵鼠在這台</value>
+  </data>
+  <data name="CanvasScreenLockedKeyboardMouseHere" xml:space="preserve">
+    <value>螢幕已鎖定，鍵鼠在這台</value>
+  </data>
+  <data name="CanvasDropToSend" xml:space="preserve">
+    <value>放開即可傳送</value>
+  </data>
+  <data name="CanvasMoveCursorHere" xml:space="preserve">
+    <value>把游標移到這裡</value>
+  </data>
+  <data name="CanvasDeviceNextTo" xml:space="preserve">
+    <value>{0}，{1} 個螢幕，緊鄰 {2}</value>
+  </data>
+  <data name="CanvasDeviceAlone" xml:space="preserve">
+    <value>{0}，{1} 個螢幕，沒有和其他電腦相接</value>
+  </data>
+  <data name="CanvasSynced" xml:space="preserve">
+    <value>已同步到 {0} 台裝置</value>
+  </data>
+
+  <!-- Adding a device, and the code shown when another adds this one -->
+  <data name="AddDeviceTitle" xml:space="preserve">
+    <value>新增裝置</value>
+  </data>
+  <data name="PairingPair" xml:space="preserve">
+    <value>配對</value>
+  </data>
+  <data name="PairingNotAccepting" xml:space="preserve">
+    <value>不接受新裝置</value>
+  </data>
+  <data name="PairingNoneFound" xml:space="preserve">
+    <value>還沒找到其他裝置</value>
+  </data>
+  <data name="PairingNoneFoundDetail" xml:space="preserve">
+    <value>請在同一個網路的另一台電腦安裝並開啟 InputWeave，它就會出現在這裡。</value>
+  </data>
+  <data name="PairingIpAddress" xml:space="preserve">
+    <value>IP 位址</value>
+  </data>
+  <data name="PairingAddByIp" xml:space="preserve">
+    <value>用 IP 位址新增</value>
+  </data>
+  <data name="PairingContinue" xml:space="preserve">
+    <value>繼續</value>
+  </data>
+  <data name="PairingStartOver" xml:space="preserve">
+    <value>重新開始</value>
+  </data>
+  <data name="PairingCodeName" xml:space="preserve">
+    <value>配對碼</value>
+  </data>
+  <data name="PairingCodeTitle" xml:space="preserve">
+    <value>在「{0}」上輸入這組配對碼</value>
+  </data>
+  <data name="PairingCodeValid" xml:space="preserve">
+    <value>{0} 內有效</value>
+  </data>
+  <data name="PairingDecline" xml:space="preserve">
+    <value>拒絕</value>
+  </data>
+  <data name="PairingConnecting" xml:space="preserve">
+    <value>連線中…</value>
+  </data>
+  <data name="PairingEnterCode" xml:space="preserve">
+    <value>輸入「{0}」上顯示的配對碼</value>
+  </data>
+  <data name="PairingWrongCode" xml:space="preserve">
+    <value>配對碼不正確，還可以再試 {0} 次。</value>
+  </data>
+  <data name="PairingPaired" xml:space="preserve">
+    <value>已和「{0}」配對</value>
+  </data>
+  <data name="PairingTheOtherComputer" xml:space="preserve">
+    <value>另一台電腦</value>
+  </data>
+  <data name="PairingTooManyAttempts" xml:space="preserve">
+    <value>配對已取消，請重新開始。</value>
+  </data>
+  <data name="PairingExpired" xml:space="preserve">
+    <value>配對碼已失效，請重新開始。</value>
+  </data>
+  <data name="PairingRejected" xml:space="preserve">
+    <value>「{0}」拒絕了配對。</value>
+  </data>
+  <data name="PairingNotAllowed" xml:space="preserve">
+    <value>「{0}」目前不接受新裝置配對。</value>
+  </data>
+  <data name="PairingBusy" xml:space="preserve">
+    <value>「{0}」正在和其他電腦配對，請稍後再試。</value>
+  </data>
+  <data name="PairingIdConflict" xml:space="preserve">
+    <value>「{0}」的裝置 ID 和已有的電腦相同。</value>
+  </data>
+  <data name="PairingIncompatible" xml:space="preserve">
+    <value>「{0}」的 InputWeave 版本無法和這台配對，請將兩台都更新。</value>
+  </data>
+  <data name="PairingUnreachable" xml:space="preserve">
+    <value>無法連線到「{0}」。請確認兩台電腦在同一個網路上。</value>
+  </data>
+  <data name="PairingCancelled" xml:space="preserve">
+    <value>配對已取消。</value>
+  </data>
+  <data name="PairingDidNotWork" xml:space="preserve">
+    <value>配對沒有成功，請重新開始。</value>
+  </data>
+  <data name="PairingStartBusy" xml:space="preserve">
+    <value>另一個配對正在進行中。</value>
+  </data>
+  <data name="PairingStartInvalidAddress" xml:space="preserve">
+    <value>找不到這個位址。</value>
+  </data>
+  <data name="PairingStartUnreachable" xml:space="preserve">
+    <value>無法連線到那台電腦。</value>
+  </data>
+  <data name="PairingStartFailed" xml:space="preserve">
+    <value>無法開始配對。</value>
+  </data>
+
+  <!-- The main window -->
+  <data name="NavArrangement" xml:space="preserve">
+    <value>排列</value>
+  </data>
+  <data name="NavDevices" xml:space="preserve">
+    <value>裝置</value>
+  </data>
+  <data name="NavFiles" xml:space="preserve">
+    <value>檔案傳輸</value>
+  </data>
+  <data name="NavGeneral" xml:space="preserve">
+    <value>一般</value>
+  </data>
+  <data name="NavTroubleshooting" xml:space="preserve">
+    <value>疑難排解</value>
+  </data>
+  <data name="MainUnavailable" xml:space="preserve">
+    <value>背景服務開始執行後，這裡就會顯示設定。</value>
+  </data>
+  <data name="InspectorName" xml:space="preserve">
+    <value>名稱</value>
+  </data>
+  <data name="InspectorSystem" xml:space="preserve">
+    <value>系統</value>
+  </data>
+  <data name="InspectorStatus" xml:space="preserve">
+    <value>狀態</value>
+  </data>
+  <data name="InspectorScreens" xml:space="preserve">
+    <value>螢幕</value>
+  </data>
+  <data name="InspectorScreensLater" xml:space="preserve">
+    <value>連線後就會顯示。</value>
+  </data>
+  <data name="RemoveDevice" xml:space="preserve">
+    <value>移除裝置…</value>
+  </data>
+  <data name="DevicesNoneTitle" xml:space="preserve">
+    <value>還沒有其他電腦</value>
+  </data>
+  <data name="DevicesNoneDetail" xml:space="preserve">
+    <value>在同一個網路的另一台電腦安裝 InputWeave，再回到這裡新增。</value>
+  </data>
+  <data name="FilesReceiving" xml:space="preserve">
+    <value>接收</value>
+  </data>
+  <data name="FilesSaveIn" xml:space="preserve">
+    <value>收到的檔案存放在</value>
+  </data>
+  <data name="FilesChoose" xml:space="preserve">
+    <value>選擇…</value>
+  </data>
+  <data name="FilesWhenSent" xml:space="preserve">
+    <value>已配對的電腦傳來檔案時</value>
+  </data>
+  <data name="FilesAutomatically" xml:space="preserve">
+    <value>自動接收</value>
+  </data>
+  <data name="FilesAskEachTime" xml:space="preserve">
+    <value>每次詢問</value>
+  </data>
+  <data name="FilesSending" xml:space="preserve">
+    <value>傳送</value>
+  </data>
+  <data name="FilesSendHint" xml:space="preserve">
+    <value>把檔案拖到排列畫面或面板小地圖上的電腦，或在這裡選擇檔案。</value>
+  </data>
+  <data name="FilesSendButton" xml:space="preserve">
+    <value>傳送檔案…</value>
+  </data>
+  <data name="FilesRecent" xml:space="preserve">
+    <value>最近</value>
+  </data>
+  <data name="FilesNone" xml:space="preserve">
+    <value>還沒有傳送或收到任何檔案。</value>
+  </data>
+  <data name="FilesClearHistory" xml:space="preserve">
+    <value>清除紀錄…</value>
+  </data>
+  <data name="FilesClearTitle" xml:space="preserve">
+    <value>要清除傳輸紀錄嗎？</value>
+  </data>
+  <data name="FilesClearMessage" xml:space="preserve">
+    <value>已結束的傳輸會從清單中移除。檔案仍會留在原來的位置，進行中的傳輸也會保留。</value>
+  </data>
+  <data name="FilesClearConfirm" xml:space="preserve">
+    <value>清除紀錄</value>
+  </data>
+  <data name="GeneralName" xml:space="preserve">
+    <value>這台電腦的名稱</value>
+  </data>
+  <data name="GeneralNameHint" xml:space="preserve">
+    <value>其他電腦會看到這個名稱。</value>
+  </data>
+  <data name="GeneralOpenAtLogin" xml:space="preserve">
+    <value>登入時開啟 InputWeave</value>
+  </data>
+  <data name="GeneralShowIcon" xml:space="preserve">
+    <value>在系統匣顯示圖示</value>
+  </data>
+  <data name="GeneralShowIconHint" xml:space="preserve">
+    <value>隱藏圖示後，再開啟一次 InputWeave，圖示就會重新出現。</value>
+  </data>
+  <data name="GeneralClipboard" xml:space="preserve">
+    <value>剪貼簿</value>
+  </data>
+  <data name="GeneralClipboardSync" xml:space="preserve">
+    <value>剪貼簿同步</value>
+  </data>
+  <data name="GeneralClipboardHint" xml:space="preserve">
+    <value>在一台電腦複製的內容，游標移到下一台後就能貼上。密碼管理器的內容一律不同步，超過 8 MB 的內容也不會同步。</value>
+  </data>
+  <data name="GeneralPictures" xml:space="preserve">
+    <value>桌面背景</value>
+  </data>
+  <data name="GeneralPicturesShare" xml:space="preserve">
+    <value>把這台的桌面背景分享給已配對的電腦</value>
+  </data>
+  <data name="GeneralPicturesHint" xml:space="preserve">
+    <value>已配對的電腦會在排列中用它當這台螢幕的底圖，一眼就能認出哪台是哪台。</value>
+  </data>
+  <data name="GeneralPicturesUnavailable" xml:space="preserve">
+    <value>目前讀不到這台的桌面背景，所以沒有可以分享的。</value>
+  </data>
+  <data name="GeneralSwitching" xml:space="preserve">
+    <value>切換</value>
+  </data>
+  <data name="GeneralWait" xml:space="preserve">
+    <value>停留片刻才切換</value>
+  </data>
+  <data name="GeneralWaitHint" xml:space="preserve">
+    <value>游標在螢幕邊緣停留片刻後，才會移到旁邊那台電腦，不小心碰到邊緣不會切換。</value>
+  </data>
+  <data name="GeneralEdgeGlow" xml:space="preserve">
+    <value>游標跨到其他電腦時，在螢幕邊緣顯示光</value>
+  </data>
+  <data name="GeneralEdgeGlowHint" xml:space="preserve">
+    <value>游標離開或進入這台螢幕的地方，邊緣會短暫亮起縫線色的光。</value>
+  </data>
+  <data name="GeneralShortcuts" xml:space="preserve">
+    <value>快速鍵</value>
+  </data>
+  <data name="ShortcutTakeBack" xml:space="preserve">
+    <value>切回這台</value>
+  </data>
+  <data name="ShortcutLock" xml:space="preserve">
+    <value>鎖定在目前的電腦</value>
+  </data>
+  <data name="ShortcutJump" xml:space="preserve">
+    <value>跳到第 N 台電腦</value>
+  </data>
+  <data name="ShortcutRecord" xml:space="preserve">
+    <value>錄製</value>
+  </data>
+  <data name="ShortcutPressKeys" xml:space="preserve">
+    <value>請按組合鍵…</value>
+  </data>
+  <data name="ShortcutPressJump" xml:space="preserve">
+    <value>請按修飾鍵和一個數字…</value>
+  </data>
+  <data name="ShortcutOff" xml:space="preserve">
+    <value>關閉</value>
+  </data>
+  <data name="ShortcutReset" xml:space="preserve">
+    <value>重設快速鍵</value>
+  </data>
+  <data name="ShortcutsHint" xml:space="preserve">
+    <value>電腦依排列由左到右編號，編號顯示在電腦名稱旁邊。錄製時按 Esc 取消，按 Delete 回到預設值。</value>
+  </data>
+  <data name="ShortcutNeedsModifier" xml:space="preserve">
+    <value>這個組合至少要有一個修飾鍵：Ctrl、Alt、Shift 或 Windows 鍵。</value>
+  </data>
+  <data name="ShortcutUnknownKey" xml:space="preserve">
+    <value>這個按鍵不能用在快速鍵。</value>
+  </data>
+  <data name="ShortcutUsedFor" xml:space="preserve">
+    <value>這個組合已經用在「{0}」。</value>
+  </data>
+  <data name="ShortcutUsedElsewhere" xml:space="preserve">
+    <value>這個組合已經用在另一個快速鍵。</value>
+  </data>
+  <data name="ShortcutNotChanged" xml:space="preserve">
+    <value>無法變更快速鍵。</value>
+  </data>
+  <data name="SwitchModifierTitle" xml:space="preserve">
+    <value>切換到另一台電腦</value>
+  </data>
+  <data name="SwitchModifierHint" xml:space="preserve">
+    <value>游標碰到螢幕邊緣時要按住這個鍵，往哪個方向都一樣。用快速鍵或點面板的小地圖移動游標時不必按住。</value>
+  </data>
+  <data name="SwitchAlways" xml:space="preserve">
+    <value>總是</value>
+  </data>
+  <data name="SwitchHoldingControl" xml:space="preserve">
+    <value>按住 Ctrl 時</value>
+  </data>
+  <data name="SwitchHoldingAlt" xml:space="preserve">
+    <value>按住 Alt 時</value>
+  </data>
+  <data name="SwitchHoldingShift" xml:space="preserve">
+    <value>按住 Shift 時</value>
+  </data>
+  <data name="SwitchHoldingWindows" xml:space="preserve">
+    <value>按住 Windows 鍵時</value>
+  </data>
+  <data name="IdentifyScreens" xml:space="preserve">
+    <value>識別螢幕</value>
+  </data>
+  <data name="IdentifyScreensHint" xml:space="preserve">
+    <value>在每台電腦的螢幕上短暫顯示它的名稱。</value>
+  </data>
+  <data name="IdentifyScreenLabel" xml:space="preserve">
+    <value>螢幕 {0}・{1}</value>
+  </data>
+  <data name="CanvasRename" xml:space="preserve">
+    <value>重新命名…</value>
+  </data>
+  <data name="InspectorCallsItself" xml:space="preserve">
+    <value>這台電腦自稱「{0}」。</value>
+  </data>
+  <data name="InspectorSyncClipboard" xml:space="preserve">
+    <value>和這台電腦同步剪貼簿</value>
+  </data>
+  <data name="InspectorSendFiles" xml:space="preserve">
+    <value>和這台電腦互傳檔案</value>
+  </data>
+  <data name="InspectorSharingHint" xml:space="preserve">
+    <value>只有這台電腦停止，不會通知對方。</value>
+  </data>
+  <data name="DeviceFilesOff" xml:space="preserve">
+    <value>已關閉和「{0}」互傳檔案。</value>
+  </data>
+  <data name="DeviceFilesOffShort" xml:space="preserve">
+    <value>已關閉互傳檔案</value>
+  </data>
+  <data name="TroubleProblems" xml:space="preserve">
+    <value>問題</value>
+  </data>
+  <data name="TroubleAllGood" xml:space="preserve">
+    <value>一切運作正常。</value>
+  </data>
+  <data name="TroubleService" xml:space="preserve">
+    <value>背景服務</value>
+  </data>
+  <data name="TroubleVersion" xml:space="preserve">
+    <value>版本</value>
+  </data>
+  <data name="TroubleBuild" xml:space="preserve">
+    <value>建置</value>
+  </data>
+  <data name="TroubleKeyboardMouse" xml:space="preserve">
+    <value>這台電腦的鍵鼠</value>
+  </data>
+  <data name="TroubleRestartHint" xml:space="preserve">
+    <value>如果幾秒後仍然沒有改變，請重新啟動服務。</value>
+  </data>
+  <data name="TroubleDeviceId" xml:space="preserve">
+    <value>裝置 ID</value>
+  </data>
+  <data name="TroubleExport" xml:space="preserve">
+    <value>匯出診斷資料…</value>
+  </data>
+  <data name="TroubleExportHint" xml:space="preserve">
+    <value>回報問題時可以附上的文字檔，內容包括版本、設定、連線狀態與最近的記錄；不含金鑰、檔名或剪貼簿內容。</value>
+  </data>
+  <data name="TroubleLogs" xml:space="preserve">
+    <value>打開記錄資料夾</value>
+  </data>
+  <data name="TroubleLogsHint" xml:space="preserve">
+    <value>背景服務的記錄檔。</value>
+  </data>
+  <data name="NameInvalid" xml:space="preserve">
+    <value>名稱長度為 1 到 64 個字元。</value>
+  </data>
+  <data name="ServiceRunning" xml:space="preserve">
+    <value>執行中</value>
+  </data>
+  <data name="ServiceStarting" xml:space="preserve">
+    <value>啟動中</value>
+  </data>
+  <data name="ServiceUpdating" xml:space="preserve">
+    <value>更新中</value>
+  </data>
+  <data name="ServiceStopping" xml:space="preserve">
+    <value>正在停止</value>
+  </data>
+  <data name="ServiceStopped" xml:space="preserve">
+    <value>已停止</value>
+  </data>
+  <data name="ServiceNotInstalled" xml:space="preserve">
+    <value>沒有安裝，請重新安裝 InputWeave</value>
+  </data>
+  <data name="CanControl" xml:space="preserve">
+    <value>可以控制其他電腦</value>
+  </data>
+  <data name="CannotControlYet" xml:space="preserve">
+    <value>還無法控制其他電腦</value>
+  </data>
+  <data name="DiagnosticsFileName" xml:space="preserve">
+    <value>InputWeave 診斷資料</value>
+  </data>
+  <data name="DiagnosticsFailed" xml:space="preserve">
+    <value>無法匯出診斷資料。</value>
+  </data>
+  <data name="LogsAdminOnlyTitle" xml:space="preserve">
+    <value>只有系統管理員能打開這些記錄</value>
+  </data>
+  <data name="LogsAdminOnlyMessage" xml:space="preserve">
+    <value>背景服務把記錄存在這個資料夾，只有系統管理員能打開。「匯出診斷資料…」會附上最近的記錄。</value>
+  </data>
+  <data name="LogsMissingTitle" xml:space="preserve">
+    <value>背景服務還沒有寫入任何記錄。</value>
+  </data>
+  <data name="LogsMissingMessage" xml:space="preserve">
+    <value>背景服務啟動後就會產生記錄。請重新啟動服務，再試一次。</value>
+  </data>
+  <data name="CopyPath" xml:space="preserve">
+    <value>複製路徑</value>
+  </data>
+  <data name="GeneralSendTo" xml:space="preserve">
+    <value>在「傳送到」選單顯示 InputWeave</value>
+  </data>
+  <data name="GeneralSendToHint" xml:space="preserve">
+    <value>在檔案總管對檔案按右鍵，選「傳送到 › InputWeave」。Windows 11 要先選「顯示其他選項」。</value>
+  </data>
+
+  <!-- First-run setup -->
+  <data name="MenuRunSetup" xml:space="preserve">
+    <value>重新執行設定…</value>
+  </data>
+  <data name="SetupWindowTitle" xml:space="preserve">
+    <value>設定 InputWeave</value>
+  </data>
+  <data name="SetupStepOf" xml:space="preserve">
+    <value>第 {0} 步，共 {1} 步</value>
+  </data>
+  <data name="SetupProgress" xml:space="preserve">
+    <value>設定進度</value>
+  </data>
+  <data name="SetupBack" xml:space="preserve">
+    <value>上一步</value>
+  </data>
+  <data name="SetupLater" xml:space="preserve">
+    <value>稍後再說</value>
+  </data>
+  <data name="SetupContinue" xml:space="preserve">
+    <value>繼續</value>
+  </data>
+  <data name="SetupDone" xml:space="preserve">
+    <value>完成</value>
+  </data>
+  <data name="SetupSkip" xml:space="preserve">
+    <value>略過</value>
+  </data>
+  <data name="SetupGetStarted" xml:space="preserve">
+    <value>開始設定</value>
+  </data>
+  <data name="SetupWelcomeTitle" xml:space="preserve">
+    <value>一組鍵盤滑鼠，控制桌上的每一台電腦。</value>
+  </data>
+  <data name="SetupBenefitEdges" xml:space="preserve">
+    <value>游標移過螢幕邊緣，就到了旁邊那台電腦。</value>
+  </data>
+  <data name="SetupBenefitClipboard" xml:space="preserve">
+    <value>在一台電腦複製，到下一台直接貼上。</value>
+  </data>
+  <data name="SetupBenefitFiles" xml:space="preserve">
+    <value>把檔案拖到某台電腦上，就傳送過去。</value>
+  </data>
+  <data name="SetupReassurance" xml:space="preserve">
+    <value>你需要另一台在同一個網路上的電腦。設定大約需要 5 分鐘。</value>
+  </data>
+  <data name="SetupNameTitle" xml:space="preserve">
+    <value>這台電腦的名稱</value>
+  </data>
+  <data name="SetupNameLabel" xml:space="preserve">
+    <value>名稱</value>
+  </data>
+  <data name="SetupNameHint" xml:space="preserve">
+    <value>其他電腦會看到這個名稱。</value>
+  </data>
+  <data name="SetupNetworkTitle" xml:space="preserve">
+    <value>網路檢查</value>
+  </data>
+  <data name="SetupNetworkPublic" xml:space="preserve">
+    <value>目前的網路設定為「公用」，其他電腦可能找不到這台。</value>
+  </data>
+  <data name="SetupNetworkHowTo" xml:space="preserve">
+    <value>在「設定 › 網路和網際網路」打開這個網路的內容，選擇「私人網路」。這個頁面每隔幾秒會重新檢查。</value>
+  </data>
+  <data name="SetupNetworkPrivate" xml:space="preserve">
+    <value>網路已經不是「公用」。</value>
+  </data>
+  <data name="SetupNetworkOpenSettings" xml:space="preserve">
+    <value>開啟網路設定</value>
+  </data>
+  <data name="SetupConnectTitle" xml:space="preserve">
+    <value>連接另一台</value>
+  </data>
+  <data name="SetupCodeTitle" xml:space="preserve">
+    <value>輸入配對碼</value>
+  </data>
+  <data name="SetupArrangeTitle" xml:space="preserve">
+    <value>排列</value>
+  </data>
+  <data name="SetupArrangeHint" xml:space="preserve">
+    <value>把「{0}」拖到它在桌上的實際位置。</value>
+  </data>
+  <data name="SetupTryTitle" xml:space="preserve">
+    <value>試試看</value>
+  </data>
+  <data name="SetupTryHint" xml:space="preserve">
+    <value>把游標移到「{0}」那一側。</value>
+  </data>
+  <data name="SetupTryDone" xml:space="preserve">
+    <value>成功了。按 {0} 可以隨時切回這台。</value>
+  </data>
+
+  <!-- The HUD and the cursor locator -->
+  <data name="HudTakeBackHint" xml:space="preserve">
+    <value>按 {0} 可以隨時切回這台。</value>
+  </data>
+  <data name="HudLockedHere" xml:space="preserve">
+    <value>已鎖定在這台電腦。按 {0} 解除鎖定。</value>
+  </data>
+  <data name="HudLockedTo" xml:space="preserve">
+    <value>已鎖定在「{0}」。按 {1} 解除鎖定。</value>
+  </data>
+  <data name="HudUnlocked" xml:space="preserve">
+    <value>已解除鎖定。</value>
+  </data>
+  <data name="HudPeerLost" xml:space="preserve">
+    <value>和「{0}」的連線中斷了，鍵鼠已切回這台。</value>
+  </data>
+  <data name="HudRemoteActivity" xml:space="preserve">
+    <value>「{0}」上有人在使用滑鼠，鍵鼠已切回這台。</value>
+  </data>
+  <data name="HudBackHere" xml:space="preserve">
+    <value>已切回這台。</value>
+  </data>
+  <data name="HudLayoutChanged" xml:space="preserve">
+    <value>排列已變更，鍵鼠已切回這台。</value>
+  </data>
+  <data name="HudScreenLocked" xml:space="preserve">
+    <value>「{0}」的螢幕已鎖定，無法從這台輸入，鍵鼠已切回這台。</value>
+  </data>
+  <data name="HudInputUnavailable" xml:space="preserve">
+    <value>「{0}」目前無法從這台輸入，鍵鼠已切回這台。</value>
+  </data>
+  <data name="HudPeerPaused" xml:space="preserve">
+    <value>「{0}」暫停了共享，鍵鼠已切回這台。</value>
+  </data>
+  <data name="HudCaptureEnded" xml:space="preserve">
+    <value>桌面收回了鍵鼠，已切回這台。</value>
+  </data>
+  <data name="HudDraggingOne" xml:space="preserve">
+    <value>正在把 1 個項目拖到「{0}」</value>
+  </data>
+  <data name="HudDraggingMany" xml:space="preserve">
+    <value>正在把 {0} 個項目拖到「{1}」</value>
+  </data>
+  <data name="HudDropHere" xml:space="preserve">
+    <value>把項目放到想放的位置</value>
+  </data>
+  <data name="HudDragSending" xml:space="preserve">
+    <value>正在傳到「{0}」</value>
+  </data>
+  <data name="HudDragDeclined" xml:space="preserve">
+    <value>「{0}」沒有接收</value>
+  </data>
+  <data name="HudDragInvalidFolder" xml:space="preserve">
+    <value>不能存到這個資料夾。</value>
+  </data>
+  <data name="HudDragGone" xml:space="preserve">
+    <value>拖曳已經結束了。</value>
+  </data>
+  <data name="HudDragNotReceived" xml:space="preserve">
+    <value>現在無法接收這些項目。</value>
+  </data>
+
+  <!-- System notifications -->
+  <data name="NotifyReceivedOne" xml:space="preserve">
+    <value>已收到 {0}（{1}），來自「{2}」</value>
+  </data>
+  <data name="NotifyReceivedMany" xml:space="preserve">
+    <value>已收到 {0} 個檔案（{1}），來自「{2}」</value>
+  </data>
+  <data name="NotifyOpenFolder" xml:space="preserve">
+    <value>開啟資料夾</value>
+  </data>
+  <data name="NotifyOfferTitle" xml:space="preserve">
+    <value>「{0}」想傳送檔案給你</value>
+  </data>
+  <data name="NotifyOfferBody" xml:space="preserve">
+    <value>{0}（{1}）</value>
+  </data>
+  <data name="NotifyServiceStopped" xml:space="preserve">
+    <value>InputWeave 服務已停止，鍵鼠共享沒有在運作。</value>
+  </data>
+  <data name="NotifyListSeparator" xml:space="preserve">
+    <value>、</value>
+  </data>
+  <data name="NotifyReceivedItems" xml:space="preserve">
+    <value>已收到 {0}（{1}，{2}），來自「{3}」</value>
+  </data>
+  <data name="NotifyFailedOne" xml:space="preserve">
+    <value>{0}，1 個失敗</value>
+  </data>
+  <data name="NotifyFailedMany" xml:space="preserve">
+    <value>{0}，{1} 個失敗</value>
+  </data>
+  <data name="ItemsFolderOne" xml:space="preserve">
+    <value>1 個資料夾</value>
+  </data>
+  <data name="ItemsFolderMany" xml:space="preserve">
+    <value>{0} 個資料夾</value>
+  </data>
+  <data name="ItemsFileOne" xml:space="preserve">
+    <value>1 個檔案</value>
+  </data>
+  <data name="ItemsFileMany" xml:space="preserve">
+    <value>{0} 個檔案</value>
+  </data>
+  <data name="ItemsAnd" xml:space="preserve">
+    <value>{0}和{1}</value>
+  </data>
+
+  <!-- File Explorer's Send To -->
+  <data name="SendToNoneTitle" xml:space="preserve">
+    <value>沒有可以傳送的電腦</value>
+  </data>
+  <data name="SendToNoneMessage" xml:space="preserve">
+    <value>檔案只能傳給已連線的電腦。請先連接另一台電腦，再試一次。</value>
+  </data>
+  <data name="TitleRelative" xml:space="preserve">
+    <value>相對滑鼠：{0}</value>
+  </data>
+  <data name="SubtitleRelative" xml:space="preserve">
+    <value>按 {0} 結束相對滑鼠。</value>
+  </data>
+  <data name="GeneralRelativeAuto" xml:space="preserve">
+    <value>遊戲抓住滑鼠時自動切換成相對滑鼠</value>
+  </data>
+  <data name="GeneralRelativeAutoHint" xml:space="preserve">
+    <value>你控制的電腦上有 App（例如遊戲）把游標藏起來並限制在它的視窗裡時，滑鼠的移動會照原樣送過去，游標也留在那台，直到 App 放開為止。只有 Windows 電腦會告知這件事；控制 Mac 時請用下面的快速鍵。</value>
+  </data>
+  <data name="GeneralRelativeAutoHintNoShortcut" xml:space="preserve">
+    <value>你控制的電腦上有 App（例如遊戲）把游標藏起來並限制在它的視窗裡時，滑鼠的移動會照原樣送過去，游標也留在那台，直到 App 放開為止。只有 Windows 電腦會告知這件事；控制 Mac 時，可以在下面設定切換相對滑鼠的快速鍵。</value>
+  </data>
+  <data name="GeneralRelativeAutoFailed" xml:space="preserve">
+    <value>無法變更這項設定。等背景服務有回應後再試一次。</value>
+  </data>
+  <data name="ShortcutRelative" xml:space="preserve">
+    <value>切換相對滑鼠（遊戲）</value>
+  </data>
+  <data name="HudTwoLines" xml:space="preserve">
+    <value>{0}
+{1}</value>
+    <comment>Two notes shown at once, one on each line.</comment>
+  </data>
+  <data name="HudRelativeEntered" xml:space="preserve">
+    <value>相對滑鼠：游標鎖在「{0}」。按 {1} 結束。</value>
+  </data>
+  <data name="HudRelativeEnteredTakeBack" xml:space="preserve">
+    <value>相對滑鼠：游標鎖在「{0}」。按 {1} 切回這台。</value>
+  </data>
+  <data name="HudRelativeEnded" xml:space="preserve">
+    <value>已結束相對滑鼠。</value>
+  </data>
+  <data name="HudRelativeReleased" xml:space="preserve">
+    <value>「{0}」放開了滑鼠，已恢復一般模式。</value>
+  </data>
+  <data name="HudRelativeUnsupported" xml:space="preserve">
+    <value>「{0}」的 InputWeave 版本不支援相對滑鼠。</value>
+  </data>
+  <data name="NavLicense" xml:space="preserve">
+    <value>授權</value>
+  </data>
+  <data name="LicenseTrial" xml:space="preserve">
+    <value>試用中</value>
+  </data>
+  <data name="LicenseLicensed" xml:space="preserve">
+    <value>已授權</value>
+  </data>
+  <data name="LicenseTrialBody" xml:space="preserve">
+    <value>沒有授權也能使用全部功能，沒有期限。購買授權後，這裡與「關於 InputWeave」的「試用中」會換成「已授權」。</value>
+  </data>
+  <data name="LicensePrice" xml:space="preserve">
+    <value>US$10，一次付款，最多 5 台電腦使用。</value>
+  </data>
+  <data name="LicenseBuy" xml:space="preserve">
+    <value>購買授權</value>
+  </data>
+  <data name="LicenseEnter" xml:space="preserve">
+    <value>輸入授權碼</value>
+  </data>
+  <data name="LicenseManage" xml:space="preserve">
+    <value>管理電腦</value>
+  </data>
+  <data name="LicenseTryAgain" xml:space="preserve">
+    <value>再試一次</value>
+  </data>
+  <data name="LicenseRemove" xml:space="preserve">
+    <value>移除授權</value>
+  </data>
+  <data name="LicenseHowTitle" xml:space="preserve">
+    <value>授權怎麼運作</value>
+  </data>
+  <data name="LicenseHow1" xml:space="preserve">
+    <value>在 Polar 購買授權，取得授權碼。</value>
+  </data>
+  <data name="LicenseHow2" xml:space="preserve">
+    <value>在其中一台電腦輸入授權碼。</value>
+  </data>
+  <data name="LicenseHow3" xml:space="preserve">
+    <value>已配對的電腦會自動取得授權，最多 5 台。</value>
+  </data>
+  <data name="LicensePolarNote" xml:space="preserve">
+    <value>付款與收據由 Polar 處理。</value>
+  </data>
+  <data name="LicenseSeatsFull" xml:space="preserve">
+    <value>你的授權已經用在 5 台電腦上，所以這台維持試用中，所有功能照常可用。要讓這台也取得授權，請先到 Polar 的顧客入口停用一台不再使用的電腦。</value>
+  </data>
+  <data name="LicenseInvalid" xml:space="preserve">
+    <value>這台電腦上的授權已經失效，可能已經退款，或這台已在 Polar 的顧客入口被移除。</value>
+  </data>
+  <data name="LicenseUnavailable" xml:space="preserve">
+    <value>目前無法讀取授權資訊。</value>
+  </data>
+  <data name="LicenseOffline" xml:space="preserve">
+    <value>連不上 Polar，所以授權還沒啟用，InputWeave 幾分鐘後會再試一次。</value>
+  </data>
+  <data name="LicensedTo" xml:space="preserve">
+    <value>授權給 {0}</value>
+  </data>
+  <data name="LicenseThanks" xml:space="preserve">
+    <value>感謝你購買 InputWeave。</value>
+  </data>
+  <data name="LicenseFrom" xml:space="preserve">
+    <value>授權來自「{0}」。感謝你購買 InputWeave。</value>
+  </data>
+  <data name="LicenseComputers" xml:space="preserve">
+    <value>使用這份授權的電腦</value>
+  </data>
+  <data name="LicenseCount" xml:space="preserve">
+    <value>{0}／5 台</value>
+  </data>
+  <data name="LicenseThisComputer" xml:space="preserve">
+    <value>這台電腦</value>
+  </data>
+  <data name="LicensePaired" xml:space="preserve">
+    <value>已配對</value>
+  </data>
+  <data name="LicenseNotActivated" xml:space="preserve">
+    <value>尚未啟用</value>
+  </data>
+  <data name="LicenseListNote" xml:space="preserve">
+    <value>這裡只列出和這台配對的電腦；全部的電腦請到 Polar 的顧客入口查看。</value>
+  </data>
+  <data name="LicenseEnterTitle" xml:space="preserve">
+    <value>輸入授權碼</value>
+  </data>
+  <data name="LicenseKey" xml:space="preserve">
+    <value>授權碼</value>
+  </data>
+  <data name="LicenseKeyHelp" xml:space="preserve">
+    <value>授權碼在 Polar 的訂單頁面，以及 Polar 寄給你的 email 裡。</value>
+  </data>
+  <data name="LicenseActivate" xml:space="preserve">
+    <value>啟用</value>
+  </data>
+  <data name="LicenseActivating" xml:space="preserve">
+    <value>正在啟用…</value>
+  </data>
+  <data name="LicenseErrorInvalid" xml:space="preserve">
+    <value>這不是 InputWeave 的授權碼。請和 Polar 寄來的 email 核對。</value>
+  </data>
+  <data name="LicenseErrorFull" xml:space="preserve">
+    <value>這份授權已經用在 5 台電腦上。請先到 Polar 的顧客入口停用一台不再使用的電腦，再試一次。</value>
+  </data>
+  <data name="LicenseErrorOffline" xml:space="preserve">
+    <value>連不上 Polar。請檢查這台電腦的網路連線後再試一次。</value>
+  </data>
+  <data name="LicenseErrorBusy" xml:space="preserve">
+    <value>Polar 目前忙碌中，請稍後再試。</value>
+  </data>
+  <data name="LicenseErrorService" xml:space="preserve">
+    <value>背景服務沒有接受這份授權。請再輸入一次授權碼重試。</value>
+  </data>
+  <data name="LicenseRemoveTitle" xml:space="preserve">
+    <value>要從這台電腦移除授權嗎？</value>
+  </data>
+  <data name="LicenseRemoveBody" xml:space="preserve">
+    <value>這會空出 5 台中的一個名額，其他電腦的授權不受影響。這台之後不會再從已配對的電腦自動取得授權，直到你再次輸入授權碼。</value>
+  </data>
+  <data name="LicenseRemovedOffline" xml:space="preserve">
+    <value>連不上 Polar，所以這台在授權上的名額還沒空出來。InputWeave 會在連得上 Polar 時釋放它，你也可以到 Polar 的顧客入口自己釋放。</value>
+  </data>
+  <data name="AboutTitle" xml:space="preserve">
+    <value>關於 InputWeave</value>
+  </data>
+  <data name="AboutVersion" xml:space="preserve">
+    <value>版本 {0}（{1}）</value>
+  </data>
+  <data name="AboutCopyright" xml:space="preserve">
+    <value>Copyright © 2026 InputWeave contributors</value>
+  </data>
+  <data name="AboutGpl" xml:space="preserve">
+    <value>免費開源，採用 GNU GPL 第 3 版或更新的版本</value>
+  </data>
+  <data name="AboutAcknowledgments" xml:space="preserve">
+    <value>致謝</value>
+  </data>
+  <data name="Close" xml:space="preserve">
+    <value>關閉</value>
+  </data>
+  <data name="MenuAbout" xml:space="preserve">
+    <value>關於 InputWeave</value>
+  </data>
+  <data name="MenuCheckUpdates" xml:space="preserve">
+    <value>檢查更新…</value>
+  </data>
+  <data name="GeneralUpdates" xml:space="preserve">
+    <value>更新</value>
+  </data>
+  <data name="UpdatesAuto" xml:space="preserve">
+    <value>自動檢查更新</value>
+  </data>
+  <data name="UpdatesAutoHint" xml:space="preserve">
+    <value>每天檢查一次是否有新版本。</value>
+  </data>
+  <data name="UpdatesVersion" xml:space="preserve">
+    <value>版本 {0}</value>
+  </data>
+  <data name="UpdatesCheckNow" xml:space="preserve">
+    <value>立即檢查</value>
+  </data>
+  <data name="UpdatesNotChecked" xml:space="preserve">
+    <value>還沒檢查過。</value>
+  </data>
+  <data name="UpdatesUpToDate" xml:space="preserve">
+    <value>InputWeave 已是最新版本。上次檢查：{0}。</value>
+  </data>
+  <data name="UpdatesChecking" xml:space="preserve">
+    <value>正在檢查…</value>
+  </data>
+  <data name="UpdatesAvailable" xml:space="preserve">
+    <value>InputWeave {0} 已推出。</value>
+  </data>
+  <data name="UpdatesYouHave" xml:space="preserve">
+    <value>目前是 {0}。</value>
+  </data>
+  <data name="UpdatesView" xml:space="preserve">
+    <value>查看更新</value>
+  </data>
+  <data name="UpdatesOffline" xml:space="preserve">
+    <value>連不上更新伺服器。請檢查這台電腦的網路連線。</value>
+  </data>
+  <data name="UpdatesNeedsWindows" xml:space="preserve">
+    <value>InputWeave {0} 需要較新的 Windows 版本。</value>
+  </data>
+  <data name="UpdateToastBody" xml:space="preserve">
+    <value>要現在安裝嗎？安裝時鍵鼠共享會暫停約一分鐘。</value>
+  </data>
+  <data name="UpdateLater" xml:space="preserve">
+    <value>稍後</value>
+  </data>
+  <data name="UpdateTitle" xml:space="preserve">
+    <value>要安裝 InputWeave {0} 嗎？</value>
+  </data>
+  <data name="UpdateBody" xml:space="preserve">
+    <value>目前是 {0}。安裝時鍵鼠共享會暫停約一分鐘，完成後 InputWeave 會自己重新開啟。</value>
+  </data>
+  <data name="UpdateWhatsNew" xml:space="preserve">
+    <value>新功能與修正</value>
+  </data>
+  <data name="UpdateSize" xml:space="preserve">
+    <value>下載大小：{0}</value>
+  </data>
+  <data name="UpdateViewOnline" xml:space="preserve">
+    <value>在網頁上查看</value>
+  </data>
+  <data name="UpdateInstall" xml:space="preserve">
+    <value>安裝</value>
+  </data>
+  <data name="UpdateSkip" xml:space="preserve">
+    <value>略過這個版本</value>
+  </data>
+  <data name="UpdateDownloading" xml:space="preserve">
+    <value>正在下載更新…</value>
+  </data>
+  <data name="UpdateProgress" xml:space="preserve">
+    <value>{0}／{1}</value>
+  </data>
+  <data name="UpdateVerifying" xml:space="preserve">
+    <value>正在檢查下載的檔案…</value>
+  </data>
+  <data name="UpdateVerifyingNote" xml:space="preserve">
+    <value>比對 SHA-256 與 InputWeave 的簽章。</value>
+  </data>
+  <data name="UpdateInstalling" xml:space="preserve">
+    <value>正在安裝…</value>
+  </data>
+  <data name="UpdateInstallingNote" xml:space="preserve">
+    <value>Windows 會先請你允許，接著 InputWeave 會關閉一下，然後自己重新開啟。</value>
+  </data>
+  <data name="UpdateBadSignature" xml:space="preserve">
+    <value>下載的檔案和 InputWeave 的簽章不符，所以沒有安裝任何東西。請稍後再試；一直發生的話，請從網站下載安裝檔。</value>
+  </data>
+  <data name="UpdateDownloadFailed" xml:space="preserve">
+    <value>無法下載更新。請檢查這台電腦的網路連線後再試一次。</value>
+  </data>
+  <data name="UpdateDeclined" xml:space="preserve">
+    <value>沒有安裝更新。</value>
+  </data>
+  <data name="UpdateOpenSite" xml:space="preserve">
+    <value>開啟網站</value>
+  </data>
+  <data name="LicenseRemovePending" xml:space="preserve">
+    <value>InputWeave 還沒能在這台電腦移除授權，會繼續嘗試。</value>
+  </data>
+  <data name="LicenseErrorSave" xml:space="preserve">
+    <value>InputWeave 無法儲存授權，請再試一次。</value>
+  </data>
+  <data name="LicenseErrorUnavailable" xml:space="preserve">
+    <value>目前無法讀取授權資訊。</value>
+  </data>
+  <data name="LicenseRemoving" xml:space="preserve">
+    <value>正在從這台電腦移除授權…</value>
+  </data>
+  <data name="UpdateRestartNeeded" xml:space="preserve">
+    <value>已安裝 InputWeave {0}，重新啟動 Windows 後就會完成更新。</value>
+  </data>
+</root>

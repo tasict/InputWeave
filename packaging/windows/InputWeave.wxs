@@ -1,0 +1,216 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  The Windows installer: the
+  inputweave executable, the InputWeave service that runs it, the policy
+  the service needs to send Ctrl+Alt+Del, a data folder only SYSTEM and
+  administrators can read (it holds the device's private key), a firewall
+  rule for the local network, and the notification area app (apps/windows)
+  with its Start menu shortcut. An MSI rather than MSIX, because it
+  installs a service.
+
+  Built with WiX 5 (MS-RL; a build tool, nothing of it is shipped) from the
+  repository root, after `cargo build` and `dotnet publish` of the app;
+  apps/windows/scripts/package.ps1 does all three, and CI runs it:
+
+    wix build packaging/windows/InputWeave.wxs -arch x64 \
+      -ext WixToolset.Firewall.wixext -ext WixToolset.Util.wixext \
+      -d Version=0.1.0 -d BinDir=target/x86_64-pc-windows-msvc/release \
+      -bindpath App=target/app/win-x64 \
+      -o dist/InputWeave-0.1.0-x64.msi
+
+  The x64 package has been installed and run on Windows 11; the arm64 one
+  has not been installed yet.
+-->
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs"
+     xmlns:fw="http://wixtoolset.org/schemas/v4/wxs/firewall"
+     xmlns:util="http://wixtoolset.org/schemas/v4/wxs/util">
+  <Package Name="InputWeave" Manufacturer="InputWeave contributors"
+           Version="$(var.Version)" UpgradeCode="FF08A8CD-84F7-4759-9A9A-FBADF0F438B7"
+           Scope="perMachine">
+    <!-- A build of the same version replaces the installed one too, rather
+         than being installed next to it: every build of a version has the
+         same version number. -->
+    <MajorUpgrade AllowSameVersionUpgrades="yes"
+                  DowngradeErrorMessage="A newer version of InputWeave is already installed." />
+    <MediaTemplate EmbedCab="yes" />
+
+    <!-- Settings › Apps shows the app's icon. -->
+    <Icon Id="InputWeave.ico" SourceFile="apps/windows/InputWeave/Assets/InputWeave.ico" />
+    <Property Id="ARPPRODUCTICON" Value="InputWeave.ico" />
+
+    <!-- "#1" for a DWORD of 1, empty when the value is not set. -->
+    <Property Id="SASGENERATION">
+      <RegistrySearch Root="HKLM" Bitness="always64"
+                      Key="SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System"
+                      Name="SoftwareSASGeneration" Type="raw" />
+    </Property>
+
+    <Feature Id="Main" Title="InputWeave">
+      <ComponentGroupRef Id="Program" />
+      <ComponentGroupRef Id="App" />
+      <ComponentGroupRef Id="Data" />
+      <ComponentGroupRef Id="SasPolicy" />
+    </Feature>
+  </Package>
+
+  <Fragment>
+    <ComponentGroup Id="Program" Directory="INSTALLFOLDER">
+      <Component Id="Executable">
+        <File Id="InputWeaveExe" Source="$(var.BinDir)\inputweave.exe" KeyPath="yes">
+          <!-- Program-wide, so it covers QUIC on whatever port is
+               configured and mDNS, but only from the local network. -->
+          <fw:FirewallException Id="LocalNetwork" Name="InputWeave"
+                                Description="Lets your other computers on the local network connect to InputWeave."
+                                Scope="localSubnet" Profile="all" />
+        </File>
+        <!-- The service starts the agent in the console session and the
+             broker as the user logged on there. -->
+        <ServiceInstall Name="InputWeave" DisplayName="InputWeave"
+                        Description="Shares the keyboard, mouse, clipboard and files of this computer with your other computers."
+                        Type="ownProcess" Start="auto" ErrorControl="normal"
+                        Account="LocalSystem" Arguments="service" Vital="yes">
+          <!-- The service restarts the agent and broker; this restarts the
+               service itself if its process dies, every time, with the
+               failure count reset after a day. -->
+          <util:ServiceConfig FirstFailureActionType="restart"
+                              SecondFailureActionType="restart"
+                              ThirdFailureActionType="restart"
+                              RestartServiceDelayInSeconds="5"
+                              ResetPeriodInDays="1" />
+        </ServiceInstall>
+        <ServiceControl Id="InputWeave" Name="InputWeave"
+                        Start="install" Stop="both" Remove="uninstall" Wait="yes" />
+      </Component>
+      <!-- One unversioned file per component, so each gets a generated GUID. -->
+      <Component>
+        <File Source="LICENSE" />
+      </Component>
+      <Component>
+        <File Source="THIRD_PARTY_NOTICES.md" />
+      </Component>
+    </ComponentGroup>
+
+    <StandardDirectory Id="ProgramFiles6432Folder">
+      <Directory Id="INSTALLFOLDER" Name="InputWeave" />
+    </StandardDirectory>
+  </Fragment>
+
+  <Fragment>
+    <!-- The notification area app: what `dotnet publish` of
+         apps/windows/InputWeave puts out, self-contained, in
+         Program Files\InputWeave\App, with a Start menu shortcut. Only its
+         executable is written out here, for the shortcut and the launch at
+         the end; the rest of the folder is taken as it is. -->
+    <ComponentGroup Id="App" Directory="APPFOLDER">
+      <Component Id="AppExecutable">
+        <File Id="AppExe" Source="!(bindpath.App)\InputWeave.exe" KeyPath="yes">
+          <Shortcut Id="AppShortcut" Directory="ProgramMenuFolder" Name="InputWeave"
+                    Description="Share one keyboard and mouse with your other computers."
+                    WorkingDirectory="APPFOLDER" Advertise="no" />
+        </File>
+      </Component>
+      <Files Include="!(bindpath.App)\**">
+        <Exclude Files="!(bindpath.App)\InputWeave.exe" />
+      </Files>
+    </ComponentGroup>
+
+    <DirectoryRef Id="INSTALLFOLDER">
+      <Directory Id="APPFOLDER" Name="App" />
+    </DirectoryRef>
+    <StandardDirectory Id="ProgramMenuFolder" />
+
+    <!-- The files of a running app cannot be replaced or removed, so
+         whenever they change (install, upgrade, repair, uninstall) the app
+         is ended first, in every session. CloseApplication finds it by
+         name only, and to Windows the service, the agent and the broker
+         are inputweave.exe too. So it runs after StopServices, and only
+         when the service's files change as well, which is when
+         StopServices has stopped the service: running the installed
+         package again changes neither, and would otherwise end the service
+         too. Ending the app loses nothing; it only shows the service.
+         Restart Manager stays on (MSIRESTARTMANAGERCONTROL unset): without
+         it, Windows Installer looks for files in use by name, takes the
+         Windows App SDK DLLs that Explorer and other system processes load
+         for the app's, and asks the user to close those. -->
+    <util:CloseApplication Id="CloseApp" Target="InputWeave.exe"
+                           TerminateProcess="1" RebootPrompt="no"
+                           Condition="$AppExecutable &gt; 1 AND $Executable &gt; 1" />
+    <InstallExecuteSequence>
+      <Custom Action="override Wix4CloseApplications_$(sys.BUILDARCHSHORT)" After="StopServices"
+              Condition="VersionNT &gt; 400" />
+    </InstallExecuteSequence>
+
+    <!-- Opens the app once it is installed, upgraded or repaired,
+         not elevated: the signed-in user's Explorer
+         starts it, also when the installer itself runs elevated, from
+         another session or as SYSTEM. Its first run opens setup; from then
+         on it starts at login on its own, through its own Run value
+         (below). Nothing to open it in, as when no one is signed in, is not
+         a failure. -->
+    <Property Id="WixUnelevatedShellExecTarget" Value="[#AppExe]" />
+    <CustomAction Id="OpenApp" BinaryRef="Wix4UtilCA_$(sys.BUILDARCHSHORT)" DllEntry="WixUnelevatedShellExec"
+                  Execute="immediate" Impersonate="yes" Return="ignore" />
+
+    <!-- What the app puts in place for each user is the app's to take
+         back: its notification registration (HKCU\Software\Classes), the
+         Send To shortcut, opening at login (the value "InputWeave" under
+         HKCU\Software\Microsoft\Windows\CurrentVersion\Run, which it writes
+         and removes itself, Settings › General) and its settings
+         (HKCU\Software\InputWeave). Uninstalling, but not upgrading, runs
+         the app with its unregister argument as the user who uninstalls:
+         deferred and impersonated, once the running app has been ended
+         (CloseApp, after StopServices) and before its files go
+         (RemoveFiles). Other users keep theirs, pointing at a file that is
+         gone. A failure does not stop the uninstall. -->
+    <SetProperty Id="UnregisterApp" Sequence="execute" Before="UnregisterApp"
+                 Value="&quot;[APPFOLDER]InputWeave.exe&quot; --unregister" />
+    <CustomAction Id="UnregisterApp" BinaryRef="Wix4UtilCA_$(sys.BUILDARCHSHORT)" DllEntry="WixQuietExec"
+                  Execute="deferred" Impersonate="yes" Return="ignore" />
+
+    <InstallExecuteSequence>
+      <Custom Action="UnregisterApp" Before="RemoveRegistryValues"
+              Condition="REMOVE~=&quot;ALL&quot; AND NOT UPGRADINGPRODUCTCODE" />
+      <Custom Action="OpenApp" After="InstallFinalize" Condition="$AppExecutable = 3" />
+    </InstallExecuteSequence>
+  </Fragment>
+
+  <Fragment>
+    <!-- %ProgramData%\InputWeave: configuration, devices, the identity and
+         logs. Not inherited from %ProgramData%, which lets users read and
+         create files. It stays after uninstalling, so a reinstall keeps
+         its pairings. A component keyed on a folder needs a fixed GUID. -->
+    <ComponentGroup Id="Data" Directory="DATAFOLDER">
+      <Component Id="DataFolder" Guid="D6E5385E-B74B-4643-8FDD-58A6C0299A4B">
+        <CreateFolder>
+          <PermissionEx Sddl="D:PAI(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)" />
+        </CreateFolder>
+      </Component>
+    </ComponentGroup>
+
+    <StandardDirectory Id="CommonAppDataFolder">
+      <Directory Id="DATAFOLDER" Name="InputWeave" />
+    </StandardDirectory>
+  </Fragment>
+
+  <Fragment>
+    <!-- SendSAS needs SoftwareSASGeneration to include services (1 or 3;
+         see crates/iw-winsvc/src/policy.rs). A value that already does is
+         left alone, Ease of Access only (2) becomes both (3). Permanent,
+         so upgrades do not drop it; uninstalling leaves it too. Both write
+         the same value, so they need GUIDs of their own. -->
+    <ComponentGroup Id="SasPolicy" Directory="INSTALLFOLDER">
+      <Component Id="SasForServices" Guid="E3F71837-9AC7-469B-A097-81D9A5A20549"
+                 Bitness="always64" Permanent="yes"
+                 Condition="NOT SASGENERATION OR SASGENERATION = &quot;#0&quot;">
+        <RegistryValue Root="HKLM" Key="SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System"
+                       Name="SoftwareSASGeneration" Type="integer" Value="1" KeyPath="yes" />
+      </Component>
+      <Component Id="SasForBoth" Guid="092188E4-B8F6-479A-8300-28B5C55151A6"
+                 Bitness="always64" Permanent="yes"
+                 Condition="SASGENERATION = &quot;#2&quot;">
+        <RegistryValue Root="HKLM" Key="SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System"
+                       Name="SoftwareSASGeneration" Type="integer" Value="3" KeyPath="yes" />
+      </Component>
+    </ComponentGroup>
+  </Fragment>
+</Wix>

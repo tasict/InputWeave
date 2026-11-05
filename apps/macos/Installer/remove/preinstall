@@ -1,0 +1,3 @@
+#!/bin/sh
+# "Remove InputWeave": everything but pairings and received files.
+exec sh "$(dirname "$0")/uninstall.sh"

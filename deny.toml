@@ -1,0 +1,32 @@
+# cargo-deny configuration. Run in CI with `cargo deny check`.
+
+[graph]
+all-features = true
+
+[licenses]
+# Permissive licenses only. InputWeave itself is GPL-3.0-or-later, but its
+# dependencies stay permissive (no GPL, LGPL, AGPL or MPL), so the project's
+# own code can also be offered under other terms.
+allow = [
+    "MIT",
+    "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "ISC",
+    "Unicode-3.0",
+    "Zlib",
+]
+confidence-threshold = 0.93
+# Our own crates (publish = false) are GPL-3.0-or-later; the allowlist
+# above is for dependencies, so leave unpublished workspace crates out.
+private = { ignore = true }
+
+[bans]
+multiple-versions = "warn"
+wildcards = "deny"
+allow-wildcard-paths = true
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"

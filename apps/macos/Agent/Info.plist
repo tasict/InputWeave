@@ -1,0 +1,65 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- The background service's bundle. macOS attributes Accessibility,
+	     Input Monitoring and Local Network to it, and lists it in System
+	     Settings by its bundle name, "InputWeave Agent". The identifier
+	     and the signing identity must stay the same across updates, or
+	     macOS forgets the permissions. -->
+	<key>CFBundleIdentifier</key>
+	<string>cc.ctsite.inputweave.agent</string>
+	<!-- The usage descriptions below show in system prompts, translated
+	     from <lang>.lproj/InfoPlist.strings (Agent/, copied in by
+	     scripts/embed-agent.sh). -->
+	<key>CFBundleDevelopmentRegion</key>
+	<string>en</string>
+	<key>CFBundleLocalizations</key>
+	<array>
+		<string>en</string>
+		<string>zh-Hant</string>
+	</array>
+	<key>CFBundleName</key>
+	<string>InputWeave Agent</string>
+	<key>CFBundleDisplayName</key>
+	<string>InputWeave</string>
+	<key>CFBundleExecutable</key>
+	<string>inputweave</string>
+	<key>CFBundleIconFile</key>
+	<string>AppIcon</string>
+	<key>CFBundlePackageType</key>
+	<string>APPL</string>
+	<key>CFBundleInfoDictionaryVersion</key>
+	<string>6.0</string>
+	<key>CFBundleShortVersionString</key>
+	<string>0.1.0</string>
+	<key>CFBundleVersion</key>
+	<string>1</string>
+	<key>LSMinimumSystemVersion</key>
+	<string>15.0</string>
+	<key>LSUIElement</key>
+	<true/>
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>InputWeave finds your other computers on the local network and shares the keyboard, mouse and clipboard with them.</string>
+	<key>NSBonjourServices</key>
+	<array>
+		<string>_inputweave._udp</string>
+	</array>
+	<!-- Shown when macOS asks for the folders it protects: first-run setup
+	     has the agent list Downloads, Desktop and Documents
+	     (RequestFolderAccess); network and removable volumes are asked
+	     about when a transfer first uses one. macOS 27 asks for the app,
+	     whose Info.plist has the same (project.yml, InfoPlist.xcstrings);
+	     these are for a macOS that asks for the service itself. -->
+	<key>NSDownloadsFolderUsageDescription</key>
+	<string>InputWeave saves files your other computers send you in Downloads, and sends files from there that you drag or send to them.</string>
+	<key>NSDesktopFolderUsageDescription</key>
+	<string>InputWeave sends files on the desktop that you drag or send to your other computers, and saves files you drop there.</string>
+	<key>NSDocumentsFolderUsageDescription</key>
+	<string>InputWeave sends files in Documents that you drag or send to your other computers, and saves files you drop there.</string>
+	<key>NSNetworkVolumesUsageDescription</key>
+	<string>InputWeave sends files on network volumes that you drag or send to your other computers, and saves files you drop there.</string>
+	<key>NSRemovableVolumesUsageDescription</key>
+	<string>InputWeave sends files on removable volumes that you drag or send to your other computers, and saves files you drop there.</string>
+</dict>
+</plist>

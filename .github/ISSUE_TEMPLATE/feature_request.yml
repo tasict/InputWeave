@@ -1,0 +1,21 @@
+name: Feature request
+description: Suggest something InputWeave could do
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: What you want to do
+      description: The situation and what gets in your way today. Describe the need before the solution.
+    validations:
+      required: true
+  - type: textarea
+    id: idea
+    attributes:
+      label: How you imagine it working
+      description: What you would see or do in the app. Optional.
+  - type: input
+    id: platforms
+    attributes:
+      label: Platforms
+      description: Which systems this matters on, e.g. macOS + Windows 11, Ubuntu 24.04 (Wayland).

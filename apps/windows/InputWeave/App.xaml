@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Application
+    x:Class="InputWeave.App"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <Application.Resources>
+        <ResourceDictionary>
+            <ResourceDictionary.MergedDictionaries>
+                <XamlControlsResources xmlns="using:Microsoft.UI.Xaml.Controls" />
+            </ResourceDictionary.MergedDictionaries>
+            <!-- The five brand colors; everything
+                 else uses the system's semantic colors. -->
+            <ResourceDictionary.ThemeDictionaries>
+                <ResourceDictionary x:Key="Light">
+                    <SolidColorBrush x:Key="BrandThreadBrush" Color="#8E3FD8" />
+                    <SolidColorBrush x:Key="BrandCanvasBrush" Color="#ECEDF1" />
+                    <SolidColorBrush x:Key="BrandGridBrush" Color="#D3D5DC" />
+                    <SolidColorBrush x:Key="BrandTileBrush" Color="#FFFFFF" />
+                    <SolidColorBrush x:Key="BrandTileEdgeBrush" Color="#C4C7D0" />
+                </ResourceDictionary>
+                <ResourceDictionary x:Key="Dark">
+                    <SolidColorBrush x:Key="BrandThreadBrush" Color="#BF8CFF" />
+                    <SolidColorBrush x:Key="BrandCanvasBrush" Color="#18191D" />
+                    <SolidColorBrush x:Key="BrandGridBrush" Color="#2C2E35" />
+                    <SolidColorBrush x:Key="BrandTileBrush" Color="#2A2C33" />
+                    <SolidColorBrush x:Key="BrandTileEdgeBrush" Color="#41444E" />
+                </ResourceDictionary>
+                <!-- High contrast: the user's own colors. -->
+                <ResourceDictionary x:Key="HighContrast">
+                    <StaticResource x:Key="BrandThreadBrush" ResourceKey="SystemColorHighlightColorBrush" />
+                    <StaticResource x:Key="BrandCanvasBrush" ResourceKey="SystemColorWindowColorBrush" />
+                    <StaticResource x:Key="BrandGridBrush" ResourceKey="SystemColorWindowTextColorBrush" />
+                    <StaticResource x:Key="BrandTileBrush" ResourceKey="SystemColorWindowColorBrush" />
+                    <StaticResource x:Key="BrandTileEdgeBrush" ResourceKey="SystemColorWindowTextColorBrush" />
+                </ResourceDictionary>
+            </ResourceDictionary.ThemeDictionaries>
+        </ResourceDictionary>
+    </Application.Resources>
+</Application>

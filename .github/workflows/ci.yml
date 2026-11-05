@@ -1,0 +1,93 @@
+# Builds and tests every platform. The Windows
+# jobs are the only place the Windows backends, the named pipe and the
+# service are compiled natively and their tests run.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  linux:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - run: cargo fmt --all -- --check
+      - run: cargo clippy --workspace --all-targets -- -D warnings
+      - run: cargo test --workspace
+
+  licenses:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      # deny.toml allows permissive licenses only: no GPL, LGPL or AGPL.
+      - uses: EmbarkStudios/cargo-deny-action@v2
+
+  macos:
+    # The generated Swift protobuf code needs Swift 6.2 (Xcode 26).
+    runs-on: macos-26
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+          targets: aarch64-apple-darwin, x86_64-apple-darwin
+      - run: cargo clippy --workspace --all-targets -- -D warnings
+      - run: cargo test --workspace
+      - run: brew install xcodegen
+      - run: xcodegen generate --spec apps/macos/project.yml
+      # Includes the app's IPC tests against the embedded agent.
+      - run: xcodebuild -project apps/macos/InputWeave.xcodeproj -scheme InputWeave -destination platform=macOS test
+      # The app signed ad hoc, the installer package unsigned: for trying
+      # builds, not for release.
+      - run: apps/macos/scripts/package.sh dist
+      - uses: actions/upload-artifact@v4
+        with:
+          name: InputWeave-macOS
+          path: dist/*.pkg
+
+  windows:
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: x64
+            target: x86_64-pc-windows-msvc
+            runner: windows-2025
+          - arch: arm64
+            target: aarch64-pc-windows-msvc
+            runner: windows-11-arm
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+          targets: ${{ matrix.target }}
+      - run: cargo clippy --workspace --all-targets --target ${{ matrix.target }} -- -D warnings
+      - run: cargo test --workspace --target ${{ matrix.target }}
+      # The notification area app (apps/windows) is .NET 9.
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 9.0.x
+      # WiX 5: later versions come with a maintenance fee agreement.
+      - run: |
+          dotnet tool install --global wix --version 5.0.2
+          wix extension add --global WixToolset.Firewall.wixext/5.0.2
+          wix extension add --global WixToolset.Util.wixext/5.0.2
+      # The background service (cargo build --release), the app (dotnet
+      # publish for win-x64 or win-arm64) and the MSI around both, exactly
+      # as a local package is built.
+      - run: apps/windows/scripts/package.ps1 -Arch ${{ matrix.arch }}
+        shell: pwsh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: InputWeave-Windows-${{ matrix.arch }}
+          path: dist/*.msi

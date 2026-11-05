@@ -1,0 +1,4386 @@
+{
+  "sourceLanguage": "en",
+  "strings": {
+    "%@ can't be reached.": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無法連線到「%@」。"
+          }
+        }
+      }
+    },
+    "%@ cannot be reached. Check that both computers are on the same network.": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無法連線到「%@」。請確認兩台電腦在同一個網路上。"
+          }
+        }
+      }
+    },
+    "%@ could not take the file.": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "「%@」無法接收這個檔案。"
+          }
+        }
+      }
+    },
+    "%@ declined the file.": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "「%@」拒絕了這個檔案。"
+          }
+        }
+      }
+    },
+    "%@ declined the pairing.": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "「%@」拒絕了配對。"
+          }
+        }
+      }
+    },
+    "%@ does not accept new devices.": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "「%@」目前不接受新裝置配對。"
+          }
+        }
+      }
+    },
+    "%@ does not receive files.": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "「%@」不接收檔案。"
+          }
+        }
+      }
+    },
+    "%@ is pairing with another computer. Try again in a moment.": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "「%@」正在和其他電腦配對，請稍後再試。"
+          }
+        }
+      }
+    },
+    "%@ left": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "剩下 %@"
+          }
+        }
+      }
+    },
+    "%@ needs %@ more free space.": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "「%1$@」還需要 %2$@ 的可用空間。"
+          }
+        }
+      }
+    },
+    "%@ runs a version of InputWeave that cannot pair with this one. Update both.": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "「%@」的 InputWeave 版本無法和這台配對，請將兩台都更新。"
+          }
+        }
+      }
+    },
+    "%@ uses the same device ID as a computer you already have.": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "「%@」的裝置 ID 和已有的電腦相同。"
+          }
+        }
+      }
+    },
+    "%@ wants to send you %u items (%@, %@).": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "「%1$@」想傳送 %2$u 個項目給你（%3$@，%4$@）。"
+          }
+        }
+      }
+    },
+    "%@ wants to send you a file": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "「%@」想傳送檔案給你"
+          }
+        }
+      }
+    },
+    "%@ wants to send you files": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "「%@」想傳送檔案給你"
+          }
+        }
+      }
+    },
+    "%@ wants to send you this file (%@).": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "「%1$@」想傳送這個檔案給你（%2$@）。"
+          }
+        }
+      }
+    },
+    "%@ wants to send you this folder (%@, %@).": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "「%1$@」想傳送這個資料夾給你（%2$@，%3$@）。"
+          }
+        }
+      }
+    },
+    "%@ · %@/s · %@": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@・%2$@/s・%3$@"
+          }
+        }
+      }
+    },
+    "%@, %lld screens, next to %@": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@，%2$lld 個螢幕，緊鄰 %3$@"
+          }
+        }
+      }
+    },
+    "%@, %lld screens, not next to another computer": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@，%2$lld 個螢幕，沒有和其他電腦相接"
+          }
+        }
+      }
+    },
+    "%lld more…": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "還有 %lld 個…"
+          }
+        }
+      }
+    },
+    "%u files": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%u 個檔案"
+          }
+        }
+      }
+    },
+    "%u items (%@, %@)": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$u 個項目（%2$@，%3$@）"
+          }
+        }
+      }
+    },
+    "%u of %@ · %@": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%2$@中的 %1$u 個・%3$@"
+          }
+        }
+      }
+    },
+    "%u received, %u failed": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$u 個已收到，%2$u 個失敗"
+          }
+        }
+      }
+    },
+    "%u sent, %u failed": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$u 個已傳送，%2$u 個失敗"
+          }
+        }
+      }
+    },
+    ", %lld files could not be sent": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "，有 %lld 個檔案無法傳送"
+          }
+        }
+      }
+    },
+    ", 1 file could not be sent": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "，有 1 個檔案無法傳送"
+          }
+        }
+      }
+    },
+    "1 file": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1 個檔案"
+          }
+        }
+      }
+    },
+    "A name is 1 to 64 characters.": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "名稱長度為 1 到 64 個字元。"
+          }
+        }
+      }
+    },
+    "A password field is active, so keystrokes can't reach other computers right now.": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "密碼欄位使用中，按鍵暫時無法傳到其他電腦。"
+          }
+        }
+      }
+    },
+    "A short glow in the seam color shows where the cursor left this computer's screen, or came in.": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "游標離開或進入這台螢幕的地方，邊緣會短暫亮起縫線色的光。"
+          }
+        }
+      }
+    },
+    "A text file to attach when reporting a problem: versions, settings, connection state and recent logs. It contains no keys, file names or clipboard contents.": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "回報問題時可以附上的文字檔，內容包括版本、設定、連線狀態與最近的記錄；不含金鑰、檔名或剪貼簿內容。"
+          }
+        }
+      }
+    },
+    "About InputWeave": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "關於 InputWeave"
+          }
+        }
+      }
+    },
+    "Accept": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "接受"
+          }
+        }
+      }
+    },
+    "Accessibility": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "輔助使用"
+          }
+        }
+      }
+    },
+    "Acknowledgments": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "致謝"
+          }
+        }
+      }
+    },
+    "Acknowledgments…": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "致謝…"
+          }
+        }
+      }
+    },
+    "Add Device": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新增裝置"
+          }
+        }
+      }
+    },
+    "Add Device…": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新增裝置…"
+          }
+        }
+      }
+    },
+    "Add by IP Address": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "用 IP 位址新增"
+          }
+        }
+      }
+    },
+    "After quitting, this computer stops sharing its keyboard, mouse, clipboard and files with your other computers until you log in again or reopen InputWeave. If you only hide the menu bar icon, open InputWeave from the Applications folder to show it again.": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "結束後，這台電腦不會再和其他電腦共享鍵鼠、剪貼簿和檔案，直到下次登入或重新開啟 InputWeave。如果只隱藏選單列圖示，之後從「應用程式」再開啟一次 InputWeave，圖示就會重新出現。"
+          }
+        }
+      }
+    },
+    "Allow Access": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "允許存取"
+          }
+        }
+      }
+    },
+    "Allow in the Background": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "允許在背景執行"
+          }
+        }
+      }
+    },
+    "Allowed": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已允許"
+          }
+        }
+      }
+    },
+    "Also delete pairings; other computers will have to pair with this Mac again": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "一併刪除配對資料；其他電腦需要重新和這台 Mac 配對"
+          }
+        }
+      }
+    },
+    "Always": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "總是"
+          }
+        }
+      }
+    },
+    "And %lld more": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "還有 %lld 個"
+          }
+        }
+      }
+    },
+    "Another pairing is in progress.": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "另一個配對正在進行中。"
+          }
+        }
+      }
+    },
+    "Applies from the next time the login window shows, such as after you log out, as long as you were the last to log in. With FileVault on, a Mac that restarts asks for its password before macOS starts, so it doesn't apply then.": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "從下一次出現登入視窗起生效，例如登出之後，前提是最後登入的是你。開啟 FileVault 時，Mac 重新開機後會在 macOS 啟動前先要求密碼，那時無法使用。"
+          }
+        }
+      }
+    },
+    "Arrangement": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "排列"
+          }
+        }
+      }
+    },
+    "Ask each time": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "每次詢問"
+          }
+        }
+      }
+    },
+    "Back": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "上一步"
+          }
+        }
+      }
+    },
+    "Back on this computer.": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已切回這台。"
+          }
+        }
+      }
+    },
+    "Background service": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "背景服務"
+          }
+        }
+      }
+    },
+    "Can control other computers": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "可以控制其他電腦"
+          }
+        }
+      }
+    },
+    "Can't take input": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無法輸入"
+          }
+        }
+      }
+    },
+    "Can't take input · %lld ms": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無法輸入・%lld ms"
+          }
+        }
+      }
+    },
+    "Cancel": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "取消"
+          }
+        }
+      }
+    },
+    "Cancel %@": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "取消 %@"
+          }
+        }
+      }
+    },
+    "Cancelled": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已取消"
+          }
+        }
+      }
+    },
+    "Cannot control other computers yet": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "還無法控制其他電腦"
+          }
+        }
+      }
+    },
+    "Check Again": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "重新檢查"
+          }
+        }
+      }
+    },
+    "Check Now…": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "立即檢查…"
+          }
+        }
+      }
+    },
+    "Check for Updates…": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "檢查更新…"
+          }
+        }
+      }
+    },
+    "Check for updates automatically": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "自動檢查更新"
+          }
+        }
+      }
+    },
+    "Check that %@ is connected, then try again.": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "請確認「%@」已連線，再試一次。"
+          }
+        }
+      }
+    },
+    "Checking the file…": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在檢查檔案…"
+          }
+        }
+      }
+    },
+    "Choose": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "選擇"
+          }
+        }
+      }
+    },
+    "Choose…": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "選擇…"
+          }
+        }
+      }
+    },
+    "Clear History": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "清除紀錄"
+          }
+        }
+      }
+    },
+    "Clear History…": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "清除紀錄…"
+          }
+        }
+      }
+    },
+    "Clear the transfer history?": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "要清除傳輸紀錄嗎？"
+          }
+        }
+      }
+    },
+    "Clipboard": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "剪貼簿"
+          }
+        }
+      }
+    },
+    "Clipboard: sent to %@ %@ (%@)": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "剪貼簿：%2$@同步到「%1$@」（%3$@）"
+          }
+        }
+      }
+    },
+    "Clipboard: synced from %@ %@ (%@)": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "剪貼簿：%2$@從「%1$@」同步（%3$@）"
+          }
+        }
+      }
+    },
+    "Computers are numbered from left to right in the arrangement, and each number is shown next to the computer's name. While recording, press Esc to cancel or Delete to go back to the default.": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "電腦依排列由左到右編號，編號顯示在電腦名稱旁邊。錄製時按 Esc 取消，按 Delete 回到預設值。"
+          }
+        }
+      }
+    },
+    "Connect another computer": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "連接另一台"
+          }
+        }
+      }
+    },
+    "Connected": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已連線"
+          }
+        }
+      }
+    },
+    "Connected · %lld ms": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已連線・%lld ms"
+          }
+        }
+      }
+    },
+    "Connecting…": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "連線中…"
+          }
+        }
+      }
+    },
+    "Continue": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "繼續"
+          }
+        }
+      }
+    },
+    "Controlled by %@": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "由 %@ 控制中"
+          }
+        }
+      }
+    },
+    "Controlling %@": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在控制 %@"
+          }
+        }
+      }
+    },
+    "Copy on one computer, paste on the next.": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在一台電腦複製，到下一台直接貼上。"
+          }
+        }
+      }
+    },
+    "Could not be checked": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無法檢查"
+          }
+        }
+      }
+    },
+    "Cursor on %@": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "游標在：%@"
+          }
+        }
+      }
+    },
+    "Decline": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "拒絕"
+          }
+        }
+      }
+    },
+    "Declined": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已拒絕"
+          }
+        }
+      }
+    },
+    "Desktop": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "桌面"
+          }
+        }
+      }
+    },
+    "Desktop pictures": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "桌面背景"
+          }
+        }
+      }
+    },
+    "Details": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "明細"
+          }
+        }
+      }
+    },
+    "Detects when the cursor reaches the edge of the screen.": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "偵測游標什麼時候碰到螢幕邊緣。"
+          }
+        }
+      }
+    },
+    "Detects when the cursor reaches the edge of the screen. Granted with Device Control and Data Access.": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "偵測游標什麼時候碰到螢幕邊緣。打開「裝置控制和資料取用」時會一併取得。"
+          }
+        }
+      }
+    },
+    "Device ID": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "裝置 ID"
+          }
+        }
+      }
+    },
+    "Devices": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "裝置"
+          }
+        }
+      }
+    },
+    "Dismiss": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "關閉"
+          }
+        }
+      }
+    },
+    "Documents": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "文件"
+          }
+        }
+      }
+    },
+    "Done": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "完成"
+          }
+        }
+      }
+    },
+    "Downloads": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "下載項目"
+          }
+        }
+      }
+    },
+    "Downloads, Desktop and Documents": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "下載項目、桌面和文件"
+          }
+        }
+      }
+    },
+    "Drag “%@” to where it sits on your desk.": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "把「%@」拖到它在桌上的實際位置。"
+          }
+        }
+      }
+    },
+    "Dragging %u items to “%@”": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在把 %1$u 個項目拖到「%2$@」"
+          }
+        }
+      }
+    },
+    "Dragging 1 item to “%@”": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在把 1 個項目拖到「%@」"
+          }
+        }
+      }
+    },
+    "Drop files on a computer in the arrangement or the menu bar map, or choose them here.": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "把檔案拖到排列畫面或選單列小地圖上的電腦，或在這裡選擇檔案。"
+          }
+        }
+      }
+    },
+    "Drop files on a computer to send them.": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "把檔案拖到某台電腦上，就傳送過去。"
+          }
+        }
+      }
+    },
+    "Drop the items where you want them": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "把項目放到想放的位置"
+          }
+        }
+      }
+    },
+    "Drop to send": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "放開即可傳送"
+          }
+        }
+      }
+    },
+    "Enter the code shown on “%@”": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "輸入「%@」上顯示的配對碼"
+          }
+        }
+      }
+    },
+    "Enter this code on “%@”": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在「%@」上輸入這組配對碼"
+          }
+        }
+      }
+    },
+    "Everything is working.": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "一切運作正常。"
+          }
+        }
+      }
+    },
+    "Export Diagnostics…": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "匯出診斷資料…"
+          }
+        }
+      }
+    },
+    "File Transfers": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "檔案傳輸"
+          }
+        }
+      }
+    },
+    "Files and Folders": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "檔案與資料夾"
+          }
+        }
+      }
+    },
+    "Files turned off": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已關閉互傳檔案"
+          }
+        }
+      }
+    },
+    "Files with “%@” are turned off.": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已關閉和「%@」互傳檔案。"
+          }
+        }
+      }
+    },
+    "Finished transfers are taken off the list. The files stay where they are, and transfers still going stay listed.": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已結束的傳輸會從清單中移除。檔案仍會留在原來的位置，進行中的傳輸也會保留。"
+          }
+        }
+      }
+    },
+    "Folder": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "資料夾"
+          }
+        }
+      }
+    },
+    "General": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "一般"
+          }
+        }
+      }
+    },
+    "Get Started": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "開始設定"
+          }
+        }
+      }
+    },
+    "Granted": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已授權"
+          }
+        }
+      }
+    },
+    "Hide Menu Bar Icon Only": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "只隱藏選單列圖示"
+          }
+        }
+      }
+    },
+    "Hold the key as the cursor reaches the edge of the screen, going either way. Shortcuts and clicks on the menu bar map move the cursor without it.": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "游標碰到螢幕邊緣時要按住這個鍵，往哪個方向都一樣。用快速鍵或點選單列小地圖移動游標時不必按住。"
+          }
+        }
+      }
+    },
+    "InputWeave keeps its settings in another folder here, set in its configuration file, and the login window only reads the usual one.": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "這台 Mac 的 InputWeave 依設定檔把設定放在別的資料夾，登入視窗只讀一般的位置。"
+          }
+        }
+      }
+    },
+    "InputWeave on “%@” doesn't support relative mouse.": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "「%@」的 InputWeave 版本不支援相對滑鼠。"
+          }
+        }
+      }
+    },
+    "IP address": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "IP 位址"
+          }
+        }
+      }
+    },
+    "Identify Screens": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "識別螢幕"
+          }
+        }
+      }
+    },
+    "If this does not change within a few seconds, restart the background service.": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "如果幾秒後仍然沒有改變，請重新啟動背景服務。"
+          }
+        }
+      }
+    },
+    "In System Settings › Privacy & Security, turn on “InputWeave Agent” in both the Accessibility list and the Input Monitoring list. This page checks every second.": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在「系統設定 › 隱私權與安全性」的「輔助使用」和「輸入監控」兩個清單中，都打開「InputWeave Agent」。這個頁面每秒都會重新檢查。"
+          }
+        }
+      }
+    },
+    "In System Settings › Privacy & Security, turn on “InputWeave Agent” in the Device Control and Data Access list. That also grants Input Monitoring. This page checks every second.": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在「系統設定 › 隱私權與安全性」的「裝置控制和資料取用」清單中，打開「InputWeave Agent」，輸入監控權限也會一併取得。這個頁面每秒都會重新檢查。"
+          }
+        }
+      }
+    },
+    "Input Monitoring": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "輸入監控"
+          }
+        }
+      }
+    },
+    "InputWeave": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "InputWeave"
+          }
+        }
+      }
+    },
+    "InputWeave could not be uninstalled": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無法解除安裝 InputWeave"
+          }
+        }
+      }
+    },
+    "InputWeave keeps running in the background. Closing its window or menu bar icon does not stop sharing.": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "InputWeave 會在背景執行。關掉視窗或選單列圖示，都不會停止鍵鼠共享。"
+          }
+        }
+      }
+    },
+    "InputWeave needs the Accessibility permission to control this computer.": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "需要「輔助使用」權限，才能控制這台電腦。"
+          }
+        }
+      }
+    },
+    "InputWeave needs the Input Monitoring permission to detect the cursor at the screen edge.": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "需要「輸入監控」權限，才能偵測游標碰到邊緣。"
+          }
+        }
+      }
+    },
+    "InputWeave wants to remove itself and its background service.": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "InputWeave 要移除自己和背景服務。"
+          }
+        }
+      }
+    },
+    "InputWeave's Accessibility permission was turned off, so sharing stopped.": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "InputWeave 的「輔助使用」權限已被關閉，鍵鼠共享已停止。"
+          }
+        }
+      }
+    },
+    "InputWeave's Input Monitoring permission was turned off, so sharing stopped.": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "InputWeave 的「輸入監控」權限已被關閉，鍵鼠共享已停止。"
+          }
+        }
+      }
+    },
+    "InputWeave, controlled by another computer": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "InputWeave，由其他電腦控制中"
+          }
+        }
+      }
+    },
+    "InputWeave, controlling another computer": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "InputWeave，正在控制其他電腦"
+          }
+        }
+      }
+    },
+    "InputWeave, needs attention": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "InputWeave，需要處理"
+          }
+        }
+      }
+    },
+    "InputWeave, sharing": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "InputWeave，鍵鼠共享中"
+          }
+        }
+      }
+    },
+    "InputWeave, sharing paused": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "InputWeave，鍵鼠共享已暫停"
+          }
+        }
+      }
+    },
+    "Install InputWeave on another computer on this network, then add it here.": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在同一個網路的另一台電腦安裝 InputWeave，再回到這裡新增。"
+          }
+        }
+      }
+    },
+    "Install and open InputWeave on another computer on this network, and it appears here.": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "請在同一個網路的另一台電腦安裝並開啟 InputWeave，它就會出現在這裡。"
+          }
+        }
+      }
+    },
+    "It calls itself “%@”.": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "這台電腦自稱「%@」。"
+          }
+        }
+      }
+    },
+    "It works. Press %@ to take back control at any time.": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "成功了。按 %@ 可以隨時切回這台。"
+          }
+        }
+      }
+    },
+    "Its log appears once it has started. Restart the background service, then try again.": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "背景服務啟動後就會產生記錄。請重新啟動背景服務，再試一次。"
+          }
+        }
+      }
+    },
+    "Jump here with %@": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "按 %@ 跳到這台"
+          }
+        }
+      }
+    },
+    "Jump to computer N": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "跳到第 N 台電腦"
+          }
+        }
+      }
+    },
+    "Keyboard and mouse here": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "鍵鼠在這台"
+          }
+        }
+      }
+    },
+    "Later": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "稍後再說"
+          }
+        }
+      }
+    },
+    "Let other computers control this Mac at the login window": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "讓其他電腦在登入視窗也能控制這台 Mac"
+          }
+        }
+      }
+    },
+    "Lets InputWeave send the files you drag or choose there, and save the files it receives in Downloads › InputWeave or where you drop them.": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "讓 InputWeave 傳送你從這些資料夾拖曳或選擇的檔案，並把收到的檔案存到「下載項目 › InputWeave」或你拖放的位置。"
+          }
+        }
+      }
+    },
+    "Lets this computer's keyboard and mouse control other computers, and lets them control this one.": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "讓這台電腦的鍵鼠控制其他電腦，也讓其他電腦控制這台。"
+          }
+        }
+      }
+    },
+    "Light up the screen edge when the cursor crosses to another computer": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "游標跨到其他電腦時，在螢幕邊緣顯示光"
+          }
+        }
+      }
+    },
+    "Lock screen": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "鎖定畫面"
+          }
+        }
+      }
+    },
+    "Lock to This Computer": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "鎖定在這台電腦"
+          }
+        }
+      }
+    },
+    "Lock to the current computer": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "鎖定在目前的電腦"
+          }
+        }
+      }
+    },
+    "Locked to %@": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已鎖定在 %@"
+          }
+        }
+      }
+    },
+    "Locked to this computer. Press %@ to unlock.": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已鎖定在這台電腦。按 %@ 解除鎖定。"
+          }
+        }
+      }
+    },
+    "Locked to “%@”. Press %@ to unlock.": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已鎖定在「%1$@」。按 %2$@ 解除鎖定。"
+          }
+        }
+      }
+    },
+    "Looks at the folders again, after you changed them in System Settings.": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在系統設定改過之後，重新檢查這些資料夾。"
+          }
+        }
+      }
+    },
+    "macOS asks about each folder only once. To allow one now, turn it on for “InputWeave” in System Settings › Privacy & Security › Files & Folders.": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "macOS 對每個資料夾只問一次。現在要允許，請在「系統設定 › 隱私權與安全性 › 檔案和檔案夾」中，為「InputWeave」打開它。"
+          }
+        }
+      }
+    },
+    "macOS asks once for each folder InputWeave sends files from or saves them in. Ask now, so a transfer is not interrupted.": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "InputWeave 傳送或儲存檔案用到的每個資料夾，macOS 都會問一次。現在先問，傳送檔案時就不會被打斷。"
+          }
+        }
+      }
+    },
+    "macOS asks once for each folder InputWeave uses, and for notifications. Allow them now, so nothing interrupts your first transfer.": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "InputWeave 用到的每個資料夾和通知，macOS 都會各問一次。現在先允許，第一次傳送檔案時就不會被打斷。"
+          }
+        }
+      }
+    },
+    "Main": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "主螢幕"
+          }
+        }
+      }
+    },
+    "Missing from the app; reinstall InputWeave": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "App 中缺少背景服務，請重新安裝 InputWeave"
+          }
+        }
+      }
+    },
+    "More": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "更多"
+          }
+        }
+      }
+    },
+    "More than this computer takes at once.": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "超過這台一次接收的上限。"
+          }
+        }
+      }
+    },
+    "Move Cursor Here": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "把游標移到這裡"
+          }
+        }
+      }
+    },
+    "Move Device": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "移動裝置"
+          }
+        }
+      }
+    },
+    "Move the cursor across the edge of the screen to the next computer.": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "游標移過螢幕邊緣，就到了旁邊那台電腦。"
+          }
+        }
+      }
+    },
+    "Move the cursor towards “%@”.": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "把游標移到「%@」那一側。"
+          }
+        }
+      }
+    },
+    "Move this computer's mouse to take it back.": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "動一下這台的滑鼠，就會切回這台。"
+          }
+        }
+      }
+    },
+    "Name": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "名稱"
+          }
+        }
+      }
+    },
+    "No Other Computers": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "還沒有其他電腦"
+          }
+        }
+      }
+    },
+    "No Other Computers Found": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "還沒找到其他裝置"
+          }
+        }
+      }
+    },
+    "No files sent or received yet.": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "還沒有傳送或收到任何檔案。"
+          }
+        }
+      }
+    },
+    "No other computers yet.": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "還沒有其他電腦。"
+          }
+        }
+      }
+    },
+    "Not accepting new devices": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "不接受新裝置"
+          }
+        }
+      }
+    },
+    "Not allowed": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未允許"
+          }
+        }
+      }
+    },
+    "Not asked yet": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "尚未詢問"
+          }
+        }
+      }
+    },
+    "Not enough free space.": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "可用空間不足。"
+          }
+        }
+      }
+    },
+    "Not enough free space: %@ more is needed.": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "可用空間不足，還需要 %@。"
+          }
+        }
+      }
+    },
+    "Not granted": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未授權"
+          }
+        }
+      }
+    },
+    "Not on this Mac": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "這台 Mac 沒有這個資料夾"
+          }
+        }
+      }
+    },
+    "Notifications": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "通知"
+          }
+        }
+      }
+    },
+    "OK": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "好"
+          }
+        }
+      }
+    },
+    "Off": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "關閉"
+          }
+        }
+      }
+    },
+    "Offline": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "離線"
+          }
+        }
+      }
+    },
+    "One keyboard and mouse for every computer on your desk.": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "一組鍵盤滑鼠，控制桌上的每一台電腦。"
+          }
+        }
+      }
+    },
+    "Only this Mac stops; the other computer is not told.": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "只有這台 Mac 停止，不會通知對方。"
+          }
+        }
+      }
+    },
+    "Open InputWeave at login": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "登入時開啟 InputWeave"
+          }
+        }
+      }
+    },
+    "Open Login Items": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "開啟登入項目設定"
+          }
+        }
+      }
+    },
+    "Open Logs Folder": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "打開記錄資料夾"
+          }
+        }
+      }
+    },
+    "Open System Settings": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "打開系統設定"
+          }
+        }
+      }
+    },
+    "Other computers can type and click on this Mac's lock screen.": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "其他電腦可以在這台 Mac 的鎖定畫面上打字與點按。"
+          }
+        }
+      }
+    },
+    "Other computers can't type on this Mac's lock screen, so they can't at the login window either.": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "其他電腦無法在這台 Mac 的鎖定畫面上打字，所以在登入視窗也不行。"
+          }
+        }
+      }
+    },
+    "Other computers can't type on this Mac's lock screen: InputWeave can't use the virtual keyboard it needs there, which takes a permission Apple grants. While the screen is locked, the cursor stays off this Mac.": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "其他電腦無法在這台 Mac 的鎖定畫面上打字：InputWeave 無法使用在那裡需要的虛擬鍵盤（要有 Apple 核准的權限）。螢幕鎖定期間，游標不會移到這台 Mac。"
+          }
+        }
+      }
+    },
+    "Other computers see this name.": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "其他電腦會看到這個名稱。"
+          }
+        }
+      }
+    },
+    "Pair": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "配對"
+          }
+        }
+      }
+    },
+    "Paired computers show it behind your screens in their arrangement, so each computer is easy to tell apart. Windows computers don't send theirs yet.": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已配對的電腦會在排列中用它當這台螢幕的底圖，一眼就能認出哪台是哪台。Windows 電腦目前還不會傳送它們的桌面背景。"
+          }
+        }
+      }
+    },
+    "Paired with %@": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已和「%@」配對"
+          }
+        }
+      }
+    },
+    "Pairing code": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "配對碼"
+          }
+        }
+      }
+    },
+    "Pairing could not start.": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無法開始配對。"
+          }
+        }
+      }
+    },
+    "Pairing did not work. Start again.": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "配對沒有成功，請重新開始。"
+          }
+        }
+      }
+    },
+    "Pairing was cancelled.": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "配對已取消。"
+          }
+        }
+      }
+    },
+    "Pairing was cancelled. Start again.": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "配對已取消，請重新開始。"
+          }
+        }
+      }
+    },
+    "Pause Sharing": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "暫停共享"
+          }
+        }
+      }
+    },
+    "Paused sharing": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已暫停共享"
+          }
+        }
+      }
+    },
+    "Paused sharing · %lld ms": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已暫停共享・%lld ms"
+          }
+        }
+      }
+    },
+    "Permissions": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "權限"
+          }
+        }
+      }
+    },
+    "Preparing…": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在準備…"
+          }
+        }
+      }
+    },
+    "Press %@ to end relative mouse.": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "按 %@ 結束相對滑鼠。"
+          }
+        }
+      }
+    },
+    "Press %@ to take back control at any time.": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "按 %@ 可以隨時切回這台。"
+          }
+        }
+      }
+    },
+    "Press %@ to take back control.": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "按 %@ 切回這台。"
+          }
+        }
+      }
+    },
+    "Press %@ to unlock.": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "按 %@ 解除鎖定。"
+          }
+        }
+      }
+    },
+    "Press the keys…": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "請按組合鍵…"
+          }
+        }
+      }
+    },
+    "Press the modifiers and a number…": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "請按修飾鍵和一個數字…"
+          }
+        }
+      }
+    },
+    "Problems": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "問題"
+          }
+        }
+      }
+    },
+    "Quit InputWeave": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "結束 InputWeave"
+          }
+        }
+      }
+    },
+    "Quit InputWeave?": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "要結束 InputWeave 嗎？"
+          }
+        }
+      }
+    },
+    "Quit InputWeave…": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "結束 InputWeave…"
+          }
+        }
+      }
+    },
+    "Receive them automatically": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "自動接收"
+          }
+        }
+      }
+    },
+    "Received": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已收到"
+          }
+        }
+      }
+    },
+    "Received %@ (%@) from %@": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已收到 %1$@（%2$@），來自「%3$@」"
+          }
+        }
+      }
+    },
+    "Received %lld files (%@) from %@": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已收到 %1$lld 個檔案（%2$@），來自「%3$@」"
+          }
+        }
+      }
+    },
+    "Received %lld folders (%@, %@) from %@": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已收到 %1$lld 個資料夾（%2$@，%3$@），來自「%4$@」"
+          }
+        }
+      }
+    },
+    "Received %lld items (%@, %@) from %@": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已收到 %1$lld 個項目（%2$@，%3$@），來自「%4$@」"
+          }
+        }
+      }
+    },
+    "Received 1 folder (%@, %@) from %@": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已收到 1 個資料夾（%1$@，%2$@），來自「%3$@」"
+          }
+        }
+      }
+    },
+    "Receiving": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "接收"
+          }
+        }
+      }
+    },
+    "Recent": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "最近"
+          }
+        }
+      }
+    },
+    "Record": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "錄製"
+          }
+        }
+      }
+    },
+    "Relative mouse (games)": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "切換相對滑鼠（遊戲）"
+          }
+        }
+      }
+    },
+    "Relative mouse ended.": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已結束相對滑鼠。"
+          }
+        }
+      }
+    },
+    "Relative mouse on %@": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "相對滑鼠：%@"
+          }
+        }
+      }
+    },
+    "Relative mouse: the cursor stays on “%@”. Press %@ to end it.": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "相對滑鼠：游標鎖在「%1$@」。按 %2$@ 結束。"
+          }
+        }
+      }
+    },
+    "Relative mouse: the cursor stays on “%@”. Press %@ to take back control.": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "相對滑鼠：游標鎖在「%1$@」。按 %2$@ 切回這台。"
+          }
+        }
+      }
+    },
+    "Remove": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "移除"
+          }
+        }
+      }
+    },
+    "Remove %@ from History": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "從紀錄移除 %@"
+          }
+        }
+      }
+    },
+    "Remove %@?": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "要移除「%@」嗎？"
+          }
+        }
+      }
+    },
+    "Remove Device…": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "移除裝置…"
+          }
+        }
+      }
+    },
+    "Remove from History": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "從紀錄移除"
+          }
+        }
+      }
+    },
+    "Removes InputWeave and its background service from this Mac. Received files are kept.": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "從這台 Mac 移除 InputWeave 和背景服務。收到的檔案會保留。"
+          }
+        }
+      }
+    },
+    "Rename…": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "重新命名…"
+          }
+        }
+      }
+    },
+    "Reset Shortcuts": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "重設快速鍵"
+          }
+        }
+      }
+    },
+    "Restart the Background Service": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "重新啟動背景服務"
+          }
+        }
+      }
+    },
+    "Restarting the background service…": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在重新啟動背景服務…"
+          }
+        }
+      }
+    },
+    "Resume Sharing": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "繼續共享"
+          }
+        }
+      }
+    },
+    "Run in the background": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在背景執行"
+          }
+        }
+      }
+    },
+    "Running": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "執行中"
+          }
+        }
+      }
+    },
+    "Save received files in": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "收到的檔案存放在"
+          }
+        }
+      }
+    },
+    "Screen %lld · %@": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "螢幕 %1$lld・%2$@"
+          }
+        }
+      }
+    },
+    "Screen locked": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "螢幕已鎖定"
+          }
+        }
+      }
+    },
+    "Screen locked, can't take input": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "螢幕已鎖定，無法輸入"
+          }
+        }
+      }
+    },
+    "Screen locked, can't take input · %lld ms": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "螢幕已鎖定，無法輸入・%lld ms"
+          }
+        }
+      }
+    },
+    "Screen locked, keyboard and mouse here": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "螢幕已鎖定，鍵鼠在這台"
+          }
+        }
+      }
+    },
+    "Screen locked · %lld ms": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "螢幕已鎖定・%lld ms"
+          }
+        }
+      }
+    },
+    "Screens": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "螢幕"
+          }
+        }
+      }
+    },
+    "Send": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "傳送"
+          }
+        }
+      }
+    },
+    "Send Files": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "傳送檔案"
+          }
+        }
+      }
+    },
+    "Send Files…": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "傳送檔案…"
+          }
+        }
+      }
+    },
+    "Send and receive files with this computer": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "和這台電腦互傳檔案"
+          }
+        }
+      }
+    },
+    "Send to:": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "傳送到："
+          }
+        }
+      }
+    },
+    "Sending": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "傳送"
+          }
+        }
+      }
+    },
+    "Sending to “%@”…": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在傳到「%@」…"
+          }
+        }
+      }
+    },
+    "Sent": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已傳送"
+          }
+        }
+      }
+    },
+    "Set Up InputWeave": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "設定 InputWeave"
+          }
+        }
+      }
+    },
+    "Settings appear here once the background service is running.": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "背景服務開始執行後，這裡就會顯示設定。"
+          }
+        }
+      }
+    },
+    "Settings…": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "設定…"
+          }
+        }
+      }
+    },
+    "Setup progress": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "設定進度"
+          }
+        }
+      }
+    },
+    "Share this computer's desktop picture with paired computers": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "把這台的桌面背景分享給已配對的電腦"
+          }
+        }
+      }
+    },
+    "Sharing": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "鍵鼠共享"
+          }
+        }
+      }
+    },
+    "Sharing keyboard and mouse": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "鍵鼠共享中"
+          }
+        }
+      }
+    },
+    "Sharing paused": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "鍵鼠共享已暫停"
+          }
+        }
+      }
+    },
+    "Sharing stops, and InputWeave, its background service, its permissions, logs and settings are removed from this Mac. Received files are kept. InputWeave then quits.": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "共享會停止，並從這台 Mac 移除 InputWeave、背景服務、權限、記錄與設定。收到的檔案會保留。完成後 InputWeave 會結束。"
+          }
+        }
+      }
+    },
+    "Shortcut %@": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "快速鍵 %@"
+          }
+        }
+      }
+    },
+    "Shortcuts": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "快速鍵"
+          }
+        }
+      }
+    },
+    "Show %@ in Finder": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在 Finder 中顯示 %@"
+          }
+        }
+      }
+    },
+    "Show in Finder": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在 Finder 中顯示"
+          }
+        }
+      }
+    },
+    "Show in the menu bar": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在選單列顯示"
+          }
+        }
+      }
+    },
+    "Shown once it connects.": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "連線後就會顯示。"
+          }
+        }
+      }
+    },
+    "Shows each computer's name on its screens for a moment.": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在每台電腦的螢幕上短暫顯示它的名稱。"
+          }
+        }
+      }
+    },
+    "Someone is using “%@”, so the keyboard and mouse are back on this computer.": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "「%@」上有人在使用滑鼠，鍵鼠已切回這台。"
+          }
+        }
+      }
+    },
+    "Start Over": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "重新開始"
+          }
+        }
+      }
+    },
+    "Starting": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "啟動中"
+          }
+        }
+      }
+    },
+    "Starting the background service…": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在啟動背景服務…"
+          }
+        }
+      }
+    },
+    "Status": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "狀態"
+          }
+        }
+      }
+    },
+    "Step %lld of %lld": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "第 %1$lld 步，共 %2$lld 步"
+          }
+        }
+      }
+    },
+    "Swap ⌘ and Ctrl": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "交換 ⌘ 與 Ctrl"
+          }
+        }
+      }
+    },
+    "Switch to another computer": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "切換到另一台電腦"
+          }
+        }
+      }
+    },
+    "Switch to relative mouse when a game holds the pointer": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "遊戲抓住滑鼠時自動切換成相對滑鼠"
+          }
+        }
+      }
+    },
+    "Switching": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "切換"
+          }
+        }
+      }
+    },
+    "Sync the clipboard": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "剪貼簿同步"
+          }
+        }
+      }
+    },
+    "Sync the clipboard with this computer": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "和這台電腦同步剪貼簿"
+          }
+        }
+      }
+    },
+    "Synced to %lld devices": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已同步到 %lld 台裝置"
+          }
+        }
+      }
+    },
+    "System": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "系統"
+          }
+        }
+      }
+    },
+    "Take back control": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "切回這台"
+          }
+        }
+      }
+    },
+    "Tells you when files arrive, and when InputWeave needs your attention.": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在檔案送達，或 InputWeave 需要你處理時通知你。"
+          }
+        }
+      }
+    },
+    "That address cannot be found.": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "找不到這個位址。"
+          }
+        }
+      }
+    },
+    "That code is not right. You can try %u more times.": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "配對碼不正確，還可以再試 %u 次。"
+          }
+        }
+      }
+    },
+    "That computer cannot be reached.": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無法連線到那台電腦。"
+          }
+        }
+      }
+    },
+    "The arrangement changed, so the keyboard and mouse are back on this computer.": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "排列已變更，鍵鼠已切回這台。"
+          }
+        }
+      }
+    },
+    "The background service could not ask for the folders. macOS will ask when a transfer needs one.": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "背景服務無法詢問這些資料夾。傳送檔案用到時，macOS 會再詢問。"
+          }
+        }
+      }
+    },
+    "The background service has not written a log yet.": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "背景服務還沒有寫入任何記錄。"
+          }
+        }
+      }
+    },
+    "The background service is not responding.": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "背景服務沒有回應。"
+          }
+        }
+      }
+    },
+    "The background service is turned off, so sharing is not working.": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "背景服務已停用，鍵鼠共享沒有在運作。"
+          }
+        }
+      }
+    },
+    "The background service's log files.": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "背景服務的記錄檔。"
+          }
+        }
+      }
+    },
+    "The clipboard came from a password manager, so it was not synced.": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "剪貼簿內容來自密碼管理器，所以沒有同步。"
+          }
+        }
+      }
+    },
+    "The clipboard is over 8 MB, so it was not synced. Use Send Files instead.": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "剪貼簿內容超過 8 MB，所以沒有同步。可以改用「傳送檔案」。"
+          }
+        }
+      }
+    },
+    "The code has expired. Start again.": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "配對碼已失效，請重新開始。"
+          }
+        }
+      }
+    },
+    "The connection to “%@” was lost, so the keyboard and mouse are back on this computer.": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "和「%@」的連線中斷了，鍵鼠已切回這台。"
+          }
+        }
+      }
+    },
+    "The cursor crosses to the next computer after resting at the edge of the screen for a moment, so brushing the edge does not switch.": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "游標在螢幕邊緣停留片刻後，才會移到旁邊那台電腦，不小心碰到邊緣不會切換。"
+          }
+        }
+      }
+    },
+    "The desktop took the keyboard and mouse back to this computer.": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "桌面收回了鍵鼠，已切回這台。"
+          }
+        }
+      }
+    },
+    "The diagnostics could not be exported.": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無法匯出診斷資料。"
+          }
+        }
+      }
+    },
+    "The drag has already ended.": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "拖曳已經結束了。"
+          }
+        }
+      }
+    },
+    "The file arrived damaged.": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "檔案在傳送途中損毀了。"
+          }
+        }
+      }
+    },
+    "The file changed while it was being sent.": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "檔案在傳送時被修改了。"
+          }
+        }
+      }
+    },
+    "The file could not be read.": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無法讀取檔案。"
+          }
+        }
+      }
+    },
+    "The file could not be saved.": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無法儲存檔案。"
+          }
+        }
+      }
+    },
+    "The files could not be sent to %@.": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無法把檔案傳送到「%@」。"
+          }
+        }
+      }
+    },
+    "The items can't be saved in this folder.": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "不能存到這個資料夾。"
+          }
+        }
+      }
+    },
+    "The items could not be received.": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無法接收這些項目。"
+          }
+        }
+      }
+    },
+    "The login window is set up by InputWeave's installer package, and this copy wasn't installed with it. Install InputWeave from the package to use this.": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "登入視窗要由 InputWeave 的安裝檔設定，這份 InputWeave 不是用它安裝的。請用安裝檔安裝後再使用。"
+          }
+        }
+      }
+    },
+    "The notices are missing from this copy of InputWeave. Reinstall it to restore them.": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "這份 InputWeave 缺少第三方授權聲明，重新安裝即可補回。"
+          }
+        }
+      }
+    },
+    "The other computer": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "另一台電腦"
+          }
+        }
+      }
+    },
+    "The other computer cannot save it under this name.": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "對方無法用這個名稱存檔。"
+          }
+        }
+      }
+    },
+    "The other computer does not receive files.": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "對方不接收檔案。"
+          }
+        }
+      }
+    },
+    "The other computer does not take this much at once.": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "對方一次不收這麼多。"
+          }
+        }
+      }
+    },
+    "The screen of “%@” locked, and input from here can't reach it, so the keyboard and mouse are back on this computer.": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "「%@」的螢幕已鎖定，無法從這台輸入，鍵鼠已切回這台。"
+          }
+        }
+      }
+    },
+    "The setting could not be changed.": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無法變更這項設定。"
+          }
+        }
+      }
+    },
+    "The setting could not be changed. Try again once the background service responds.": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無法變更這項設定。等背景服務有回應後再試一次。"
+          }
+        }
+      }
+    },
+    "The shortcut could not be changed.": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無法變更快速鍵。"
+          }
+        }
+      }
+    },
+    "The transfer failed.": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "傳輸失敗。"
+          }
+        }
+      }
+    },
+    "This combination is already used for another shortcut.": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "這個組合已經用在另一個快速鍵。"
+          }
+        }
+      }
+    },
+    "This combination is already used for “%@”.": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "這個組合已經用在「%@」。"
+          }
+        }
+      }
+    },
+    "This combination needs at least one modifier key: ⌃, ⌥, ⇧ or ⌘.": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "這個組合至少要有一個修飾鍵：⌃、⌥、⇧ 或 ⌘。"
+          }
+        }
+      }
+    },
+    "This computer": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "這台電腦"
+          }
+        }
+      }
+    },
+    "This computer cannot save it under this name.": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "這台無法用這個名稱存檔。"
+          }
+        }
+      }
+    },
+    "This computer does not receive files.": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "這台電腦不接收檔案。"
+          }
+        }
+      }
+    },
+    "This computer stops trusting it. To use it again, pair it again.": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "這台電腦將不再信任它。要再次使用，請重新配對。"
+          }
+        }
+      }
+    },
+    "This computer's keyboard and mouse": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "這台電腦的鍵鼠"
+          }
+        }
+      }
+    },
+    "This computer's name": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "這台電腦的名稱"
+          }
+        }
+      }
+    },
+    "This is a shortcut (symbolic link) and is not sent.": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "這是捷徑（符號連結），不會傳送。"
+          }
+        }
+      }
+    },
+    "This is not a file or a folder.": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "這不是檔案或資料夾。"
+          }
+        }
+      }
+    },
+    "This key can't be used in a shortcut.": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "這個按鍵不能用在快速鍵。"
+          }
+        }
+      }
+    },
+    "This Mac can't be controlled at the login window.": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "這台 Mac 無法在登入視窗被控制。"
+          }
+        }
+      }
+    },
+    "To allow a folder later, turn it on for “InputWeave” in System Settings › Privacy & Security › Files & Folders.": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "之後要允許某個資料夾時，在「系統設定 › 隱私權與安全性 › 檔案和檔案夾」中，為「InputWeave」打開它。"
+          }
+        }
+      }
+    },
+    "Too many files at once.": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "同時傳來的檔案太多。"
+          }
+        }
+      }
+    },
+    "Transfers": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "傳輸中"
+          }
+        }
+      }
+    },
+    "Troubleshoot": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "疑難排解"
+          }
+        }
+      }
+    },
+    "Troubleshooting": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "疑難排解"
+          }
+        }
+      }
+    },
+    "Try it": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "試試看"
+          }
+        }
+      }
+    },
+    "Turn On": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "開啟"
+          }
+        }
+      }
+    },
+    "Turn On the Background Service": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "開啟背景服務"
+          }
+        }
+      }
+    },
+    "Turn on InputWeave in Login Items, then come back here.": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "請到「登入項目」開啟 InputWeave，再回到這裡。"
+          }
+        }
+      }
+    },
+    "Turn on the permissions above. The background service then restarts on its own.": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "請打開上方的權限，背景服務接著會自動重新啟動。"
+          }
+        }
+      }
+    },
+    "Uninstall": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "解除安裝"
+          }
+        }
+      }
+    },
+    "Uninstall InputWeave?": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "要解除安裝 InputWeave 嗎？"
+          }
+        }
+      }
+    },
+    "Uninstall InputWeave…": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "解除安裝 InputWeave…"
+          }
+        }
+      }
+    },
+    "Unknown error.": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未知的錯誤。"
+          }
+        }
+      }
+    },
+    "Unknown system": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未知的系統"
+          }
+        }
+      }
+    },
+    "Unlock": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "解除鎖定"
+          }
+        }
+      }
+    },
+    "Unlocked.": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已解除鎖定。"
+          }
+        }
+      }
+    },
+    "Up to 1,000 items, 10,000 files or 100 GB can be sent at once. Send them in smaller batches.": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "一次最多傳 1,000 個項目、10,000 個檔案或 100 GB。請分批傳送。"
+          }
+        }
+      }
+    },
+    "Updates": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "更新"
+          }
+        }
+      }
+    },
+    "Updating the background service…": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在更新背景服務…"
+          }
+        }
+      }
+    },
+    "Valid for %@": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 內有效"
+          }
+        }
+      }
+    },
+    "Version": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "版本"
+          }
+        }
+      }
+    },
+    "Version %@ (%@)": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "版本 %1$@（%2$@）"
+          }
+        }
+      }
+    },
+    "Wait a moment before switching computers": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "停留片刻才切換"
+          }
+        }
+      }
+    },
+    "Waiting for %@ to accept…": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "等待「%@」接受…"
+          }
+        }
+      }
+    },
+    "Waiting for approval in Login Items": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "等待在「登入項目」中允許"
+          }
+        }
+      }
+    },
+    "Waiting for connection…": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "等待連線…"
+          }
+        }
+      }
+    },
+    "Waiting for your answer…": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "等待你的回答…"
+          }
+        }
+      }
+    },
+    "Waiting to send…": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "等待傳送…"
+          }
+        }
+      }
+    },
+    "What you copy on one computer can be pasted on the next one the cursor moves to. Content from password managers is never synced, and nothing over 8 MB.": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在一台電腦複製的內容，游標移到下一台後就能貼上。密碼管理器的內容一律不同步，超過 8 MB 的內容也不會同步。"
+          }
+        }
+      }
+    },
+    "When a paired computer sends files": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已配對的電腦傳來檔案時"
+          }
+        }
+      }
+    },
+    "When an app on the computer you control, such as a game, hides the pointer and keeps it in its window, mouse movements go to it as they are and the cursor stays there until the app lets go. Only Windows computers tell when this happens; for a Mac, you can set a shortcut for it below.": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "你控制的電腦上有 App（例如遊戲）把游標藏起來並限制在它的視窗裡時，滑鼠的移動會照原樣送過去，游標也留在那台，直到 App 放開為止。只有 Windows 電腦會告知這件事；控制 Mac 時，可以在下面設定切換相對滑鼠的快速鍵。"
+          }
+        }
+      }
+    },
+    "When an app on the computer you control, such as a game, hides the pointer and keeps it in its window, mouse movements go to it as they are and the cursor stays there until the app lets go. Only Windows computers tell when this happens; on a Mac, use the shortcut below.": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "你控制的電腦上有 App（例如遊戲）把游標藏起來並限制在它的視窗裡時，滑鼠的移動會照原樣送過去，游標也留在那台，直到 App 放開為止。只有 Windows 電腦會告知這件事；控制 Mac 時請用下面的快速鍵。"
+          }
+        }
+      }
+    },
+    "When the icon is hidden, open InputWeave from the Applications folder to show it again.": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "隱藏圖示後，要再顯示，從「應用程式」再開啟一次 InputWeave。"
+          }
+        }
+      }
+    },
+    "While holding %@": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "按住 %@ 時"
+          }
+        }
+      }
+    },
+    "You'll need another computer on the same network. Setup takes about five minutes.": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "你需要另一台在同一個網路上的電腦。設定大約需要 5 分鐘。"
+          }
+        }
+      }
+    },
+    "formatted text": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "格式化文字"
+          }
+        }
+      }
+    },
+    "image": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "圖片"
+          }
+        }
+      }
+    },
+    "macOS may ask whether InputWeave can find devices on your local network. Choose Allow.": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "macOS 可能會詢問 InputWeave 能不能尋找本機網路上的裝置，請選「允許」。"
+          }
+        }
+      }
+    },
+    "text": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "文字"
+          }
+        }
+      }
+    },
+    "the other computer": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "另一台電腦"
+          }
+        }
+      }
+    },
+    "uninstall.sh is missing from the app.": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "App 中缺少 uninstall.sh。"
+          }
+        }
+      }
+    },
+    "“%@” can't take input from here right now, so the keyboard and mouse are back on this computer.": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "「%@」目前無法從這台輸入，鍵鼠已切回這台。"
+          }
+        }
+      }
+    },
+    "“%@” did not take the items.": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "「%@」沒有接收。"
+          }
+        }
+      }
+    },
+    "“%@” let go of the mouse, so it moves as usual again.": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "「%@」放開了滑鼠，已恢復一般模式。"
+          }
+        }
+      }
+    },
+    "“%@” paused sharing, so the keyboard and mouse are back on this computer.": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "「%@」暫停了共享，鍵鼠已切回這台。"
+          }
+        }
+      }
+    },
+    "Licensed": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已授權"
+          }
+        }
+      }
+    },
+    "Trial": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "試用中"
+          }
+        }
+      }
+    },
+    "License": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "授權"
+          }
+        }
+      }
+    },
+    "Every feature works without a license, for as long as you like. A license replaces “Trial” with “Licensed” here and in About InputWeave.": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "沒有授權也能使用全部功能，沒有期限。購買授權後，這裡與「關於 InputWeave」的「試用中」會換成「已授權」。"
+          }
+        }
+      }
+    },
+    "Your license is already used on 5 computers, so this computer stays in trial. Every feature still works. To license this one, free a computer you no longer use in Polar’s customer portal.": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "你的授權已經用在 5 台電腦上，所以這台維持試用中，所有功能照常可用。要讓這台也取得授權，請先到 Polar 的顧客入口停用一台不再使用的電腦。"
+          }
+        }
+      }
+    },
+    "The license on this computer is no longer valid. It may have been refunded, or this computer was removed from it in Polar’s customer portal.": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "這台電腦上的授權已經失效，可能已經退款，或這台已在 Polar 的顧客入口被移除。"
+          }
+        }
+      }
+    },
+    "License information can’t be read right now.": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "目前無法讀取授權資訊。"
+          }
+        }
+      }
+    },
+    "US$10, paid once, for up to 5 of your computers.": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "US$10，一次付款，最多 5 台電腦使用。"
+          }
+        }
+      }
+    },
+    "Manage Computers…": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "管理電腦…"
+          }
+        }
+      }
+    },
+    "Try Again": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "再試一次"
+          }
+        }
+      }
+    },
+    "Buy a License…": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "購買授權…"
+          }
+        }
+      }
+    },
+    "Enter License Key…": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "輸入授權碼…"
+          }
+        }
+      }
+    },
+    "Buy a license from Polar and get a license key.": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在 Polar 購買授權，取得授權碼。"
+          }
+        }
+      }
+    },
+    "Enter the key on one of your computers.": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在其中一台電腦輸入授權碼。"
+          }
+        }
+      }
+    },
+    "Your paired computers pick up the license by themselves, up to 5 in all.": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已配對的電腦會自動取得授權，最多 5 台。"
+          }
+        }
+      }
+    },
+    "How the license works": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "授權怎麼運作"
+          }
+        }
+      }
+    },
+    "Payment and receipts are handled by Polar.": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "付款與收據由 Polar 處理。"
+          }
+        }
+      }
+    },
+    "Licensed to %@": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "授權給 %@"
+          }
+        }
+      }
+    },
+    "Thank you for buying InputWeave.": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "感謝你購買 InputWeave。"
+          }
+        }
+      }
+    },
+    "The license came from %@. Thank you for buying InputWeave.": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "授權來自「%@」。感謝你購買 InputWeave。"
+          }
+        }
+      }
+    },
+    "Paired": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已配對"
+          }
+        }
+      }
+    },
+    "Computers on this license": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "使用這份授權的電腦"
+          }
+        }
+      }
+    },
+    "%lld of %lld": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$lld／%2$lld 台"
+          }
+        }
+      }
+    },
+    "Only computers paired with this one are listed. Polar’s customer portal lists all of them.": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "這裡只列出和這台配對的電腦；全部的電腦請到 Polar 的顧客入口查看。"
+          }
+        }
+      }
+    },
+    "Remove License…": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "移除授權…"
+          }
+        }
+      }
+    },
+    "Remove the license from this computer?": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "要從這台電腦移除授權嗎？"
+          }
+        }
+      }
+    },
+    "Remove License": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "移除授權"
+          }
+        }
+      }
+    },
+    "This frees one of your 5 computers. Your other computers keep their license, and this one won’t pick it up from them again until you enter the key.": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "這會空出 5 台中的一個名額，其他電腦的授權不受影響。這台之後不會再從已配對的電腦自動取得授權，直到你再次輸入授權碼。"
+          }
+        }
+      }
+    },
+    "Enter License Key": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "輸入授權碼"
+          }
+        }
+      }
+    },
+    "License key": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "授權碼"
+          }
+        }
+      }
+    },
+    "The key is on Polar’s order page and in the email Polar sent you.": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "授權碼在 Polar 的訂單頁面，以及 Polar 寄給你的 email 裡。"
+          }
+        }
+      }
+    },
+    "Activating…": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在啟用…"
+          }
+        }
+      }
+    },
+    "Activate": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "啟用"
+          }
+        }
+      }
+    },
+    "This isn’t an InputWeave license key. Check it against the email from Polar.": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "這不是 InputWeave 的授權碼。請和 Polar 寄來的 email 核對。"
+          }
+        }
+      }
+    },
+    "This license is already used on 5 computers. Free a computer you no longer use in Polar’s customer portal, then try again.": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "這份授權已經用在 5 台電腦上。請先到 Polar 的顧客入口停用一台不再使用的電腦，再試一次。"
+          }
+        }
+      }
+    },
+    "This license is no longer valid. It may have been refunded.": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "這份授權已經失效，可能已經退款。"
+          }
+        }
+      }
+    },
+    "Polar can’t be reached. Check this computer’s internet connection and try again.": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "連不上 Polar。請檢查這台電腦的網路連線後再試一次。"
+          }
+        }
+      }
+    },
+    "InputWeave couldn’t save the license. Try again.": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "InputWeave 無法儲存授權，請再試一次。"
+          }
+        }
+      }
+    },
+    "Free and open source under the GNU GPL, version 3 or later": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "免費開源，採用 GNU GPL 第 3 版或更新的版本"
+          }
+        }
+      }
+    },
+    "InputWeave couldn’t finish removing the license on this computer. It keeps trying.": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "InputWeave 還沒能在這台電腦移除授權，會繼續嘗試。"
+          }
+        }
+      }
+    },
+    "Polar couldn’t be reached, so this computer’s place on the license isn’t free yet. InputWeave frees it once Polar can be reached, or you can free it in Polar’s customer portal.": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "連不上 Polar，所以這台在授權上的名額還沒空出來。InputWeave 會在連得上 Polar 時釋放它，你也可以到 Polar 的顧客入口自己釋放。"
+          }
+        }
+      }
+    },
+    "Removing the license from this computer…": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在從這台電腦移除授權…"
+          }
+        }
+      }
+    },
+    "InputWeave couldn’t remove the license on this computer.": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "InputWeave 無法在這台電腦移除授權。"
+          }
+        }
+      }
+    }
+  },
+  "version": "1.0"
+}

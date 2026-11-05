@@ -1,0 +1,43 @@
+# The Linux app: its own workspace, so the root workspace still builds
+# where GTK is not installed, as on macOS and Windows. It shares only the generated IPC messages
+# (iw-proto) and the key names (iw-keymap) with the root workspace.
+[workspace]
+resolver = "3"
+members = ["core", "app"]
+
+[workspace.package]
+# The root workspace's version; core's tests check the two agree.
+version = "1.0.0"
+edition = "2024"
+license = "GPL-3.0-or-later"
+publish = false
+repository = "https://github.com/tasict/InputWeave"
+homepage = "https://inputweave.ctsite.cc/"
+
+[workspace.dependencies]
+inputweave-app-core = { path = "core" }
+iw-keymap = { path = "../../crates/iw-keymap" }
+iw-proto = { path = "../../crates/iw-proto" }
+
+async-channel = "2.5"
+bytes = "1.12"
+futures-channel = "0.3"
+prost = "0.14"
+tempfile = "3"
+zbus = { version = "5", default-features = false, features = ["async-io", "blocking-api"] }
+gtk = { package = "gtk4", version = "0.11", features = ["gnome_46"] }
+adw = { package = "libadwaita", version = "0.9", features = ["v1_5"] }
+pangocairo = "0.22"
+sha2 = "0.11"
+serde_json = "1"
+# HTTPS to Polar for the license: rustls, with ring as its provider (given
+# to ureq explicitly), and the system's CA store read by rustls-native-certs;
+# no bundled root certificates.
+ureq = { version = "3.5", default-features = false, features = ["rustls-no-provider"] }
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12", "logging"] }
+rustls-native-certs = "0.8"
+rustix = { version = "1", default-features = false, features = ["std", "fs", "event"] }
+wayland-client = "0.31"
+wayland-protocols = { version = "0.32", features = ["client", "unstable"] }
+wayland-protocols-wlr = { version = "0.3", features = ["client"] }
+x11rb = { version = "0.14", features = ["randr", "shape", "xfixes"] }

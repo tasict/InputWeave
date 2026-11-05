@@ -1,0 +1,13 @@
+# Starts the agent at login on desktops whose session manager does not
+# start graphical-session.target (Cinnamon, Xfce, MATE). GNOME and KDE
+# Plasma do, and skip this entry. It is a conffile, so it stays after the
+# package is removed until purged; TryExec keeps it from running then.
+[Desktop Entry]
+Type=Application
+Name=InputWeave background service
+Comment=Starts InputWeave's background service with this session
+TryExec=/usr/libexec/inputweave/start-agent
+Exec=/usr/libexec/inputweave/start-agent
+NoDisplay=true
+X-GNOME-HiddenUnderSystemd=true
+X-systemd-skip=true

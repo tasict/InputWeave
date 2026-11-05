@@ -1,0 +1,1501 @@
+<?xml version="1.0" encoding="utf-8"?>
+<root>
+  <xsd:schema id="root" xmlns="" xmlns:xsd="http://www.w3.org/2001/XMLSchema" xmlns:msdata="urn:schemas-microsoft-com:xml-msdata">
+    <xsd:import namespace="http://www.w3.org/XML/1998/namespace" />
+    <xsd:element name="root" msdata:IsDataSet="true">
+      <xsd:complexType>
+        <xsd:choice maxOccurs="unbounded">
+          <xsd:element name="data">
+            <xsd:complexType>
+              <xsd:sequence>
+                <xsd:element name="value" type="xsd:string" minOccurs="0" msdata:Ordinal="1" />
+                <xsd:element name="comment" type="xsd:string" minOccurs="0" msdata:Ordinal="2" />
+              </xsd:sequence>
+              <xsd:attribute name="name" type="xsd:string" use="required" msdata:Ordinal="1" />
+              <xsd:attribute ref="xml:space" />
+            </xsd:complexType>
+          </xsd:element>
+        </xsd:choice>
+      </xsd:complexType>
+    </xsd:element>
+  </xsd:schema>
+  <resheader name="resmimetype">
+    <value>text/microsoft-resx</value>
+  </resheader>
+  <resheader name="version">
+    <value>2.0</value>
+  </resheader>
+  <resheader name="reader">
+    <value>System.Resources.ResXResourceReader, System.Windows.Forms, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089</value>
+  </resheader>
+  <resheader name="writer">
+    <value>System.Resources.ResXResourceWriter, System.Windows.Forms, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089</value>
+  </resheader>
+
+  <!-- Panel title -->
+  <data name="TitleUpdating" xml:space="preserve">
+    <value>Updating the background service…</value>
+  </data>
+  <data name="TitleStarting" xml:space="preserve">
+    <value>Starting the background service…</value>
+  </data>
+  <data name="TitleNotResponding" xml:space="preserve">
+    <value>The background service is not responding.</value>
+  </data>
+  <data name="TitleNotWorking" xml:space="preserve">
+    <value>Sharing isn't working</value>
+    <comment>Title while the InputWeave Windows service is stopped; a row below offers to start it.</comment>
+  </data>
+  <data name="TitlePaused" xml:space="preserve">
+    <value>Sharing paused</value>
+  </data>
+  <data name="TitleControlledBy" xml:space="preserve">
+    <value>Controlled by {0}</value>
+    <comment>{0} is the name of the computer controlling this one.</comment>
+  </data>
+  <data name="TitleLockedTo" xml:space="preserve">
+    <value>Locked to {0}</value>
+    <comment>{0} is the name of the computer the cursor is on.</comment>
+  </data>
+  <data name="TitleControlling" xml:space="preserve">
+    <value>Controlling {0}</value>
+    <comment>{0} is the name of the computer this one controls.</comment>
+  </data>
+  <data name="TitleSharing" xml:space="preserve">
+    <value>Sharing keyboard and mouse</value>
+  </data>
+
+  <!-- Under the title -->
+  <data name="SubtitleControlled" xml:space="preserve">
+    <value>Move this computer's mouse to take it back.</value>
+  </data>
+  <data name="SubtitleLocked" xml:space="preserve">
+    <value>Press {0} to unlock.</value>
+    <comment>{0} is a shortcut, e.g. Ctrl + Alt + Shift + L.</comment>
+  </data>
+  <data name="SubtitleControlling" xml:space="preserve">
+    <value>Press {0} to take back control.</value>
+    <comment>{0} is a shortcut, e.g. Ctrl + Alt + Shift + Esc.</comment>
+  </data>
+  <data name="SubtitleCursorOn" xml:space="preserve">
+    <value>Cursor on {0}</value>
+    <comment>{0} is this computer's name.</comment>
+  </data>
+
+  <!-- Exception rows -->
+  <data name="ExceptionServiceStopped" xml:space="preserve">
+    <value>The InputWeave service is stopped.</value>
+  </data>
+  <data name="ExceptionUnreachable" xml:space="preserve">
+    <value>{0} can't be reached.</value>
+    <comment>{0} is a computer's name.</comment>
+  </data>
+  <data name="ExceptionNoDevices" xml:space="preserve">
+    <value>No other computers yet.</value>
+  </data>
+  <data name="ActionStartService" xml:space="preserve">
+    <value>Start Service</value>
+    <comment>Starting the service shows a UAC prompt.</comment>
+  </data>
+
+  <!-- The tray icon's tooltip -->
+  <data name="TrayNormal" xml:space="preserve">
+    <value>InputWeave, sharing</value>
+  </data>
+  <data name="TrayControlling" xml:space="preserve">
+    <value>InputWeave, controlling another computer</value>
+  </data>
+  <data name="TrayControlled" xml:space="preserve">
+    <value>InputWeave, controlled by another computer</value>
+  </data>
+  <data name="TrayPaused" xml:space="preserve">
+    <value>InputWeave, sharing paused</value>
+  </data>
+  <data name="TrayAttention" xml:space="preserve">
+    <value>InputWeave, needs attention</value>
+  </data>
+
+  <!-- The tray icon's menu and the panel's More menu -->
+  <data name="MenuPauseSharing" xml:space="preserve">
+    <value>Pause Sharing</value>
+  </data>
+  <data name="MenuResumeSharing" xml:space="preserve">
+    <value>Resume Sharing</value>
+  </data>
+  <data name="MenuLock" xml:space="preserve">
+    <value>Lock to This Computer</value>
+  </data>
+  <data name="MenuUnlock" xml:space="preserve">
+    <value>Unlock</value>
+  </data>
+  <data name="MenuSettings" xml:space="preserve">
+    <value>Settings…</value>
+  </data>
+  <data name="MenuQuit" xml:space="preserve">
+    <value>Quit InputWeave…</value>
+  </data>
+
+  <!-- The quit dialog -->
+  <data name="QuitTitle" xml:space="preserve">
+    <value>Quit InputWeave?</value>
+  </data>
+  <data name="QuitMessage" xml:space="preserve">
+    <value>The InputWeave service keeps running in the background, so this computer goes on sharing its keyboard and mouse with your other computers. To stop sharing, choose Pause Sharing instead. Open InputWeave again to show its icon.</value>
+  </data>
+  <data name="QuitConfirm" xml:space="preserve">
+    <value>Quit InputWeave</value>
+  </data>
+  <data name="QuitCancel" xml:space="preserve">
+    <value>Cancel</value>
+  </data>
+
+  <!-- XAML (x:Uid) -->
+  <data name="PanelSharing.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve">
+    <value>Sharing</value>
+  </data>
+  <data name="PanelSendFiles.Content" xml:space="preserve">
+    <value>Send Files…</value>
+  </data>
+  <data name="PanelSettings.Content" xml:space="preserve">
+    <value>Settings…</value>
+  </data>
+  <data name="PanelMore.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve">
+    <value>More</value>
+  </data>
+  <data name="PanelMore.[using:Microsoft.UI.Xaml.Controls]ToolTipService.ToolTip" xml:space="preserve">
+    <value>More</value>
+  </data>
+
+  <!-- Shared words and actions -->
+  <data name="Verbatim" xml:space="preserve">
+    <value>{0}</value>
+    <comment>A value shown as it is.</comment>
+  </data>
+  <data name="Ok" xml:space="preserve">
+    <value>OK</value>
+  </data>
+  <data name="Cancel" xml:space="preserve">
+    <value>Cancel</value>
+  </data>
+  <data name="ActionRestartService" xml:space="preserve">
+    <value>Restart Service</value>
+    <comment>Restarting the service shows a UAC prompt.</comment>
+  </data>
+  <data name="ActionTroubleshoot" xml:space="preserve">
+    <value>Troubleshoot</value>
+  </data>
+  <data name="ActionAddDevice" xml:space="preserve">
+    <value>Add Device…</value>
+  </data>
+  <data name="MenuAddDevice" xml:space="preserve">
+    <value>Add Device…</value>
+  </data>
+
+  <!-- The panel's transfers and clipboard line, and the File Transfers page -->
+  <data name="TransfersHeader" xml:space="preserve">
+    <value>Transfers</value>
+  </data>
+  <data name="TransfersMore" xml:space="preserve">
+    <value>{0} more…</value>
+    <comment>{0} is how many more transfers the File Transfers page lists.</comment>
+  </data>
+  <data name="TransferSending" xml:space="preserve">
+    <value>Sending</value>
+  </data>
+  <data name="TransferReceiving" xml:space="preserve">
+    <value>Receiving</value>
+  </data>
+  <data name="TransferPreparing" xml:space="preserve">
+    <value>Preparing…</value>
+  </data>
+  <data name="TransferQueued" xml:space="preserve">
+    <value>Waiting to send…</value>
+    <comment>A file waiting its turn: at most two files go to one computer at a time.</comment>
+  </data>
+  <data name="TransferWaitingForConnection" xml:space="preserve">
+    <value>Waiting for connection…</value>
+  </data>
+  <data name="TransferWaitingForAccept" xml:space="preserve">
+    <value>Waiting for {0} to accept…</value>
+    <comment>{0} is a computer's name.</comment>
+  </data>
+  <data name="TransferOffer" xml:space="preserve">
+    <value>{0} wants to send you this file ({1}).</value>
+    <comment>{0} is a computer's name, {1} the file's size.</comment>
+  </data>
+  <data name="TransferChecking" xml:space="preserve">
+    <value>Checking the file…</value>
+  </data>
+  <data name="TransferSent" xml:space="preserve">
+    <value>Sent</value>
+  </data>
+  <data name="TransferReceived" xml:space="preserve">
+    <value>Received</value>
+  </data>
+  <data name="TransferCancelled" xml:space="preserve">
+    <value>Cancelled</value>
+  </data>
+  <data name="TransferProgress" xml:space="preserve">
+    <value>{0} · {1}/s · {2}</value>
+    <comment>{0} is a percentage, {1} a size per second, {2} the time left.</comment>
+  </data>
+  <data name="TransferSecondsLeft" xml:space="preserve">
+    <value>{0} sec left</value>
+  </data>
+  <data name="TransferMinutesLeft" xml:space="preserve">
+    <value>{0} min left</value>
+  </data>
+  <data name="TransferHoursLeft" xml:space="preserve">
+    <value>{0} hr left</value>
+  </data>
+  <data name="TransferPeerDeclined" xml:space="preserve">
+    <value>{0} declined the file.</value>
+    <comment>{0} is a computer's name.</comment>
+  </data>
+  <data name="TransferPeerNeedsSpace" xml:space="preserve">
+    <value>{0} needs {1} more free space.</value>
+    <comment>{0} is a computer's name, {1} a size.</comment>
+  </data>
+  <data name="TransferPeerDoesNotReceive" xml:space="preserve">
+    <value>{0} does not receive files.</value>
+    <comment>{0} is a computer's name.</comment>
+  </data>
+  <data name="TransferPeerCouldNotTake" xml:space="preserve">
+    <value>{0} could not take the file.</value>
+    <comment>{0} is a computer's name.</comment>
+  </data>
+  <data name="TransferDeclined" xml:space="preserve">
+    <value>Declined</value>
+  </data>
+  <data name="TransferNoSpace" xml:space="preserve">
+    <value>Not enough free space: {0} more is needed.</value>
+    <comment>{0} is a size.</comment>
+  </data>
+  <data name="TransferNotReceiving" xml:space="preserve">
+    <value>This computer does not receive files.</value>
+  </data>
+  <data name="TransferTooMany" xml:space="preserve">
+    <value>Too many files at once.</value>
+  </data>
+  <data name="TransferUnreadable" xml:space="preserve">
+    <value>The file could not be read.</value>
+  </data>
+  <data name="TransferFileChanged" xml:space="preserve">
+    <value>The file changed while it was being sent.</value>
+  </data>
+  <data name="TransferCorrupt" xml:space="preserve">
+    <value>The file arrived damaged.</value>
+  </data>
+  <data name="TransferWriteFailed" xml:space="preserve">
+    <value>The file could not be saved.</value>
+  </data>
+  <data name="TransferFailed" xml:space="preserve">
+    <value>The transfer failed.</value>
+  </data>
+  <data name="TransferAccept" xml:space="preserve">
+    <value>Accept</value>
+  </data>
+  <data name="TransferDecline" xml:space="preserve">
+    <value>Decline</value>
+  </data>
+  <data name="TransferCancel" xml:space="preserve">
+    <value>Cancel</value>
+  </data>
+  <data name="TransferCancelNamed" xml:space="preserve">
+    <value>Cancel {0}</value>
+    <comment>{0} is a file name; for screen readers.</comment>
+  </data>
+  <data name="TransferShow" xml:space="preserve">
+    <value>Show in File Explorer</value>
+  </data>
+  <data name="TransferShowNamed" xml:space="preserve">
+    <value>Show {0} in File Explorer</value>
+    <comment>{0} is a file name; for screen readers.</comment>
+  </data>
+  <data name="TransferDismiss" xml:space="preserve">
+    <value>Dismiss</value>
+  </data>
+  <data name="TransferRemove" xml:space="preserve">
+    <value>Remove from History</value>
+  </data>
+  <data name="TransferRemoveNamed" xml:space="preserve">
+    <value>Remove {0} from History</value>
+    <comment>{0} is a file name; for screen readers.</comment>
+  </data>
+  <data name="TransferFolderFiles" xml:space="preserve">
+    <value>{0} files · {1}</value>
+    <comment>Under a folder's name: {0} is how many files are in it, {1} their size.</comment>
+  </data>
+  <data name="TransferFolderFilesOne" xml:space="preserve">
+    <value>1 file · {0}</value>
+    <comment>Under a folder's name: {0} is the size of the one file in it.</comment>
+  </data>
+  <data name="TransferFolderProgress" xml:space="preserve">
+    <value>{0} of {1} files</value>
+    <comment>Under a folder being sent or received: {0} files have arrived of {1}.</comment>
+  </data>
+  <data name="TransferSentSome" xml:space="preserve">
+    <value>{0} sent, {1} failed</value>
+    <comment>A folder that was sent: {0} files arrived, {1} did not.</comment>
+  </data>
+  <data name="TransferReceivedSome" xml:space="preserve">
+    <value>{0} received, {1} failed</value>
+    <comment>A folder that came here: {0} files arrived, {1} did not.</comment>
+  </data>
+  <data name="TransferShowFailures" xml:space="preserve">
+    <value>Show Details</value>
+  </data>
+  <data name="TransferHideFailures" xml:space="preserve">
+    <value>Hide Details</value>
+  </data>
+  <data name="TransferFailureLine" xml:space="preserve">
+    <value>{0}: {1}</value>
+    <comment>A file of a folder that did not make it: {0} is its path in the folder, {1} why.</comment>
+  </data>
+  <data name="TransferFailuresMore" xml:space="preserve">
+    <value>{0} more</value>
+    <comment>Files that did not make it beyond those listed.</comment>
+  </data>
+  <data name="TransferFolder" xml:space="preserve">
+    <value>Folder</value>
+    <comment>For screen readers: the row is a folder.</comment>
+  </data>
+  <data name="TransferSymlink" xml:space="preserve">
+    <value>This is a shortcut (symbolic link) and is not sent.</value>
+  </data>
+  <data name="TransferNotAFile" xml:space="preserve">
+    <value>This is not a file or a folder.</value>
+  </data>
+  <data name="TransferPeerTooLarge" xml:space="preserve">
+    <value>The other computer does not take this much at once.</value>
+  </data>
+  <data name="TransferPeerInvalidName" xml:space="preserve">
+    <value>The other computer cannot save it under this name.</value>
+  </data>
+  <data name="TransferInvalidName" xml:space="preserve">
+    <value>This computer cannot save it under this name.</value>
+  </data>
+  <data name="TransferNoSpaceShort" xml:space="preserve">
+    <value>Not enough free space.</value>
+  </data>
+  <data name="ClipboardSensitive" xml:space="preserve">
+    <value>The clipboard came from a password manager, so it was not synced.</value>
+  </data>
+  <data name="ClipboardTooLarge" xml:space="preserve">
+    <value>The clipboard is over 8 MB, so it was not synced. Use Send Files instead.</value>
+  </data>
+  <data name="ClipboardSyncedFrom" xml:space="preserve">
+    <value>Clipboard: synced from {0} {1} ({2})</value>
+    <comment>{0} is a computer's name, {1} when ("2 min ago"), {2} what kind ("text").</comment>
+  </data>
+  <data name="ClipboardSentTo" xml:space="preserve">
+    <value>Clipboard: sent to {0} {1} ({2})</value>
+    <comment>{0} is a computer's name, {1} when ("2 min ago"), {2} what kind ("text").</comment>
+  </data>
+  <data name="ClipboardKindImage" xml:space="preserve">
+    <value>image</value>
+  </data>
+  <data name="ClipboardKindRichText" xml:space="preserve">
+    <value>formatted text</value>
+  </data>
+  <data name="ClipboardKindText" xml:space="preserve">
+    <value>text</value>
+  </data>
+  <data name="RelativeJustNow" xml:space="preserve">
+    <value>just now</value>
+  </data>
+  <data name="RelativeMinutesAgo" xml:space="preserve">
+    <value>{0} min ago</value>
+  </data>
+
+  <!-- Sending files -->
+  <data name="SendFilesTitle" xml:space="preserve">
+    <value>Send Files</value>
+  </data>
+  <data name="SendFilesTo" xml:space="preserve">
+    <value>Send to:</value>
+  </data>
+  <data name="SendFilesSend" xml:space="preserve">
+    <value>Send</value>
+  </data>
+  <data name="SendFilesFailed" xml:space="preserve">
+    <value>The files could not be sent to {0}.</value>
+    <comment>{0} is a computer's name.</comment>
+  </data>
+  <data name="SendFilesOnlyFiles" xml:space="preserve">
+    <value>Only files can be sent, not folders.</value>
+  </data>
+  <data name="SendFilesCheckConnected" xml:space="preserve">
+    <value>Check that {0} is connected, then try again.</value>
+    <comment>{0} is a computer's name.</comment>
+  </data>
+
+  <!-- Computers in lists, the inspector and the canvas -->
+  <data name="ConnectionConnected" xml:space="preserve">
+    <value>Connected</value>
+  </data>
+  <data name="ConnectionConnectedRtt" xml:space="preserve">
+    <value>Connected · {0} ms</value>
+    <comment>{0} is the round-trip time in milliseconds.</comment>
+  </data>
+  <data name="ConnectionScreenLocked" xml:space="preserve">
+    <value>Screen locked</value>
+    <comment>A connected computer whose screen is locked.</comment>
+  </data>
+  <data name="ConnectionScreenLockedRtt" xml:space="preserve">
+    <value>Screen locked · {0} ms</value>
+    <comment>{0} is the round-trip time in milliseconds.</comment>
+  </data>
+  <data name="ConnectionScreenLockedNoInput" xml:space="preserve">
+    <value>Screen locked, can't take input</value>
+  </data>
+  <data name="ConnectionScreenLockedNoInputRtt" xml:space="preserve">
+    <value>Screen locked, can't take input · {0} ms</value>
+    <comment>{0} is the round-trip time in milliseconds.</comment>
+  </data>
+  <data name="ConnectionNoInput" xml:space="preserve">
+    <value>Can't take input</value>
+  </data>
+  <data name="ConnectionNoInputRtt" xml:space="preserve">
+    <value>Can't take input · {0} ms</value>
+    <comment>{0} is the round-trip time in milliseconds.</comment>
+  </data>
+  <data name="ConnectionPeerPaused" xml:space="preserve">
+    <value>Paused sharing</value>
+  </data>
+  <data name="ConnectionPeerPausedRtt" xml:space="preserve">
+    <value>Paused sharing · {0} ms</value>
+  </data>
+  <data name="ConnectionOffline" xml:space="preserve">
+    <value>Offline</value>
+  </data>
+  <data name="ConnectionThisComputer" xml:space="preserve">
+    <value>This computer</value>
+  </data>
+  <data name="OsUnknown" xml:space="preserve">
+    <value>Unknown system</value>
+  </data>
+  <data name="ScreenMain" xml:space="preserve">
+    <value>Main</value>
+  </data>
+  <data name="SwapCommandAndControl" xml:space="preserve">
+    <value>Swap ⌘ and Ctrl</value>
+    <comment>For a Mac: the keys sent to it.</comment>
+  </data>
+  <data name="SwapWindowsAndControl" xml:space="preserve">
+    <value>Swap the Windows key and Ctrl</value>
+    <comment>For a computer that is not a Mac.</comment>
+  </data>
+  <data name="RemoveDeviceTitle" xml:space="preserve">
+    <value>Remove {0}?</value>
+    <comment>{0} is a computer's name.</comment>
+  </data>
+  <data name="RemoveDeviceMessage" xml:space="preserve">
+    <value>This computer stops trusting it. To use it again, pair it again.</value>
+  </data>
+  <data name="RemoveDeviceConfirm" xml:space="preserve">
+    <value>Remove</value>
+  </data>
+  <data name="CanvasKeyboardMouseHere" xml:space="preserve">
+    <value>Keyboard and mouse here</value>
+  </data>
+  <data name="CanvasScreenLockedKeyboardMouseHere" xml:space="preserve">
+    <value>Screen locked, keyboard and mouse here</value>
+  </data>
+  <data name="CanvasDropToSend" xml:space="preserve">
+    <value>Drop to send</value>
+  </data>
+  <data name="CanvasMoveCursorHere" xml:space="preserve">
+    <value>Move Cursor Here</value>
+  </data>
+  <data name="CanvasDeviceNextTo" xml:space="preserve">
+    <value>{0}, {1} screens, next to {2}</value>
+    <comment>For screen readers. {0} is a computer's name, {1} a number, {2} other computers' names.</comment>
+  </data>
+  <data name="CanvasDeviceAlone" xml:space="preserve">
+    <value>{0}, {1} screens, not next to another computer</value>
+    <comment>For screen readers. {0} is a computer's name, {1} a number.</comment>
+  </data>
+  <data name="CanvasSynced" xml:space="preserve">
+    <value>Synced to {0} devices</value>
+    <comment>{0} is a number.</comment>
+  </data>
+
+  <!-- Adding a device, and the code shown when another adds this one -->
+  <data name="AddDeviceTitle" xml:space="preserve">
+    <value>Add Device</value>
+  </data>
+  <data name="PairingPair" xml:space="preserve">
+    <value>Pair</value>
+  </data>
+  <data name="PairingNotAccepting" xml:space="preserve">
+    <value>Not accepting new devices</value>
+  </data>
+  <data name="PairingNoneFound" xml:space="preserve">
+    <value>No Other Computers Found</value>
+  </data>
+  <data name="PairingNoneFoundDetail" xml:space="preserve">
+    <value>Install and open InputWeave on another computer on this network, and it appears here.</value>
+  </data>
+  <data name="PairingIpAddress" xml:space="preserve">
+    <value>IP address</value>
+  </data>
+  <data name="PairingAddByIp" xml:space="preserve">
+    <value>Add by IP Address</value>
+  </data>
+  <data name="PairingContinue" xml:space="preserve">
+    <value>Continue</value>
+  </data>
+  <data name="PairingStartOver" xml:space="preserve">
+    <value>Start Over</value>
+  </data>
+  <data name="PairingCodeName" xml:space="preserve">
+    <value>Pairing code</value>
+  </data>
+  <data name="PairingCodeTitle" xml:space="preserve">
+    <value>Enter this code on “{0}”</value>
+    <comment>{0} is the name of the computer adding this one.</comment>
+  </data>
+  <data name="PairingCodeValid" xml:space="preserve">
+    <value>Valid for {0}</value>
+    <comment>{0} is the time left, e.g. 1:58.</comment>
+  </data>
+  <data name="PairingDecline" xml:space="preserve">
+    <value>Decline</value>
+  </data>
+  <data name="PairingConnecting" xml:space="preserve">
+    <value>Connecting…</value>
+  </data>
+  <data name="PairingEnterCode" xml:space="preserve">
+    <value>Enter the code shown on “{0}”</value>
+    <comment>{0} is a computer's name.</comment>
+  </data>
+  <data name="PairingWrongCode" xml:space="preserve">
+    <value>That code is not right. You can try {0} more times.</value>
+    <comment>{0} is a number.</comment>
+  </data>
+  <data name="PairingPaired" xml:space="preserve">
+    <value>Paired with {0}</value>
+    <comment>{0} is a computer's name.</comment>
+  </data>
+  <data name="PairingTheOtherComputer" xml:space="preserve">
+    <value>The other computer</value>
+  </data>
+  <data name="PairingTooManyAttempts" xml:space="preserve">
+    <value>Pairing was cancelled. Start again.</value>
+  </data>
+  <data name="PairingExpired" xml:space="preserve">
+    <value>The code has expired. Start again.</value>
+  </data>
+  <data name="PairingRejected" xml:space="preserve">
+    <value>{0} declined the pairing.</value>
+    <comment>{0} is a computer's name.</comment>
+  </data>
+  <data name="PairingNotAllowed" xml:space="preserve">
+    <value>{0} does not accept new devices.</value>
+    <comment>{0} is a computer's name.</comment>
+  </data>
+  <data name="PairingBusy" xml:space="preserve">
+    <value>{0} is pairing with another computer. Try again in a moment.</value>
+    <comment>{0} is a computer's name.</comment>
+  </data>
+  <data name="PairingIdConflict" xml:space="preserve">
+    <value>{0} uses the same device ID as a computer you already have.</value>
+    <comment>{0} is a computer's name.</comment>
+  </data>
+  <data name="PairingIncompatible" xml:space="preserve">
+    <value>{0} runs a version of InputWeave that cannot pair with this one. Update both.</value>
+    <comment>{0} is a computer's name.</comment>
+  </data>
+  <data name="PairingUnreachable" xml:space="preserve">
+    <value>{0} cannot be reached. Check that both computers are on the same network.</value>
+    <comment>{0} is a computer's name.</comment>
+  </data>
+  <data name="PairingCancelled" xml:space="preserve">
+    <value>Pairing was cancelled.</value>
+  </data>
+  <data name="PairingDidNotWork" xml:space="preserve">
+    <value>Pairing did not work. Start again.</value>
+  </data>
+  <data name="PairingStartBusy" xml:space="preserve">
+    <value>Another pairing is in progress.</value>
+  </data>
+  <data name="PairingStartInvalidAddress" xml:space="preserve">
+    <value>That address cannot be found.</value>
+  </data>
+  <data name="PairingStartUnreachable" xml:space="preserve">
+    <value>That computer cannot be reached.</value>
+  </data>
+  <data name="PairingStartFailed" xml:space="preserve">
+    <value>Pairing could not start.</value>
+  </data>
+
+  <!-- The main window -->
+  <data name="NavArrangement" xml:space="preserve">
+    <value>Arrangement</value>
+  </data>
+  <data name="NavDevices" xml:space="preserve">
+    <value>Devices</value>
+  </data>
+  <data name="NavFiles" xml:space="preserve">
+    <value>File Transfers</value>
+  </data>
+  <data name="NavGeneral" xml:space="preserve">
+    <value>General</value>
+  </data>
+  <data name="NavTroubleshooting" xml:space="preserve">
+    <value>Troubleshooting</value>
+  </data>
+  <data name="MainUnavailable" xml:space="preserve">
+    <value>Settings appear here once the background service is running.</value>
+  </data>
+  <data name="InspectorName" xml:space="preserve">
+    <value>Name</value>
+  </data>
+  <data name="InspectorSystem" xml:space="preserve">
+    <value>System</value>
+  </data>
+  <data name="InspectorStatus" xml:space="preserve">
+    <value>Status</value>
+  </data>
+  <data name="InspectorScreens" xml:space="preserve">
+    <value>Screens</value>
+  </data>
+  <data name="InspectorScreensLater" xml:space="preserve">
+    <value>Shown once it connects.</value>
+  </data>
+  <data name="RemoveDevice" xml:space="preserve">
+    <value>Remove Device…</value>
+  </data>
+  <data name="DevicesNoneTitle" xml:space="preserve">
+    <value>No Other Computers</value>
+  </data>
+  <data name="DevicesNoneDetail" xml:space="preserve">
+    <value>Install InputWeave on another computer on this network, then add it here.</value>
+  </data>
+  <data name="FilesReceiving" xml:space="preserve">
+    <value>Receiving</value>
+  </data>
+  <data name="FilesSaveIn" xml:space="preserve">
+    <value>Save received files in</value>
+  </data>
+  <data name="FilesChoose" xml:space="preserve">
+    <value>Choose…</value>
+  </data>
+  <data name="FilesWhenSent" xml:space="preserve">
+    <value>When a paired computer sends files</value>
+  </data>
+  <data name="FilesAutomatically" xml:space="preserve">
+    <value>Receive them automatically</value>
+  </data>
+  <data name="FilesAskEachTime" xml:space="preserve">
+    <value>Ask each time</value>
+  </data>
+  <data name="FilesSending" xml:space="preserve">
+    <value>Sending</value>
+  </data>
+  <data name="FilesSendHint" xml:space="preserve">
+    <value>Drop files on a computer in the arrangement or on the panel's map, or choose them here.</value>
+  </data>
+  <data name="FilesSendButton" xml:space="preserve">
+    <value>Send Files…</value>
+  </data>
+  <data name="FilesRecent" xml:space="preserve">
+    <value>Recent</value>
+  </data>
+  <data name="FilesNone" xml:space="preserve">
+    <value>No files sent or received yet.</value>
+  </data>
+  <data name="FilesClearHistory" xml:space="preserve">
+    <value>Clear History…</value>
+  </data>
+  <data name="FilesClearTitle" xml:space="preserve">
+    <value>Clear the transfer history?</value>
+  </data>
+  <data name="FilesClearMessage" xml:space="preserve">
+    <value>Finished transfers are taken off the list. The files stay where they are, and transfers still going stay listed.</value>
+  </data>
+  <data name="FilesClearConfirm" xml:space="preserve">
+    <value>Clear History</value>
+  </data>
+  <data name="GeneralName" xml:space="preserve">
+    <value>This computer's name</value>
+  </data>
+  <data name="GeneralNameHint" xml:space="preserve">
+    <value>Other computers see this name.</value>
+  </data>
+  <data name="GeneralOpenAtLogin" xml:space="preserve">
+    <value>Open InputWeave at login</value>
+  </data>
+  <data name="GeneralShowIcon" xml:space="preserve">
+    <value>Show the icon in the system tray</value>
+  </data>
+  <data name="GeneralShowIconHint" xml:space="preserve">
+    <value>When the icon is hidden, open InputWeave again to show it.</value>
+  </data>
+  <data name="GeneralClipboard" xml:space="preserve">
+    <value>Clipboard</value>
+  </data>
+  <data name="GeneralClipboardSync" xml:space="preserve">
+    <value>Sync the clipboard</value>
+  </data>
+  <data name="GeneralClipboardHint" xml:space="preserve">
+    <value>What you copy on one computer can be pasted on the next one the cursor moves to. Content from password managers is never synced, and nothing over 8 MB.</value>
+  </data>
+  <data name="GeneralPictures" xml:space="preserve">
+    <value>Desktop pictures</value>
+  </data>
+  <data name="GeneralPicturesShare" xml:space="preserve">
+    <value>Share this computer's desktop picture with paired computers</value>
+  </data>
+  <data name="GeneralPicturesHint" xml:space="preserve">
+    <value>Paired computers show it behind your screens in their arrangement, so each computer is easy to tell apart.</value>
+  </data>
+  <data name="GeneralPicturesUnavailable" xml:space="preserve">
+    <value>This computer's desktop picture can't be read right now, so there is none to share.</value>
+    <comment>The background service reads it as the logged-on user; at times it cannot.</comment>
+  </data>
+  <data name="GeneralSwitching" xml:space="preserve">
+    <value>Switching</value>
+  </data>
+  <data name="GeneralWait" xml:space="preserve">
+    <value>Wait a moment before switching computers</value>
+  </data>
+  <data name="GeneralWaitHint" xml:space="preserve">
+    <value>The cursor crosses to the next computer after resting at the edge of the screen for a moment, so brushing the edge does not switch.</value>
+  </data>
+  <data name="GeneralEdgeGlow" xml:space="preserve">
+    <value>Light up the screen edge when the cursor crosses to another computer</value>
+  </data>
+  <data name="GeneralEdgeGlowHint" xml:space="preserve">
+    <value>A short glow in the seam color shows where the cursor left this computer’s screen, or came in.</value>
+  </data>
+  <data name="GeneralShortcuts" xml:space="preserve">
+    <value>Shortcuts</value>
+  </data>
+  <data name="ShortcutTakeBack" xml:space="preserve">
+    <value>Take back control</value>
+  </data>
+  <data name="ShortcutLock" xml:space="preserve">
+    <value>Lock to the current computer</value>
+  </data>
+  <data name="ShortcutJump" xml:space="preserve">
+    <value>Jump to computer N</value>
+  </data>
+  <data name="ShortcutRecord" xml:space="preserve">
+    <value>Record</value>
+  </data>
+  <data name="ShortcutPressKeys" xml:space="preserve">
+    <value>Press the keys…</value>
+    <comment>Shown in place of a shortcut while it is recorded.</comment>
+  </data>
+  <data name="ShortcutPressJump" xml:space="preserve">
+    <value>Press the modifiers and a number…</value>
+    <comment>Shown in place of the jump shortcuts while they are recorded.</comment>
+  </data>
+  <data name="ShortcutOff" xml:space="preserve">
+    <value>Off</value>
+    <comment>The jump shortcuts, turned off.</comment>
+  </data>
+  <data name="ShortcutReset" xml:space="preserve">
+    <value>Reset Shortcuts</value>
+  </data>
+  <data name="ShortcutsHint" xml:space="preserve">
+    <value>Computers are numbered from left to right in the arrangement, and each number is shown next to the computer's name. While recording, press Esc to cancel or Delete to go back to the default.</value>
+  </data>
+  <data name="ShortcutNeedsModifier" xml:space="preserve">
+    <value>This combination needs at least one modifier key: Ctrl, Alt, Shift or the Windows key.</value>
+  </data>
+  <data name="ShortcutUnknownKey" xml:space="preserve">
+    <value>This key can't be used in a shortcut.</value>
+  </data>
+  <data name="ShortcutUsedFor" xml:space="preserve">
+    <value>This combination is already used for “{0}”.</value>
+    <comment>{0} is the title of another shortcut, e.g. Lock to the current computer.</comment>
+  </data>
+  <data name="ShortcutUsedElsewhere" xml:space="preserve">
+    <value>This combination is already used for another shortcut.</value>
+  </data>
+  <data name="ShortcutNotChanged" xml:space="preserve">
+    <value>The shortcut could not be changed.</value>
+  </data>
+  <data name="SwitchModifierTitle" xml:space="preserve">
+    <value>Switch to another computer</value>
+  </data>
+  <data name="SwitchModifierHint" xml:space="preserve">
+    <value>Hold the key as the cursor reaches the edge of the screen, going either way. Shortcuts and clicks on the panel's mini map move the cursor without it.</value>
+  </data>
+  <data name="SwitchAlways" xml:space="preserve">
+    <value>Always</value>
+  </data>
+  <data name="SwitchHoldingControl" xml:space="preserve">
+    <value>While holding Ctrl</value>
+  </data>
+  <data name="SwitchHoldingAlt" xml:space="preserve">
+    <value>While holding Alt</value>
+  </data>
+  <data name="SwitchHoldingShift" xml:space="preserve">
+    <value>While holding Shift</value>
+  </data>
+  <data name="SwitchHoldingWindows" xml:space="preserve">
+    <value>While holding the Windows key</value>
+  </data>
+  <data name="IdentifyScreens" xml:space="preserve">
+    <value>Identify Screens</value>
+  </data>
+  <data name="IdentifyScreensHint" xml:space="preserve">
+    <value>Shows each computer's name on its screens for a moment.</value>
+  </data>
+  <data name="IdentifyScreenLabel" xml:space="preserve">
+    <value>Screen {0} · {1}</value>
+    <comment>Under this computer's name on each of its screens. {0} is a number, {1} the screen's size in pixels, e.g. 3840 × 2160.</comment>
+  </data>
+  <data name="CanvasRename" xml:space="preserve">
+    <value>Rename…</value>
+  </data>
+  <data name="InspectorCallsItself" xml:space="preserve">
+    <value>It calls itself “{0}”.</value>
+    <comment>Under the name given to another computer here. {0} is the name it gives itself.</comment>
+  </data>
+  <data name="InspectorSyncClipboard" xml:space="preserve">
+    <value>Sync the clipboard with this computer</value>
+  </data>
+  <data name="InspectorSendFiles" xml:space="preserve">
+    <value>Send and receive files with this computer</value>
+  </data>
+  <data name="InspectorSharingHint" xml:space="preserve">
+    <value>Only this computer stops; the other computer is not told.</value>
+  </data>
+  <data name="DeviceFilesOff" xml:space="preserve">
+    <value>Files with “{0}” are turned off.</value>
+    <comment>{0} is a computer's name.</comment>
+  </data>
+  <data name="DeviceFilesOffShort" xml:space="preserve">
+    <value>Files turned off</value>
+    <comment>On the mini map, over a computer files are turned off with.</comment>
+  </data>
+  <data name="TroubleProblems" xml:space="preserve">
+    <value>Problems</value>
+  </data>
+  <data name="TroubleAllGood" xml:space="preserve">
+    <value>Everything is working.</value>
+  </data>
+  <data name="TroubleService" xml:space="preserve">
+    <value>Background service</value>
+  </data>
+  <data name="TroubleVersion" xml:space="preserve">
+    <value>Version</value>
+  </data>
+  <data name="TroubleBuild" xml:space="preserve">
+    <value>Build</value>
+    <comment>The SHA-256 of the background service's executable.</comment>
+  </data>
+  <data name="TroubleKeyboardMouse" xml:space="preserve">
+    <value>This computer's keyboard and mouse</value>
+  </data>
+  <data name="TroubleRestartHint" xml:space="preserve">
+    <value>If this does not change within a few seconds, restart the service.</value>
+  </data>
+  <data name="TroubleDeviceId" xml:space="preserve">
+    <value>Device ID</value>
+  </data>
+  <data name="TroubleExport" xml:space="preserve">
+    <value>Export Diagnostics…</value>
+  </data>
+  <data name="TroubleExportHint" xml:space="preserve">
+    <value>A text file to attach when reporting a problem: versions, settings, connection state and recent logs. It contains no keys, file names or clipboard contents.</value>
+  </data>
+  <data name="TroubleLogs" xml:space="preserve">
+    <value>Open Logs Folder</value>
+  </data>
+  <data name="TroubleLogsHint" xml:space="preserve">
+    <value>The background service's log files.</value>
+  </data>
+  <data name="NameInvalid" xml:space="preserve">
+    <value>A name is 1 to 64 characters.</value>
+  </data>
+  <data name="ServiceRunning" xml:space="preserve">
+    <value>Running</value>
+  </data>
+  <data name="ServiceStarting" xml:space="preserve">
+    <value>Starting</value>
+  </data>
+  <data name="ServiceUpdating" xml:space="preserve">
+    <value>Updating</value>
+  </data>
+  <data name="ServiceStopping" xml:space="preserve">
+    <value>Stopping</value>
+  </data>
+  <data name="ServiceStopped" xml:space="preserve">
+    <value>Stopped</value>
+  </data>
+  <data name="ServiceNotInstalled" xml:space="preserve">
+    <value>Not installed; reinstall InputWeave</value>
+  </data>
+  <data name="CanControl" xml:space="preserve">
+    <value>Can control other computers</value>
+  </data>
+  <data name="CannotControlYet" xml:space="preserve">
+    <value>Cannot control other computers yet</value>
+  </data>
+  <data name="DiagnosticsFileName" xml:space="preserve">
+    <value>InputWeave Diagnostics</value>
+    <comment>The suggested file name, without .txt.</comment>
+  </data>
+  <data name="DiagnosticsFailed" xml:space="preserve">
+    <value>The diagnostics could not be exported.</value>
+  </data>
+  <data name="LogsAdminOnlyTitle" xml:space="preserve">
+    <value>Only administrators can open these logs</value>
+  </data>
+  <data name="LogsAdminOnlyMessage" xml:space="preserve">
+    <value>The background service keeps its logs in this folder, which only administrators can open. Export Diagnostics… includes their most recent lines.</value>
+  </data>
+  <data name="LogsMissingTitle" xml:space="preserve">
+    <value>The background service has not written a log yet.</value>
+  </data>
+  <data name="LogsMissingMessage" xml:space="preserve">
+    <value>Its log appears once it has started. Restart the service, then try again.</value>
+  </data>
+  <data name="CopyPath" xml:space="preserve">
+    <value>Copy Path</value>
+  </data>
+  <data name="GeneralSendTo" xml:space="preserve">
+    <value>Show InputWeave in the Send To menu</value>
+  </data>
+  <data name="GeneralSendToHint" xml:space="preserve">
+    <value>Right-click files in File Explorer and choose Send to › InputWeave. On Windows 11 it is under Show more options.</value>
+  </data>
+
+  <!-- First-run setup -->
+  <data name="MenuRunSetup" xml:space="preserve">
+    <value>Run Setup Again…</value>
+  </data>
+  <data name="SetupWindowTitle" xml:space="preserve">
+    <value>Set Up InputWeave</value>
+  </data>
+  <data name="SetupStepOf" xml:space="preserve">
+    <value>Step {0} of {1}</value>
+    <comment>{0} is this step's number, {1} how many steps there are.</comment>
+  </data>
+  <data name="SetupProgress" xml:space="preserve">
+    <value>Setup progress</value>
+  </data>
+  <data name="SetupBack" xml:space="preserve">
+    <value>Back</value>
+  </data>
+  <data name="SetupLater" xml:space="preserve">
+    <value>Later</value>
+  </data>
+  <data name="SetupContinue" xml:space="preserve">
+    <value>Continue</value>
+  </data>
+  <data name="SetupDone" xml:space="preserve">
+    <value>Done</value>
+  </data>
+  <data name="SetupSkip" xml:space="preserve">
+    <value>Skip</value>
+  </data>
+  <data name="SetupGetStarted" xml:space="preserve">
+    <value>Get Started</value>
+  </data>
+  <data name="SetupWelcomeTitle" xml:space="preserve">
+    <value>One keyboard and mouse for every computer on your desk.</value>
+  </data>
+  <data name="SetupBenefitEdges" xml:space="preserve">
+    <value>Move the cursor across the edge of the screen to the next computer.</value>
+  </data>
+  <data name="SetupBenefitClipboard" xml:space="preserve">
+    <value>Copy on one computer, paste on the next.</value>
+  </data>
+  <data name="SetupBenefitFiles" xml:space="preserve">
+    <value>Drop files on a computer to send them.</value>
+  </data>
+  <data name="SetupReassurance" xml:space="preserve">
+    <value>You'll need another computer on the same network. Setup takes about five minutes.</value>
+  </data>
+  <data name="SetupNameTitle" xml:space="preserve">
+    <value>This computer's name</value>
+  </data>
+  <data name="SetupNameLabel" xml:space="preserve">
+    <value>Name</value>
+  </data>
+  <data name="SetupNameHint" xml:space="preserve">
+    <value>Other computers see this name.</value>
+  </data>
+  <data name="SetupNetworkTitle" xml:space="preserve">
+    <value>Network check</value>
+  </data>
+  <data name="SetupNetworkPublic" xml:space="preserve">
+    <value>The current network is set to Public, so other computers may not find this one.</value>
+  </data>
+  <data name="SetupNetworkHowTo" xml:space="preserve">
+    <value>In Settings › Network &amp; internet, open the network's properties and choose Private network. This page checks again every few seconds.</value>
+  </data>
+  <data name="SetupNetworkPrivate" xml:space="preserve">
+    <value>The network is no longer set to Public.</value>
+  </data>
+  <data name="SetupNetworkOpenSettings" xml:space="preserve">
+    <value>Open Network Settings</value>
+  </data>
+  <data name="SetupConnectTitle" xml:space="preserve">
+    <value>Connect another computer</value>
+  </data>
+  <data name="SetupCodeTitle" xml:space="preserve">
+    <value>Enter the pairing code</value>
+  </data>
+  <data name="SetupArrangeTitle" xml:space="preserve">
+    <value>Arrangement</value>
+  </data>
+  <data name="SetupArrangeHint" xml:space="preserve">
+    <value>Drag “{0}” to where it sits on your desk.</value>
+    <comment>{0} is the name of the other computer.</comment>
+  </data>
+  <data name="SetupTryTitle" xml:space="preserve">
+    <value>Try it</value>
+  </data>
+  <data name="SetupTryHint" xml:space="preserve">
+    <value>Move the cursor towards “{0}”.</value>
+    <comment>{0} is the name of the other computer.</comment>
+  </data>
+  <data name="SetupTryDone" xml:space="preserve">
+    <value>It works. Press {0} to take back control at any time.</value>
+    <comment>{0} is a shortcut, e.g. Ctrl + Alt + Shift + Esc.</comment>
+  </data>
+
+  <!-- The HUD and the cursor locator -->
+  <data name="HudTakeBackHint" xml:space="preserve">
+    <value>Press {0} to take back control at any time.</value>
+    <comment>{0} is a shortcut, e.g. Ctrl + Alt + Shift + Esc.</comment>
+  </data>
+  <data name="HudLockedHere" xml:space="preserve">
+    <value>Locked to this computer. Press {0} to unlock.</value>
+    <comment>{0} is a shortcut, e.g. Ctrl + Alt + Shift + L.</comment>
+  </data>
+  <data name="HudLockedTo" xml:space="preserve">
+    <value>Locked to “{0}”. Press {1} to unlock.</value>
+    <comment>{0} is the name of the computer the cursor is on, {1} a shortcut.</comment>
+  </data>
+  <data name="HudUnlocked" xml:space="preserve">
+    <value>Unlocked.</value>
+  </data>
+  <data name="HudPeerLost" xml:space="preserve">
+    <value>The connection to “{0}” was lost, so the keyboard and mouse are back on this computer.</value>
+    <comment>{0} is the name of the computer that was controlled.</comment>
+  </data>
+  <data name="HudRemoteActivity" xml:space="preserve">
+    <value>Someone is using “{0}”, so the keyboard and mouse are back on this computer.</value>
+    <comment>{0} is the name of the computer that was controlled.</comment>
+  </data>
+  <data name="HudBackHere" xml:space="preserve">
+    <value>Back on this computer.</value>
+  </data>
+  <data name="HudLayoutChanged" xml:space="preserve">
+    <value>The arrangement changed, so the keyboard and mouse are back on this computer.</value>
+  </data>
+  <data name="HudScreenLocked" xml:space="preserve">
+    <value>The screen of “{0}” locked, and input from here can't reach it, so the keyboard and mouse are back on this computer.</value>
+    <comment>{0} is the name of the computer that was controlled.</comment>
+  </data>
+  <data name="HudInputUnavailable" xml:space="preserve">
+    <value>“{0}” can't take input from here right now, so the keyboard and mouse are back on this computer.</value>
+    <comment>{0} is the name of the computer that was controlled.</comment>
+  </data>
+  <data name="HudPeerPaused" xml:space="preserve">
+    <value>“{0}” paused sharing, so the keyboard and mouse are back on this computer.</value>
+  </data>
+  <data name="HudCaptureEnded" xml:space="preserve">
+    <value>The desktop took the keyboard and mouse back to this computer.</value>
+  </data>
+  <data name="HudDraggingOne" xml:space="preserve">
+    <value>Dragging 1 item to “{0}”</value>
+    <comment>{0} is the other computer's name.</comment>
+  </data>
+  <data name="HudDraggingMany" xml:space="preserve">
+    <value>Dragging {0} items to “{1}”</value>
+    <comment>{0} is how many files and folders, {1} the other computer's name.</comment>
+  </data>
+  <data name="HudDropHere" xml:space="preserve">
+    <value>Drop the items where you want them</value>
+  </data>
+  <data name="HudDragSending" xml:space="preserve">
+    <value>Sending to “{0}”</value>
+    <comment>The other computer took the dragged items; {0} is its name.</comment>
+  </data>
+  <data name="HudDragDeclined" xml:space="preserve">
+    <value>“{0}” didn't take the items</value>
+    <comment>{0} is the other computer's name.</comment>
+  </data>
+  <data name="HudDragInvalidFolder" xml:space="preserve">
+    <value>The items can't be saved in this folder.</value>
+  </data>
+  <data name="HudDragGone" xml:space="preserve">
+    <value>The drag has already ended.</value>
+  </data>
+  <data name="HudDragNotReceived" xml:space="preserve">
+    <value>The items can't be received right now.</value>
+  </data>
+
+  <!-- System notifications -->
+  <data name="NotifyReceivedOne" xml:space="preserve">
+    <value>Received {0} ({1}) from {2}</value>
+    <comment>{0} is a file name, {1} its size, {2} the computer it came from.</comment>
+  </data>
+  <data name="NotifyReceivedMany" xml:space="preserve">
+    <value>Received {0} files ({1}) from {2}</value>
+    <comment>{0} is how many files, {1} their size, {2} the computer they came from.</comment>
+  </data>
+  <data name="NotifyOpenFolder" xml:space="preserve">
+    <value>Open Folder</value>
+  </data>
+  <data name="NotifyOfferTitle" xml:space="preserve">
+    <value>{0} wants to send you a file</value>
+    <comment>{0} is the name of the computer sending it.</comment>
+  </data>
+  <data name="NotifyOfferBody" xml:space="preserve">
+    <value>{0} ({1})</value>
+    <comment>{0} is a file name, {1} its size.</comment>
+  </data>
+  <data name="NotifyServiceStopped" xml:space="preserve">
+    <value>The InputWeave service stopped, so sharing isn't working.</value>
+  </data>
+  <data name="NotifyListSeparator" xml:space="preserve">
+    <value>, </value>
+    <comment>Between the names of the files received, in a notification.</comment>
+  </data>
+  <data name="NotifyReceivedItems" xml:space="preserve">
+    <value>Received {0} ({1}, {2}) from {3}</value>
+    <comment>{0} is e.g. "1 folder and 2 files", {1} e.g. "312 files", {2} their size, {3} the other computer's name.</comment>
+  </data>
+  <data name="NotifyFailedOne" xml:space="preserve">
+    <value>{0}; 1 file could not be sent</value>
+    <comment>{0} is a sentence such as "Received 1 folder (312 files, 1.2 GB) from Mac mini".</comment>
+  </data>
+  <data name="NotifyFailedMany" xml:space="preserve">
+    <value>{0}; {1} files could not be sent</value>
+    <comment>{0} is a sentence such as "Received 1 folder (312 files, 1.2 GB) from Mac mini", {1} a number.</comment>
+  </data>
+  <data name="ItemsFolderOne" xml:space="preserve">
+    <value>1 folder</value>
+  </data>
+  <data name="ItemsFolderMany" xml:space="preserve">
+    <value>{0} folders</value>
+  </data>
+  <data name="ItemsFileOne" xml:space="preserve">
+    <value>1 file</value>
+  </data>
+  <data name="ItemsFileMany" xml:space="preserve">
+    <value>{0} files</value>
+  </data>
+  <data name="ItemsAnd" xml:space="preserve">
+    <value>{0} and {1}</value>
+    <comment>"1 folder and 2 files".</comment>
+  </data>
+
+  <!-- File Explorer's Send To -->
+  <data name="SendToNoneTitle" xml:space="preserve">
+    <value>There's no computer to send to</value>
+  </data>
+  <data name="SendToNoneMessage" xml:space="preserve">
+    <value>Files go to computers connected to this one. Connect another computer, then try again.</value>
+  </data>
+  <data name="TitleRelative" xml:space="preserve">
+    <value>Relative mouse on {0}</value>
+  </data>
+  <data name="SubtitleRelative" xml:space="preserve">
+    <value>Press {0} to end relative mouse.</value>
+  </data>
+  <data name="GeneralRelativeAuto" xml:space="preserve">
+    <value>Switch to relative mouse when a game holds the pointer</value>
+  </data>
+  <data name="GeneralRelativeAutoHint" xml:space="preserve">
+    <value>When an app on the computer you control, such as a game, hides the pointer and keeps it in its window, mouse movements go to it as they are and the cursor stays there until the app lets go. Only Windows computers tell when this happens; on a Mac, use the shortcut below.</value>
+  </data>
+  <data name="GeneralRelativeAutoHintNoShortcut" xml:space="preserve">
+    <value>When an app on the computer you control, such as a game, hides the pointer and keeps it in its window, mouse movements go to it as they are and the cursor stays there until the app lets go. Only Windows computers tell when this happens; for a Mac, you can set a shortcut for it below.</value>
+  </data>
+  <data name="GeneralRelativeAutoFailed" xml:space="preserve">
+    <value>The setting could not be changed. Try again once the background service responds.</value>
+  </data>
+  <data name="ShortcutRelative" xml:space="preserve">
+    <value>Relative mouse (games)</value>
+  </data>
+  <data name="HudTwoLines" xml:space="preserve">
+    <value>{0}
+{1}</value>
+    <comment>Two notes shown at once, one on each line.</comment>
+  </data>
+  <data name="HudRelativeEntered" xml:space="preserve">
+    <value>Relative mouse: the cursor stays on “{0}”. Press {1} to end it.</value>
+  </data>
+  <data name="HudRelativeEnteredTakeBack" xml:space="preserve">
+    <value>Relative mouse: the cursor stays on “{0}”. Press {1} to take back control.</value>
+  </data>
+  <data name="HudRelativeEnded" xml:space="preserve">
+    <value>Relative mouse ended.</value>
+  </data>
+  <data name="HudRelativeReleased" xml:space="preserve">
+    <value>“{0}” let go of the mouse, so it moves as usual again.</value>
+  </data>
+  <data name="HudRelativeUnsupported" xml:space="preserve">
+    <value>InputWeave on “{0}” doesn't support relative mouse.</value>
+  </data>
+  <data name="NavLicense" xml:space="preserve">
+    <value>License</value>
+  </data>
+  <data name="LicenseTrial" xml:space="preserve">
+    <value>Trial</value>
+  </data>
+  <data name="LicenseLicensed" xml:space="preserve">
+    <value>Licensed</value>
+  </data>
+  <data name="LicenseTrialBody" xml:space="preserve">
+    <value>Every feature works without a license, for as long as you like. A license replaces “Trial” with “Licensed” here and in About InputWeave.</value>
+  </data>
+  <data name="LicensePrice" xml:space="preserve">
+    <value>US$10, paid once, for up to 5 of your computers.</value>
+  </data>
+  <data name="LicenseBuy" xml:space="preserve">
+    <value>Buy a license</value>
+  </data>
+  <data name="LicenseEnter" xml:space="preserve">
+    <value>Enter license key</value>
+  </data>
+  <data name="LicenseManage" xml:space="preserve">
+    <value>Manage computers</value>
+  </data>
+  <data name="LicenseTryAgain" xml:space="preserve">
+    <value>Try again</value>
+  </data>
+  <data name="LicenseRemove" xml:space="preserve">
+    <value>Remove license</value>
+  </data>
+  <data name="LicenseHowTitle" xml:space="preserve">
+    <value>How the license works</value>
+  </data>
+  <data name="LicenseHow1" xml:space="preserve">
+    <value>Buy a license from Polar and get a license key.</value>
+  </data>
+  <data name="LicenseHow2" xml:space="preserve">
+    <value>Enter the key on one of your computers.</value>
+  </data>
+  <data name="LicenseHow3" xml:space="preserve">
+    <value>Your paired computers pick up the license by themselves, up to 5 in all.</value>
+  </data>
+  <data name="LicensePolarNote" xml:space="preserve">
+    <value>Payment and receipts are handled by Polar.</value>
+  </data>
+  <data name="LicenseSeatsFull" xml:space="preserve">
+    <value>Your license is already used on 5 computers, so this one stays in trial. Every feature still works. To license this computer, free one you no longer use in Polar’s customer portal.</value>
+  </data>
+  <data name="LicenseInvalid" xml:space="preserve">
+    <value>The license on this computer is no longer valid. It may have been refunded, or this computer was removed from it in Polar’s customer portal.</value>
+  </data>
+  <data name="LicenseUnavailable" xml:space="preserve">
+    <value>License information can't be read right now.</value>
+  </data>
+  <data name="LicenseOffline" xml:space="preserve">
+    <value>Polar can’t be reached, so the license isn’t activated yet. InputWeave tries again in a few minutes.</value>
+  </data>
+  <data name="LicensedTo" xml:space="preserve">
+    <value>Licensed to {0}</value>
+  </data>
+  <data name="LicenseThanks" xml:space="preserve">
+    <value>Thank you for buying InputWeave.</value>
+  </data>
+  <data name="LicenseFrom" xml:space="preserve">
+    <value>The license came from “{0}”. Thank you for buying InputWeave.</value>
+  </data>
+  <data name="LicenseComputers" xml:space="preserve">
+    <value>Computers on this license</value>
+  </data>
+  <data name="LicenseCount" xml:space="preserve">
+    <value>{0} of 5</value>
+  </data>
+  <data name="LicenseThisComputer" xml:space="preserve">
+    <value>This computer</value>
+  </data>
+  <data name="LicensePaired" xml:space="preserve">
+    <value>Paired</value>
+  </data>
+  <data name="LicenseNotActivated" xml:space="preserve">
+    <value>Not activated</value>
+  </data>
+  <data name="LicenseListNote" xml:space="preserve">
+    <value>Only computers paired with this one are listed. Polar’s customer portal lists all of them.</value>
+  </data>
+  <data name="LicenseEnterTitle" xml:space="preserve">
+    <value>Enter license key</value>
+  </data>
+  <data name="LicenseKey" xml:space="preserve">
+    <value>License key</value>
+  </data>
+  <data name="LicenseKeyHelp" xml:space="preserve">
+    <value>The key is on Polar’s order page and in the email Polar sent you.</value>
+  </data>
+  <data name="LicenseActivate" xml:space="preserve">
+    <value>Activate</value>
+  </data>
+  <data name="LicenseActivating" xml:space="preserve">
+    <value>Activating…</value>
+  </data>
+  <data name="LicenseErrorInvalid" xml:space="preserve">
+    <value>This isn’t an InputWeave license key. Check it against the email from Polar.</value>
+  </data>
+  <data name="LicenseErrorFull" xml:space="preserve">
+    <value>This license is already used on 5 computers. Free a computer you no longer use in Polar’s customer portal, then try again.</value>
+  </data>
+  <data name="LicenseErrorOffline" xml:space="preserve">
+    <value>Polar can’t be reached. Check this computer’s internet connection and try again.</value>
+  </data>
+  <data name="LicenseErrorBusy" xml:space="preserve">
+    <value>Polar is busy. Try again in a moment.</value>
+  </data>
+  <data name="LicenseErrorService" xml:space="preserve">
+    <value>The background service didn’t accept the license. Enter the key again to try once more.</value>
+  </data>
+  <data name="LicenseRemoveTitle" xml:space="preserve">
+    <value>Remove the license from this computer?</value>
+  </data>
+  <data name="LicenseRemoveBody" xml:space="preserve">
+    <value>This frees one of your 5 computers. Your other computers keep their license, and this one won’t pick it up from them again until you enter the key.</value>
+  </data>
+  <data name="LicenseRemovedOffline" xml:space="preserve">
+    <value>Polar couldn’t be reached, so this computer’s place on the license isn’t free yet. InputWeave frees it once Polar can be reached, or you can free it in Polar’s customer portal.</value>
+  </data>
+  <data name="AboutTitle" xml:space="preserve">
+    <value>About InputWeave</value>
+  </data>
+  <data name="AboutVersion" xml:space="preserve">
+    <value>Version {0} ({1})</value>
+  </data>
+  <data name="AboutCopyright" xml:space="preserve">
+    <value>Copyright © 2026 InputWeave contributors</value>
+  </data>
+  <data name="AboutGpl" xml:space="preserve">
+    <value>Free and open source under the GNU GPL, version 3 or later</value>
+  </data>
+  <data name="AboutAcknowledgments" xml:space="preserve">
+    <value>Acknowledgments</value>
+  </data>
+  <data name="Close" xml:space="preserve">
+    <value>Close</value>
+  </data>
+  <data name="MenuAbout" xml:space="preserve">
+    <value>About InputWeave</value>
+  </data>
+  <data name="MenuCheckUpdates" xml:space="preserve">
+    <value>Check for updates…</value>
+  </data>
+  <data name="GeneralUpdates" xml:space="preserve">
+    <value>Updates</value>
+  </data>
+  <data name="UpdatesAuto" xml:space="preserve">
+    <value>Check for updates automatically</value>
+  </data>
+  <data name="UpdatesAutoHint" xml:space="preserve">
+    <value>Checks once a day whether there is a new version.</value>
+  </data>
+  <data name="UpdatesVersion" xml:space="preserve">
+    <value>Version {0}</value>
+  </data>
+  <data name="UpdatesCheckNow" xml:space="preserve">
+    <value>Check now</value>
+  </data>
+  <data name="UpdatesNotChecked" xml:space="preserve">
+    <value>Not checked yet.</value>
+  </data>
+  <data name="UpdatesUpToDate" xml:space="preserve">
+    <value>InputWeave is up to date. Last checked {0}.</value>
+  </data>
+  <data name="UpdatesChecking" xml:space="preserve">
+    <value>Checking…</value>
+  </data>
+  <data name="UpdatesAvailable" xml:space="preserve">
+    <value>InputWeave {0} is available.</value>
+  </data>
+  <data name="UpdatesYouHave" xml:space="preserve">
+    <value>You have {0}.</value>
+  </data>
+  <data name="UpdatesView" xml:space="preserve">
+    <value>View update</value>
+  </data>
+  <data name="UpdatesOffline" xml:space="preserve">
+    <value>The update server can’t be reached. Check this computer’s internet connection.</value>
+  </data>
+  <data name="UpdatesNeedsWindows" xml:space="preserve">
+    <value>InputWeave {0} needs a newer version of Windows.</value>
+  </data>
+  <data name="UpdateToastBody" xml:space="preserve">
+    <value>Install it now? Sharing pauses for about a minute while it installs.</value>
+  </data>
+  <data name="UpdateLater" xml:space="preserve">
+    <value>Later</value>
+  </data>
+  <data name="UpdateTitle" xml:space="preserve">
+    <value>Install InputWeave {0}?</value>
+  </data>
+  <data name="UpdateBody" xml:space="preserve">
+    <value>You have {0}. While it installs, sharing pauses for about a minute, then InputWeave opens again by itself.</value>
+  </data>
+  <data name="UpdateWhatsNew" xml:space="preserve">
+    <value>What’s new</value>
+  </data>
+  <data name="UpdateSize" xml:space="preserve">
+    <value>Download size: {0}</value>
+  </data>
+  <data name="UpdateViewOnline" xml:space="preserve">
+    <value>View Online</value>
+  </data>
+  <data name="UpdateInstall" xml:space="preserve">
+    <value>Install</value>
+  </data>
+  <data name="UpdateSkip" xml:space="preserve">
+    <value>Skip this version</value>
+  </data>
+  <data name="UpdateDownloading" xml:space="preserve">
+    <value>Downloading the update…</value>
+  </data>
+  <data name="UpdateProgress" xml:space="preserve">
+    <value>{0} of {1}</value>
+  </data>
+  <data name="UpdateVerifying" xml:space="preserve">
+    <value>Checking the download…</value>
+  </data>
+  <data name="UpdateVerifyingNote" xml:space="preserve">
+    <value>Comparing its SHA-256 and InputWeave’s signature.</value>
+  </data>
+  <data name="UpdateInstalling" xml:space="preserve">
+    <value>Installing…</value>
+  </data>
+  <data name="UpdateInstallingNote" xml:space="preserve">
+    <value>Windows asks for your permission, then InputWeave closes for a moment and opens again by itself.</value>
+  </data>
+  <data name="UpdateBadSignature" xml:space="preserve">
+    <value>The download didn’t match InputWeave’s signature, so nothing was installed. Try again later. If it keeps happening, download the installer from the website.</value>
+  </data>
+  <data name="UpdateDownloadFailed" xml:space="preserve">
+    <value>The update couldn’t be downloaded. Check this computer’s internet connection and try again.</value>
+  </data>
+  <data name="UpdateDeclined" xml:space="preserve">
+    <value>The update wasn’t installed.</value>
+  </data>
+  <data name="UpdateOpenSite" xml:space="preserve">
+    <value>Open website</value>
+  </data>
+  <data name="LicenseRemovePending" xml:space="preserve">
+    <value>InputWeave couldn’t finish removing the license on this computer. It keeps trying.</value>
+  </data>
+  <data name="LicenseErrorSave" xml:space="preserve">
+    <value>InputWeave couldn’t save the license. Try again.</value>
+  </data>
+  <data name="LicenseErrorUnavailable" xml:space="preserve">
+    <value>License information can’t be read right now.</value>
+  </data>
+  <data name="LicenseRemoving" xml:space="preserve">
+    <value>Removing the license from this computer…</value>
+  </data>
+  <data name="UpdateRestartNeeded" xml:space="preserve">
+    <value>InputWeave {0} is installed. Restart Windows to finish updating.</value>
+  </data>
+</root>

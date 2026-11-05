@@ -1,0 +1,16 @@
+#!/bin/sh
+# Takes the agent's user unit out of every user's login once the package
+# is gone, as dh_installsystemduser would. Agents already running keep
+# running until their session ends. Each user's own files
+# (~/.config/inputweave, ~/.cache/inputweave, received files) are theirs
+# and stay.
+set -e
+
+unit=app-cc.ctsite.inputweave@.service
+if [ "$1" = remove ] && command -v deb-systemd-helper >/dev/null; then
+    deb-systemd-helper --user mask "$unit" >/dev/null || true
+fi
+if [ "$1" = purge ] && command -v deb-systemd-helper >/dev/null; then
+    deb-systemd-helper --user purge "$unit" >/dev/null || true
+    deb-systemd-helper --user unmask "$unit" >/dev/null || true
+fi

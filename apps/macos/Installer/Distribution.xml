@@ -1,0 +1,60 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- scripts/package.sh fills in the version. Installer runs every package's
+     preinstall script, then puts all payloads in place, then runs every
+     postinstall script; the removal choices work in preinstall so that
+     nothing they delete can be something just installed.
+
+     The files named here are in Resources/. Installer shows the welcome
+     page of the system's language, from en.lproj or zh_TW.lproj (English
+     for any other language), and looks up the title and the choices'
+     titles and descriptions in that folder's Localizable.strings, keyed
+     by the English text below. The background comes from
+     apps/macos/scripts/make-brand-assets.swift. -->
+<installer-gui-script minSpecVersion="2">
+    <title>InputWeave</title>
+    <!-- The same picture in both modes: without background-darkAqua,
+         Installer shows nothing at all in dark mode. -->
+    <background file="background.tiff" alignment="bottomleft" scaling="none"/>
+    <background-darkAqua file="background.tiff" alignment="bottomleft" scaling="none"/>
+    <welcome file="welcome.html" mime-type="text/html"/>
+    <options customize="always" hostArchitectures="arm64,x86_64"/>
+    <domains enable_anywhere="false" enable_currentUserHome="false" enable_localSystem="true"/>
+    <volume-check>
+        <allowed-os-versions>
+            <os-version min="15.0"/>
+        </allowed-os-versions>
+    </volume-check>
+    <!-- Installing and removing exclude each other. Remove InputWeave is the
+         switch: choosing it clears Install InputWeave, which cannot be
+         toggled on its own, so exactly one of the two is always chosen. -->
+    <choices-outline>
+        <line choice="app"/>
+        <line choice="remove"/>
+        <line choice="purge"/>
+    </choices-outline>
+    <choice id="app" start_selected="true"
+        enabled="false"
+        selected="!choices.remove.selected"
+        title="Install InputWeave"
+        description="Installs InputWeave, which shares one keyboard and mouse between your computers, in the Applications folder, replacing the current version. Open it to set up the background service. To uninstall instead, choose Remove InputWeave.">
+        <pkg-ref id="cc.ctsite.inputweave"/>
+        <pkg-ref id="cc.ctsite.inputweave.loginwindow"/>
+    </choice>
+    <choice id="remove" start_selected="false"
+        title="Remove InputWeave"
+        description="Uninstalls instead of installing: stops sharing and removes InputWeave, its background service, its permissions, logs and settings from this Mac. Pairings are kept unless you also choose Delete pairings. Received files are always kept.">
+        <pkg-ref id="cc.ctsite.inputweave.remove"/>
+    </choice>
+    <choice id="purge" start_selected="false"
+        enabled="choices.remove.selected"
+        selected="my.choice.selected &amp;&amp; choices.remove.selected"
+        title="Delete pairings"
+        description="When removing, also deletes this Mac's pairings, arrangement and identity for every user. Your other computers then have to pair with it again.">
+        <pkg-ref id="cc.ctsite.inputweave.purge"/>
+    </choice>
+    <pkg-ref id="cc.ctsite.inputweave.remove" version="@VERSION@">remove.pkg</pkg-ref>
+    <pkg-ref id="cc.ctsite.inputweave.purge" version="@VERSION@">purge.pkg</pkg-ref>
+    <pkg-ref id="cc.ctsite.inputweave" version="@VERSION@">app.pkg</pkg-ref>
+    <!-- The login window's agent's LaunchAgent, in /Library/LaunchAgents. -->
+    <pkg-ref id="cc.ctsite.inputweave.loginwindow" version="@VERSION@">login-window.pkg</pkg-ref>
+</installer-gui-script>

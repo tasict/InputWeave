@@ -1,0 +1,13 @@
+{
+  "title": "Error 1010: Access denied",
+  "status": 403,
+  "detail": "The site owner has blocked access based on your browser's signature.",
+  "error_code": 1010,
+  "error_name": "browser_signature_banned",
+  "error_category": "access_denied",
+  "ray_id": "8f1c2d3e4a5b6c7d",
+  "timestamp": "2026-11-04T13:46:40Z",
+  "cloudflare_error": true,
+  "retryable": false,
+  "owner_action_required": false
+}

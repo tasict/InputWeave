@@ -1,0 +1,98 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Window
+    x:Class="InputWeave.Panel.PanelWindow"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    Title="InputWeave">
+
+    <!-- State and the sharing switch, the mini map,
+         exceptions, then the footer. 340 wide, as tall as its content. -->
+    <StackPanel x:Name="Root" Width="340" VerticalAlignment="Top" Padding="16,14,16,12" Spacing="12">
+        <StackPanel.KeyboardAccelerators>
+            <KeyboardAccelerator Key="Escape" Invoked="OnEscape" />
+        </StackPanel.KeyboardAccelerators>
+
+        <Grid ColumnSpacing="8">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="Auto" />
+            </Grid.ColumnDefinitions>
+            <StackPanel VerticalAlignment="Center" Spacing="2">
+                <TextBlock x:Name="TitleText" Style="{StaticResource BodyStrongTextBlockStyle}" TextWrapping="Wrap" />
+                <TextBlock
+                    x:Name="SubtitleText"
+                    Style="{StaticResource CaptionTextBlockStyle}"
+                    Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                    TextWrapping="Wrap" />
+            </StackPanel>
+            <ToggleSwitch
+                x:Name="SharingSwitch"
+                x:Uid="PanelSharing"
+                Grid.Column="1"
+                MinWidth="0"
+                VerticalAlignment="Center"
+                OffContent=""
+                OnContent=""
+                Toggled="OnSharingToggled" />
+        </Grid>
+
+        <!-- The mini map: the arranged computers, their desktop pictures, the
+             seams and the keyboard-and-mouse badge. A click on a computer
+             moves the cursor there; files dropped on one go to it. -->
+        <Border
+            x:Name="MapFrame"
+            Height="118"
+            Background="{ThemeResource BrandCanvasBrush}"
+            CornerRadius="8" />
+
+        <StackPanel x:Name="Exceptions" Spacing="6" />
+
+        <!-- Files going and waiting, and problems until dismissed. -->
+        <StackPanel x:Name="Transfers" Spacing="8" />
+
+        <!-- One quiet line about the clipboard. -->
+        <Grid x:Name="ClipboardRow" ColumnSpacing="8">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="Auto" />
+                <ColumnDefinition Width="*" />
+            </Grid.ColumnDefinitions>
+            <FontIcon
+                VerticalAlignment="Top"
+                Margin="0,1,0,0"
+                FontSize="14"
+                Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                Glyph="&#xE77F;" />
+            <TextBlock
+                x:Name="ClipboardLabel"
+                Grid.Column="1"
+                Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                Style="{StaticResource CaptionTextBlockStyle}"
+                TextWrapping="Wrap" />
+        </Grid>
+
+        <Rectangle
+            Height="1"
+            Margin="-16,0"
+            Fill="{ThemeResource DividerStrokeColorDefaultBrush}" />
+
+        <Grid>
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="Auto" />
+                <ColumnDefinition Width="*" />
+            </Grid.ColumnDefinitions>
+            <Button x:Name="SendFilesButton" x:Uid="PanelSendFiles" Click="OnSendFiles" />
+            <Button x:Name="SettingsButton" x:Uid="PanelSettings" Grid.Column="1" Click="OnSettings" />
+            <Button
+                x:Name="MoreButton"
+                x:Uid="PanelMore"
+                Grid.Column="2"
+                HorizontalAlignment="Right">
+                <FontIcon FontSize="16" Glyph="&#xE712;" />
+                <Button.Flyout>
+                    <MenuFlyout x:Name="MoreMenu" Placement="TopEdgeAlignedRight" />
+                </Button.Flyout>
+            </Button>
+        </Grid>
+    </StackPanel>
+</Window>

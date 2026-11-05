@@ -1,0 +1,17 @@
+# The app, as the user's systemd service that D-Bus starts it in: when the
+# agent asks for it, and when a launcher activates it (its desktop entry is
+# DBusActivatable). Named app-<app id>.service, so xdg-desktop-portal tells
+# it is cc.ctsite.inputweave, as it does the agent
+# (app-cc.ctsite.inputweave@agent.service), and its log is its own in the
+# journal. Started from a terminal, the app runs outside it, and a second
+# launch hands over to the running one as GApplication does.
+[Unit]
+Description=InputWeave
+Documentation=man:inputweave-app(1)
+PartOf=graphical-session.target
+After=graphical-session.target
+
+[Service]
+Type=dbus
+BusName=cc.ctsite.inputweave
+ExecStart=/usr/bin/inputweave-app --gapplication-service

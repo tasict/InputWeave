@@ -1,0 +1,9 @@
+[package]
+name = "iw-keymap"
+description = "USB HID usage key codes and modifier remapping"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+repository.workspace = true
+homepage.workspace = true

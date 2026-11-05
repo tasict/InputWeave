@@ -1,0 +1,80 @@
+[package]
+name = "iw-platform"
+description = "OS integration for InputWeave: input capture, input emulation, displays and their desktop pictures"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+repository.workspace = true
+homepage.workspace = true
+
+[dependencies]
+iw-core.workspace = true
+iw-keymap.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+
+[target.'cfg(unix)'.dependencies]
+libc.workspace = true
+
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2-core-foundation = { workspace = true, features = ["std", "CFMachPort", "CFRunLoop", "CFString", "CFPreferences", "CFNumber", "CFBase", "CFCGTypes", "CFDictionary", "CFData", "CFDate"] }
+objc2-core-graphics = { workspace = true, features = ["std", "CGEvent", "CGEventSource", "CGEventTypes", "CGDirectDisplay", "CGDisplayConfiguration", "CGGeometry", "CGRemoteOperation", "CGError", "CGSession", "libc"] }
+objc2-application-services = { workspace = true, features = ["std", "HIServices", "AXUIElement"] }
+objc2 = { workspace = true }
+objc2-app-kit = { workspace = true, features = ["std", "objc2-core-foundation", "NSPasteboard", "NSPasteboardItem", "NSImageRep", "NSBitmapImageRep", "NSGraphics", "NSGraphicsContext", "NSImage", "NSScreen", "NSWorkspace"] }
+objc2-foundation = { workspace = true, features = ["std", "NSArray", "NSData", "NSString", "NSDictionary", "NSValue", "NSEnumerator", "NSGeometry", "NSURL"] }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+x11rb = { workspace = true, features = ["randr", "xfixes", "xinput", "xkb", "xtest"] }
+zbus.workspace = true
+# The threads watching the screen lock and running the portal sessions run
+# zbus on runtimes of their own.
+tokio = { workspace = true, features = ["rt", "time", "net", "sync", "macros"] }
+# Wayland: the desktop's portals, libei, the outputs and data-control;
+# where there are no portals, wlroots' virtual devices and layer surfaces.
+ashpd.workspace = true
+futures-util.workspace = true
+reis.workspace = true
+wayland-client.workspace = true
+wayland-protocols.workspace = true
+wayland-protocols-misc.workspace = true
+wayland-protocols-wlr.workspace = true
+# The desktop pictures' previews.
+image.workspace = true
+kbvm.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
+
+[target.'cfg(unix)'.dev-dependencies]
+# The virtual keyboard's modifiers, unit tested on every Unix.
+kbvm.workspace = true
+
+[target.'cfg(windows)'.dev-dependencies]
+# Raw Input, which the test of relative movements reads.
+windows = { workspace = true, features = ["Win32_UI_Input"] }
+
+[target.'cfg(windows)'.dependencies]
+# For Ctrl+Alt+Del, which the service sends on the agent's behalf.
+iw-winsvc.workspace = true
+windows = { workspace = true, features = [
+    "Win32_Foundation",
+    "Win32_Graphics_Gdi",
+    "Win32_Graphics_Imaging",
+    "Win32_System_Com",
+    "Win32_System_Com_StructuredStorage",
+    "Win32_System_Console",
+    "Win32_System_DataExchange",
+    "Win32_System_LibraryLoader",
+    "Win32_System_Memory",
+    "Win32_System_Ole",
+    "Win32_System_RemoteDesktop",
+    "Win32_System_StationsAndDesktops",
+    "Win32_System_Threading",
+    "Win32_System_Variant",
+    "Win32_UI_HiDpi",
+    "Win32_UI_Input_KeyboardAndMouse",
+    "Win32_UI_Shell",
+    "Win32_UI_WindowsAndMessaging",
+] }

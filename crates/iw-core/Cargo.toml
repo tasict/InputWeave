@@ -1,0 +1,13 @@
+[package]
+name = "iw-core"
+description = "Platform-independent InputWeave engine: layout geometry, routing and safety state machines"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+repository.workspace = true
+homepage.workspace = true
+
+[dependencies]
+iw-keymap.workspace = true
+thiserror.workspace = true

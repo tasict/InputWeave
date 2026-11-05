@@ -1,0 +1,121 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>InputWeave privacy</title>
+<meta name="description" content="InputWeave keeps your keyboard, mouse, clipboard and files on your local network. This page lists every time the apps or this website reach the internet, and what is sent.">
+<link rel="canonical" href="https://inputweave.ctsite.cc/privacy.html">
+<link rel="alternate" hreflang="en" href="https://inputweave.ctsite.cc/privacy.html">
+<link rel="alternate" hreflang="zh-Hant" href="https://inputweave.ctsite.cc/zh-Hant/privacy.html">
+<link rel="alternate" hreflang="x-default" href="https://inputweave.ctsite.cc/privacy.html">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="InputWeave">
+<meta property="og:title" content="InputWeave privacy">
+<meta property="og:description" content="What InputWeave and its website send over the internet, and what stays on your network.">
+<meta property="og:url" content="https://inputweave.ctsite.cc/privacy.html">
+<meta property="og:image" content="https://inputweave.ctsite.cc/assets/img/app-icon-1024.png">
+<meta property="og:locale" content="en_US">
+<meta property="og:locale:alternate" content="zh_TW">
+<meta name="twitter:card" content="summary">
+<meta name="theme-color" content="#ECEDF1" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#18191D" media="(prefers-color-scheme: dark)">
+<link rel="icon" href="assets/icons/favicon.svg" type="image/svg+xml">
+<link rel="icon" href="assets/img/favicon-32.png" type="image/png" sizes="32x32">
+<link rel="apple-touch-icon" href="assets/icons/apple-touch-icon.png">
+<link rel="preload" href="assets/fonts/archivo-latin.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="stylesheet" href="assets/site.css">
+<script src="assets/site.js" defer></script>
+</head>
+<body data-page="privacy">
+<a class="skip" href="#main">Skip to content</a>
+<header class="top">
+  <div class="wrap">
+    <a class="brand" href="./">
+      <svg width="28" height="28" viewBox="0 0 32 32" aria-hidden="true"><rect x="1" y="1" width="30" height="30" rx="7" fill="#8E3FD8"/><rect x="4" y="13" width="11" height="8" rx="1.2" fill="#fff"/><rect x="15.5" y="9" width="12.5" height="10" rx="1.2" fill="#fff"/><path d="M7.5 18c3.5-5.5 8.5-7 14-5" fill="none" stroke="#8E3FD8" stroke-width="1.6" stroke-linecap="round" stroke-dasharray="2 1.4"/></svg>
+      InputWeave
+    </a>
+    <nav class="nav" aria-label="Site">
+      <a href="./#features">Features</a>
+      <a href="./#download">Download</a>
+      <a href="license.html">License</a>
+      <a href="https://github.com/tasict/InputWeave">GitHub</a>
+    </nav>
+    <a class="lang-switch" href="zh-Hant/privacy.html" hreflang="zh-Hant" lang="zh-Hant" data-lang-switch>繁體中文</a>
+  </div>
+</header>
+
+<main id="main">
+  <section class="band">
+    <div class="wrap">
+      <div class="doc">
+        <div class="stack">
+          <h1>Privacy</h1>
+          <p class="lead">InputWeave keeps your keyboard, mouse, clipboard and files on your local network. This page lists every time the apps or this website reach the internet, and what is sent.</p>
+          <p class="effective">Effective 4 November 2026. When this page changes, this date changes with it.</p>
+        </div>
+
+        <div class="stack" id="network">
+          <h2>On your network</h2>
+          <p>Computers running InputWeave find each other with mDNS (Bonjour) on your local network and connect to each other directly over QUIC. Every connection is encrypted with mutual TLS and pinned to each computer’s own certificate, and only computers you have paired can connect.</p>
+          <p>Keystrokes, pointer movement, clipboard contents, files and desktop pictures go only between your paired computers. There is no InputWeave account and no InputWeave server. Logs and pairing records stay on each computer; diagnostic data leaves it only when you export it and send it to someone yourself.</p>
+        </div>
+
+        <div class="stack" id="updates">
+          <h2>Update checks</h2>
+          <p>On macOS and Windows, InputWeave asks inputweave.ctsite.cc for the newest release: about once a day while “Check for updates automatically” is on (Settings › General › Updates), and whenever you check by hand. The website, served by Cloudflare, redirects the request to the server that hosts InputWeave’s releases (GitHub Releases); both see your IP address and the app’s name and version, as with any download. An update is checked against InputWeave’s signature before it is installed. Turn the switch off and the app checks only when you ask.</p>
+          <p>On Linux, the package adds InputWeave’s package source to your system. Your package manager (apt, Software or Discover) downloads the package list and updates through inputweave.ctsite.cc, which redirects to the server that hosts InputWeave’s releases, when it checks for updates, under your system’s own settings.</p>
+        </div>
+
+        <div class="stack" id="license">
+          <h2>License</h2>
+          <p>If no license key is added, InputWeave never contacts Polar. When you enter a key, or a paired computer passes one to this computer, the app sends Polar (api.polar.sh):</p>
+          <ul>
+            <li>the license key and InputWeave’s organization ID at Polar;</li>
+            <li>this computer’s name, as the label Polar shows for its activation;</li>
+            <li>when it confirms or removes the license later, the activation ID Polar gave this computer.</li>
+          </ul>
+          <p>Polar answers whether the key is valid and with the buyer’s email address, which the app shows shortened, such as t•••@gmail.com. The app confirms the license again at most every 30 days, and only while its License page or About window is open. Remove License tells Polar to free this computer’s place.</p>
+          <p>The key is stored on your computers and passed only between your paired computers, over their encrypted connection.</p>
+        </div>
+
+        <div class="stack" id="buying">
+          <h2>Buying a license</h2>
+          <p>Polar is the merchant of record: it takes the payment, handles taxes and sends the receipt. What Polar collects at checkout is covered by <a href="https://polar.sh/legal/privacy-policy">Polar’s privacy policy</a>.</p>
+        </div>
+
+        <div class="stack" id="website">
+          <h2>This website</h2>
+          <p>inputweave.ctsite.cc is a static site hosted on Cloudflare Pages. Cloudflare keeps standard logs of requests, including IP addresses, under its own policies.</p>
+          <p>The site sets no cookies and has no analytics or trackers. Its fonts are served from this site. The download section asks the GitHub API (api.github.com) from your browser for the newest release, so the version and links stay current. Your choice of language is remembered in your browser’s local storage, on your device only.</p>
+        </div>
+
+        <div class="stack" id="contact">
+          <h2>Contact</h2>
+          <p>Questions about privacy go to the address below.</p>
+          <div class="copyline"><span class="addr" id="mail">support@ctsite.cc</span><button type="button" class="copy-btn" data-copy-from="#mail" data-copied="Copied">Copy</button></div>
+        </div>
+      </div>
+    </div>
+  </section>
+</main>
+
+<footer class="foot">
+  <div class="wrap">
+    <a class="brand" href="./">InputWeave</a>
+    <nav class="links" aria-label="More">
+      <a href="https://github.com/tasict/InputWeave">Source code</a>
+      <a href="https://github.com/tasict/InputWeave/releases">Releases</a>
+      <a href="https://github.com/tasict/InputWeave/issues">Report a problem</a>
+      <a href="license.html">License</a>
+      <a href="privacy.html" aria-current="page">Privacy</a>
+    </nav>
+    <div class="legal small">
+      <p>Questions: <span class="addr">support@ctsite.cc</span></p>
+      <p>Free and open source under the GNU GPL, version 3 or later. © 2026 InputWeave contributors.</p>
+      <p>Headings are set in Archivo by the Archivo Project Authors, under the <a href="assets/fonts/OFL.txt">SIL Open Font License</a>.</p>
+    </div>
+  </div>
+</footer>
+</body>
+</html>

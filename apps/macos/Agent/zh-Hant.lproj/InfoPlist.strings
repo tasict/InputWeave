@@ -1,0 +1,9 @@
+/* The Local Network prompt for the background service. */
+"NSLocalNetworkUsageDescription" = "InputWeave 會在本機網路上找到你的其他電腦，和它們共用鍵盤、滑鼠與剪貼簿。";
+
+/* The prompts for the folders macOS protects. */
+"NSDownloadsFolderUsageDescription" = "InputWeave 會把其他電腦傳來的檔案存進「下載項目」，也會把你從這裡拖曳或傳送的檔案送到其他電腦。";
+"NSDesktopFolderUsageDescription" = "InputWeave 會把你從桌面拖曳或傳送的檔案送到其他電腦，也會把你拖放到桌面上的檔案存在這裡。";
+"NSDocumentsFolderUsageDescription" = "InputWeave 會把你從「文件」拖曳或傳送的檔案送到其他電腦，也會把你拖放到「文件」裡的檔案存在這裡。";
+"NSNetworkVolumesUsageDescription" = "InputWeave 會把你從網路磁碟區拖曳或傳送的檔案送到其他電腦，也會把你拖放到磁碟區上的檔案存在那裡。";
+"NSRemovableVolumesUsageDescription" = "InputWeave 會把你從卸除式磁碟區拖曳或傳送的檔案送到其他電腦，也會把你拖放到磁碟區上的檔案存在那裡。";

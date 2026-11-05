@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<service>
+  <short>InputWeave</short>
+  <description>Shares one keyboard and mouse, the clipboard and files between computers on the local network: QUIC on UDP 47820 and mDNS on UDP 5353.</description>
+  <port protocol="udp" port="47820"/>
+  <port protocol="udp" port="5353"/>
+</service>

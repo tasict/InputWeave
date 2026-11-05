@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- Registered by the app with SMAppService.agent. launchd keeps the
+	     agent running in the user's session, restarting it if it exits. -->
+	<key>Label</key>
+	<string>cc.ctsite.inputweave.agent</string>
+	<key>BundleProgram</key>
+	<string>Contents/Library/LoginItems/InputWeave Agent.app/Contents/MacOS/inputweave</string>
+	<key>ProgramArguments</key>
+	<array>
+		<string>inputweave</string>
+		<string>agent</string>
+	</array>
+	<key>AssociatedBundleIdentifiers</key>
+	<array>
+		<string>cc.ctsite.inputweave</string>
+	</array>
+	<key>LimitLoadToSessionType</key>
+	<string>Aqua</string>
+	<key>ProcessType</key>
+	<string>Interactive</string>
+	<key>RunAtLoad</key>
+	<true/>
+	<key>KeepAlive</key>
+	<true/>
+	<key>ThrottleInterval</key>
+	<integer>1</integer>
+</dict>
+</plist>

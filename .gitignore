@@ -1,0 +1,25 @@
+# Rust
+/target/
+
+# macOS
+.DS_Store
+xcuserdata/
+DerivedData/
+*.xcuserstate
+
+# .NET / Visual Studio
+bin/
+obj/
+.vs/
+*.user
+
+# Editors
+.idea/
+.vscode/
+
+# Generated from apps/macos/project.yml by XcodeGen
+apps/macos/InputWeave.xcodeproj/
+/dist/
+
+# Where scripts/linux-container.sh runs docker (see that script)
+/scripts/linux-container.env

@@ -1,0 +1,45 @@
+.TH INPUTWEAVE 1 "2026-10-29" "InputWeave" "User Commands"
+.SH NAME
+inputweave \- share one keyboard and mouse across computers on a LAN
+.SH SYNOPSIS
+.B inputweave agent
+.br
+.B inputweave ctl
+.RI [ options ] " command"
+.br
+.B inputweave identity
+.SH DESCRIPTION
+InputWeave lets the computers on a desk share one keyboard and mouse: the
+pointer moves off the edge of one screen onto the computer next to it. It
+also carries the clipboard and sends files between them.
+.PP
+.B inputweave agent
+is the background service. It runs as each user's systemd service,
+.BR app-cc.ctsite.inputweave@agent.service ,
+which starts with the desktop session. On Wayland it asks the desktop for
+remote control and input capture through its portals; the InputWeave app
+(\fBinputweave-app\fR(1)) asks for them the first time.
+.PP
+.B inputweave ctl
+talks to the running agent: \fBstatus\fR, \fBnearby\fR, \fBpair\fR,
+\fBsend\fR, \fBtransfers\fR, \fBlayout\fR, \fBhotkeys\fR, \fBdiagnose\fR and
+more; \fBinputweave ctl --help\fR lists them all.
+.PP
+.B inputweave identity
+prints this computer's certificate fingerprint, for listing it in another
+computer's configuration file without pairing.
+.SH FILES
+.TP
+.I ~/.config/inputweave/config.toml
+The configuration file, read when the agent starts.
+.TP
+.I ~/.config/inputweave/devices.toml
+Paired devices, their arrangement and the settings changed in the app.
+.TP
+.I $XDG_RUNTIME_DIR/inputweave/agent.sock
+The agent's socket for the app and \fBinputweave ctl\fR.
+.SH SEE ALSO
+.BR inputweave-app (1),
+.BR journalctl (1):
+\fBjournalctl \-\-user \-u app-cc.ctsite.inputweave@agent.service\fR shows
+the agent's log.

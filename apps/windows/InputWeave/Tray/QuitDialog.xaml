@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Window
+    x:Class="InputWeave.Tray.QuitDialog"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    Title="InputWeave">
+
+    <!-- Asks before quitting. Cancel is the default. -->
+    <StackPanel x:Name="Root" Width="440" VerticalAlignment="Top">
+        <StackPanel.KeyboardAccelerators>
+            <KeyboardAccelerator Key="Escape" Invoked="OnEscape" />
+        </StackPanel.KeyboardAccelerators>
+        <StackPanel Padding="24,20,24,24" Spacing="12">
+            <TextBlock x:Name="TitleText" Style="{StaticResource SubtitleTextBlockStyle}" TextWrapping="Wrap" />
+            <TextBlock x:Name="MessageText" Style="{StaticResource BodyTextBlockStyle}" TextWrapping="Wrap" />
+        </StackPanel>
+        <Grid
+            Padding="24"
+            Background="{ThemeResource SolidBackgroundFillColorBaseBrush}"
+            BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+            BorderThickness="0,1,0,0"
+            ColumnSpacing="8">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="*" />
+            </Grid.ColumnDefinitions>
+            <Button x:Name="QuitButton" HorizontalAlignment="Stretch" Click="OnQuit" />
+            <Button
+                x:Name="CancelButton"
+                Grid.Column="1"
+                HorizontalAlignment="Stretch"
+                Click="OnCancel"
+                Style="{StaticResource AccentButtonStyle}">
+                <Button.KeyboardAccelerators>
+                    <KeyboardAccelerator Key="Enter" />
+                </Button.KeyboardAccelerators>
+            </Button>
+        </Grid>
+    </StackPanel>
+</Window>

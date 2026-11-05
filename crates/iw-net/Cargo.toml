@@ -1,0 +1,27 @@
+[package]
+name = "iw-net"
+description = "InputWeave networking: device identity, pairing, discovery and QUIC transport"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+repository.workspace = true
+homepage.workspace = true
+
+[dependencies]
+bytes.workspace = true
+hmac.workspace = true
+iw-proto.workspace = true
+mdns-sd.workspace = true
+prost.workspace = true
+quinn.workspace = true
+rcgen.workspace = true
+rustls.workspace = true
+sha2.workspace = true
+spake2.workspace = true
+thiserror.workspace = true
+tokio = { workspace = true, features = ["io-util", "time"] }
+
+[dev-dependencies]
+tempfile.workspace = true
+tokio = { workspace = true, features = ["macros", "rt-multi-thread", "time"] }

@@ -1,0 +1,14 @@
+[package]
+name = "xtask"
+description = "Development tasks for InputWeave: code generation and packaging"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+repository.workspace = true
+homepage.workspace = true
+
+[dependencies]
+prost.workspace = true
+prost-types.workspace = true
+protox.workspace = true

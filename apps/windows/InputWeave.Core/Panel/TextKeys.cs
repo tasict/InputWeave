@@ -1,0 +1,495 @@
+namespace InputWeave.Panel;
+
+/// <summary>
+/// Resource keys used from code. Every one must be in both
+/// Strings/en-US/Resources.resw and Strings/zh-TW/Resources.resw; the tests
+/// check every constant here.
+/// </summary>
+public static class TextKeys
+{
+    // Panel title.
+    public const string TitleUpdating = "TitleUpdating";
+    public const string TitleStarting = "TitleStarting";
+    public const string TitleNotResponding = "TitleNotResponding";
+    public const string TitleNotWorking = "TitleNotWorking";
+    public const string TitlePaused = "TitlePaused";
+    public const string TitleControlledBy = "TitleControlledBy";
+    public const string TitleLockedTo = "TitleLockedTo";
+    public const string TitleRelative = "TitleRelative";
+    public const string TitleControlling = "TitleControlling";
+    public const string TitleSharing = "TitleSharing";
+
+    // Under the title.
+    public const string SubtitleControlled = "SubtitleControlled";
+    public const string SubtitleLocked = "SubtitleLocked";
+    public const string SubtitleRelative = "SubtitleRelative";
+    public const string SubtitleControlling = "SubtitleControlling";
+    public const string SubtitleCursorOn = "SubtitleCursorOn";
+
+    // Exception rows and what they offer.
+    public const string ExceptionServiceStopped = "ExceptionServiceStopped";
+    public const string ExceptionUnreachable = "ExceptionUnreachable";
+    public const string ExceptionNoDevices = "ExceptionNoDevices";
+    public const string ActionStartService = "ActionStartService";
+    public const string ActionRestartService = "ActionRestartService";
+    public const string ActionTroubleshoot = "ActionTroubleshoot";
+    public const string ActionAddDevice = "ActionAddDevice";
+
+    // The tray icon's tooltip, which screen readers also read.
+    public const string TrayNormal = "TrayNormal";
+    public const string TrayControlling = "TrayControlling";
+    public const string TrayControlled = "TrayControlled";
+    public const string TrayPaused = "TrayPaused";
+    public const string TrayAttention = "TrayAttention";
+
+    // The menu shared by the tray icon and the panel's More button.
+    public const string MenuPauseSharing = "MenuPauseSharing";
+    public const string MenuResumeSharing = "MenuResumeSharing";
+    public const string MenuLock = "MenuLock";
+    public const string MenuUnlock = "MenuUnlock";
+    public const string MenuAddDevice = "MenuAddDevice";
+    public const string MenuSettings = "MenuSettings";
+    public const string MenuQuit = "MenuQuit";
+
+    // The quit dialog.
+    public const string QuitTitle = "QuitTitle";
+    public const string QuitMessage = "QuitMessage";
+    public const string QuitConfirm = "QuitConfirm";
+    public const string QuitCancel = "QuitCancel";
+
+    // Shared words.
+    /// <summary>"{0}": a value shown as it is, where a text is expected.</summary>
+    public const string Verbatim = "Verbatim";
+    public const string Ok = "Ok";
+    public const string Cancel = "Cancel";
+
+    // The panel's transfers and clipboard line.
+    public const string TransfersHeader = "TransfersHeader";
+    public const string TransfersMore = "TransfersMore";
+    public const string TransferSending = "TransferSending";
+    public const string TransferReceiving = "TransferReceiving";
+    public const string TransferPreparing = "TransferPreparing";
+    public const string TransferQueued = "TransferQueued";
+    public const string TransferWaitingForConnection = "TransferWaitingForConnection";
+    public const string TransferWaitingForAccept = "TransferWaitingForAccept";
+    public const string TransferOffer = "TransferOffer";
+    public const string TransferChecking = "TransferChecking";
+    public const string TransferSent = "TransferSent";
+    public const string TransferReceived = "TransferReceived";
+    public const string TransferCancelled = "TransferCancelled";
+    public const string TransferProgress = "TransferProgress";
+    public const string TransferSecondsLeft = "TransferSecondsLeft";
+    public const string TransferMinutesLeft = "TransferMinutesLeft";
+    public const string TransferHoursLeft = "TransferHoursLeft";
+    public const string TransferPeerDeclined = "TransferPeerDeclined";
+    public const string TransferPeerNeedsSpace = "TransferPeerNeedsSpace";
+    public const string TransferPeerDoesNotReceive = "TransferPeerDoesNotReceive";
+    public const string TransferPeerCouldNotTake = "TransferPeerCouldNotTake";
+    public const string TransferDeclined = "TransferDeclined";
+    public const string TransferNoSpace = "TransferNoSpace";
+    public const string TransferNotReceiving = "TransferNotReceiving";
+    public const string TransferTooMany = "TransferTooMany";
+    public const string TransferUnreadable = "TransferUnreadable";
+    public const string TransferFileChanged = "TransferFileChanged";
+    public const string TransferCorrupt = "TransferCorrupt";
+    public const string TransferWriteFailed = "TransferWriteFailed";
+    public const string TransferFailed = "TransferFailed";
+    public const string TransferAccept = "TransferAccept";
+    public const string TransferDecline = "TransferDecline";
+    public const string TransferCancel = "TransferCancel";
+    public const string TransferCancelNamed = "TransferCancelNamed";
+    public const string TransferShow = "TransferShow";
+    public const string TransferShowNamed = "TransferShowNamed";
+    public const string TransferDismiss = "TransferDismiss";
+    public const string TransferRemove = "TransferRemove";
+    public const string TransferRemoveNamed = "TransferRemoveNamed";
+
+    // Folders, batches and partial failures.
+    public const string TransferFolderFiles = "TransferFolderFiles";
+    public const string TransferFolderFilesOne = "TransferFolderFilesOne";
+    public const string TransferFolderProgress = "TransferFolderProgress";
+    public const string TransferSentSome = "TransferSentSome";
+    public const string TransferReceivedSome = "TransferReceivedSome";
+    public const string TransferShowFailures = "TransferShowFailures";
+    public const string TransferHideFailures = "TransferHideFailures";
+    public const string TransferFailureLine = "TransferFailureLine";
+    public const string TransferFailuresMore = "TransferFailuresMore";
+    public const string TransferFolder = "TransferFolder";
+    public const string TransferSymlink = "TransferSymlink";
+    public const string TransferNotAFile = "TransferNotAFile";
+    public const string TransferPeerTooLarge = "TransferPeerTooLarge";
+    public const string TransferPeerInvalidName = "TransferPeerInvalidName";
+    public const string TransferInvalidName = "TransferInvalidName";
+    public const string TransferNoSpaceShort = "TransferNoSpaceShort";
+    public const string ClipboardSensitive = "ClipboardSensitive";
+    public const string ClipboardTooLarge = "ClipboardTooLarge";
+    public const string ClipboardSyncedFrom = "ClipboardSyncedFrom";
+    public const string ClipboardSentTo = "ClipboardSentTo";
+    public const string ClipboardKindImage = "ClipboardKindImage";
+    public const string ClipboardKindRichText = "ClipboardKindRichText";
+    public const string ClipboardKindText = "ClipboardKindText";
+    public const string RelativeJustNow = "RelativeJustNow";
+    public const string RelativeMinutesAgo = "RelativeMinutesAgo";
+
+    // Sending files.
+    public const string SendFilesTitle = "SendFilesTitle";
+    public const string SendFilesTo = "SendFilesTo";
+    public const string SendFilesSend = "SendFilesSend";
+    public const string SendFilesFailed = "SendFilesFailed";
+    public const string SendFilesOnlyFiles = "SendFilesOnlyFiles";
+    public const string SendFilesCheckConnected = "SendFilesCheckConnected";
+
+    // Computers, in lists and the inspector.
+    public const string ConnectionConnected = "ConnectionConnected";
+    public const string ConnectionConnectedRtt = "ConnectionConnectedRtt";
+    public const string ConnectionScreenLocked = "ConnectionScreenLocked";
+    public const string ConnectionScreenLockedRtt = "ConnectionScreenLockedRtt";
+    public const string ConnectionScreenLockedNoInput = "ConnectionScreenLockedNoInput";
+    public const string ConnectionScreenLockedNoInputRtt = "ConnectionScreenLockedNoInputRtt";
+    public const string ConnectionNoInput = "ConnectionNoInput";
+    public const string ConnectionNoInputRtt = "ConnectionNoInputRtt";
+    public const string ConnectionPeerPaused = "ConnectionPeerPaused";
+    public const string ConnectionPeerPausedRtt = "ConnectionPeerPausedRtt";
+    public const string ConnectionOffline = "ConnectionOffline";
+    public const string ConnectionThisComputer = "ConnectionThisComputer";
+    public const string OsUnknown = "OsUnknown";
+    public const string ScreenMain = "ScreenMain";
+    public const string SwapCommandAndControl = "SwapCommandAndControl";
+    public const string SwapWindowsAndControl = "SwapWindowsAndControl";
+    public const string RemoveDeviceTitle = "RemoveDeviceTitle";
+    public const string RemoveDeviceMessage = "RemoveDeviceMessage";
+    public const string RemoveDeviceConfirm = "RemoveDeviceConfirm";
+
+    // The arrangement canvas.
+    public const string CanvasKeyboardMouseHere = "CanvasKeyboardMouseHere";
+    public const string CanvasScreenLockedKeyboardMouseHere = "CanvasScreenLockedKeyboardMouseHere";
+    public const string CanvasDropToSend = "CanvasDropToSend";
+    public const string CanvasMoveCursorHere = "CanvasMoveCursorHere";
+    public const string CanvasDeviceNextTo = "CanvasDeviceNextTo";
+    public const string CanvasDeviceAlone = "CanvasDeviceAlone";
+    public const string CanvasSynced = "CanvasSynced";
+
+    // Adding a device, and the code shown here when another adds this one.
+    public const string AddDeviceTitle = "AddDeviceTitle";
+    public const string PairingPair = "PairingPair";
+    public const string PairingNotAccepting = "PairingNotAccepting";
+    public const string PairingNoneFound = "PairingNoneFound";
+    public const string PairingNoneFoundDetail = "PairingNoneFoundDetail";
+    public const string PairingIpAddress = "PairingIpAddress";
+    public const string PairingAddByIp = "PairingAddByIp";
+    public const string PairingContinue = "PairingContinue";
+    public const string PairingStartOver = "PairingStartOver";
+    public const string PairingCodeName = "PairingCodeName";
+    public const string PairingCodeTitle = "PairingCodeTitle";
+    public const string PairingCodeValid = "PairingCodeValid";
+    public const string PairingDecline = "PairingDecline";
+    public const string PairingConnecting = "PairingConnecting";
+    public const string PairingEnterCode = "PairingEnterCode";
+    public const string PairingWrongCode = "PairingWrongCode";
+    public const string PairingPaired = "PairingPaired";
+    public const string PairingTheOtherComputer = "PairingTheOtherComputer";
+    public const string PairingTooManyAttempts = "PairingTooManyAttempts";
+    public const string PairingExpired = "PairingExpired";
+    public const string PairingRejected = "PairingRejected";
+    public const string PairingNotAllowed = "PairingNotAllowed";
+    public const string PairingBusy = "PairingBusy";
+    public const string PairingIdConflict = "PairingIdConflict";
+    public const string PairingIncompatible = "PairingIncompatible";
+    public const string PairingUnreachable = "PairingUnreachable";
+    public const string PairingCancelled = "PairingCancelled";
+    public const string PairingDidNotWork = "PairingDidNotWork";
+    public const string PairingStartBusy = "PairingStartBusy";
+    public const string PairingStartInvalidAddress = "PairingStartInvalidAddress";
+    public const string PairingStartUnreachable = "PairingStartUnreachable";
+    public const string PairingStartFailed = "PairingStartFailed";
+
+    // The main window's pages.
+    public const string NavArrangement = "NavArrangement";
+    public const string NavDevices = "NavDevices";
+    public const string NavFiles = "NavFiles";
+    public const string NavGeneral = "NavGeneral";
+    public const string NavTroubleshooting = "NavTroubleshooting";
+    public const string MainUnavailable = "MainUnavailable";
+    public const string InspectorName = "InspectorName";
+    public const string InspectorSystem = "InspectorSystem";
+    public const string InspectorStatus = "InspectorStatus";
+    public const string InspectorScreens = "InspectorScreens";
+    public const string InspectorScreensLater = "InspectorScreensLater";
+    public const string RemoveDevice = "RemoveDevice";
+    public const string DevicesNoneTitle = "DevicesNoneTitle";
+    public const string DevicesNoneDetail = "DevicesNoneDetail";
+    public const string FilesReceiving = "FilesReceiving";
+    public const string FilesSaveIn = "FilesSaveIn";
+    public const string FilesChoose = "FilesChoose";
+    public const string FilesWhenSent = "FilesWhenSent";
+    public const string FilesAutomatically = "FilesAutomatically";
+    public const string FilesAskEachTime = "FilesAskEachTime";
+    public const string FilesSending = "FilesSending";
+    public const string FilesSendHint = "FilesSendHint";
+    public const string FilesSendButton = "FilesSendButton";
+    public const string FilesRecent = "FilesRecent";
+    public const string FilesNone = "FilesNone";
+    public const string FilesClearHistory = "FilesClearHistory";
+    public const string FilesClearTitle = "FilesClearTitle";
+    public const string FilesClearMessage = "FilesClearMessage";
+    public const string FilesClearConfirm = "FilesClearConfirm";
+    public const string GeneralName = "GeneralName";
+    public const string GeneralNameHint = "GeneralNameHint";
+    public const string GeneralOpenAtLogin = "GeneralOpenAtLogin";
+    public const string GeneralShowIcon = "GeneralShowIcon";
+    public const string GeneralShowIconHint = "GeneralShowIconHint";
+    public const string GeneralClipboard = "GeneralClipboard";
+    public const string GeneralClipboardSync = "GeneralClipboardSync";
+    public const string GeneralClipboardHint = "GeneralClipboardHint";
+    public const string GeneralPictures = "GeneralPictures";
+    public const string GeneralPicturesShare = "GeneralPicturesShare";
+    public const string GeneralPicturesHint = "GeneralPicturesHint";
+    public const string GeneralPicturesUnavailable = "GeneralPicturesUnavailable";
+    public const string GeneralSwitching = "GeneralSwitching";
+    public const string GeneralWait = "GeneralWait";
+    public const string GeneralWaitHint = "GeneralWaitHint";
+    public const string GeneralEdgeGlow = "GeneralEdgeGlow";
+    public const string GeneralEdgeGlowHint = "GeneralEdgeGlowHint";
+    public const string GeneralRelativeAuto = "GeneralRelativeAuto";
+    public const string GeneralRelativeAutoHint = "GeneralRelativeAutoHint";
+    public const string GeneralRelativeAutoHintNoShortcut = "GeneralRelativeAutoHintNoShortcut";
+    public const string GeneralRelativeAutoFailed = "GeneralRelativeAutoFailed";
+    public const string GeneralShortcuts = "GeneralShortcuts";
+    public const string ShortcutTakeBack = "ShortcutTakeBack";
+    public const string ShortcutLock = "ShortcutLock";
+
+    // General › Switching and Shortcuts.
+    public const string ShortcutJump = "ShortcutJump";
+    public const string ShortcutRelative = "ShortcutRelative";
+    public const string ShortcutRecord = "ShortcutRecord";
+    public const string ShortcutPressKeys = "ShortcutPressKeys";
+    public const string ShortcutPressJump = "ShortcutPressJump";
+    public const string ShortcutOff = "ShortcutOff";
+    public const string ShortcutReset = "ShortcutReset";
+    public const string ShortcutsHint = "ShortcutsHint";
+    public const string ShortcutNeedsModifier = "ShortcutNeedsModifier";
+    public const string ShortcutUnknownKey = "ShortcutUnknownKey";
+    public const string ShortcutUsedFor = "ShortcutUsedFor";
+    public const string ShortcutUsedElsewhere = "ShortcutUsedElsewhere";
+    public const string ShortcutNotChanged = "ShortcutNotChanged";
+    public const string SwitchModifierTitle = "SwitchModifierTitle";
+    public const string SwitchModifierHint = "SwitchModifierHint";
+    public const string SwitchAlways = "SwitchAlways";
+    public const string SwitchHoldingControl = "SwitchHoldingControl";
+    public const string SwitchHoldingAlt = "SwitchHoldingAlt";
+    public const string SwitchHoldingShift = "SwitchHoldingShift";
+    public const string SwitchHoldingWindows = "SwitchHoldingWindows";
+
+    // Identifying the screens, renaming another computer, and its clipboard and files.
+    public const string IdentifyScreens = "IdentifyScreens";
+    public const string IdentifyScreensHint = "IdentifyScreensHint";
+    public const string IdentifyScreenLabel = "IdentifyScreenLabel";
+    public const string CanvasRename = "CanvasRename";
+    public const string InspectorCallsItself = "InspectorCallsItself";
+    public const string InspectorSyncClipboard = "InspectorSyncClipboard";
+    public const string InspectorSendFiles = "InspectorSendFiles";
+    public const string InspectorSharingHint = "InspectorSharingHint";
+    public const string DeviceFilesOff = "DeviceFilesOff";
+    public const string DeviceFilesOffShort = "DeviceFilesOffShort";
+    public const string TroubleProblems = "TroubleProblems";
+    public const string TroubleAllGood = "TroubleAllGood";
+    public const string TroubleService = "TroubleService";
+    public const string TroubleVersion = "TroubleVersion";
+    public const string TroubleBuild = "TroubleBuild";
+    public const string TroubleKeyboardMouse = "TroubleKeyboardMouse";
+    public const string TroubleRestartHint = "TroubleRestartHint";
+    public const string TroubleDeviceId = "TroubleDeviceId";
+    public const string TroubleExport = "TroubleExport";
+    public const string TroubleExportHint = "TroubleExportHint";
+    public const string TroubleLogs = "TroubleLogs";
+    public const string TroubleLogsHint = "TroubleLogsHint";
+    public const string NameInvalid = "NameInvalid";
+    public const string ServiceRunning = "ServiceRunning";
+    public const string ServiceStarting = "ServiceStarting";
+    public const string ServiceUpdating = "ServiceUpdating";
+    public const string ServiceStopping = "ServiceStopping";
+    public const string ServiceStopped = "ServiceStopped";
+    public const string ServiceNotInstalled = "ServiceNotInstalled";
+    public const string CanControl = "CanControl";
+    public const string CannotControlYet = "CannotControlYet";
+    public const string DiagnosticsFileName = "DiagnosticsFileName";
+    public const string DiagnosticsFailed = "DiagnosticsFailed";
+    public const string LogsAdminOnlyTitle = "LogsAdminOnlyTitle";
+    public const string LogsAdminOnlyMessage = "LogsAdminOnlyMessage";
+    public const string LogsMissingTitle = "LogsMissingTitle";
+    public const string LogsMissingMessage = "LogsMissingMessage";
+    public const string CopyPath = "CopyPath";
+    public const string GeneralSendTo = "GeneralSendTo";
+    public const string GeneralSendToHint = "GeneralSendToHint";
+
+    // First-run setup.
+    public const string MenuRunSetup = "MenuRunSetup";
+    public const string SetupWindowTitle = "SetupWindowTitle";
+    public const string SetupStepOf = "SetupStepOf";
+    public const string SetupProgress = "SetupProgress";
+    public const string SetupBack = "SetupBack";
+    public const string SetupLater = "SetupLater";
+    public const string SetupContinue = "SetupContinue";
+    public const string SetupDone = "SetupDone";
+    public const string SetupSkip = "SetupSkip";
+    public const string SetupGetStarted = "SetupGetStarted";
+    public const string SetupWelcomeTitle = "SetupWelcomeTitle";
+    public const string SetupBenefitEdges = "SetupBenefitEdges";
+    public const string SetupBenefitClipboard = "SetupBenefitClipboard";
+    public const string SetupBenefitFiles = "SetupBenefitFiles";
+    public const string SetupReassurance = "SetupReassurance";
+    public const string SetupNameTitle = "SetupNameTitle";
+    public const string SetupNameLabel = "SetupNameLabel";
+    public const string SetupNameHint = "SetupNameHint";
+    public const string SetupNetworkTitle = "SetupNetworkTitle";
+    public const string SetupNetworkPublic = "SetupNetworkPublic";
+    public const string SetupNetworkHowTo = "SetupNetworkHowTo";
+    public const string SetupNetworkPrivate = "SetupNetworkPrivate";
+    public const string SetupNetworkOpenSettings = "SetupNetworkOpenSettings";
+    public const string SetupConnectTitle = "SetupConnectTitle";
+    public const string SetupCodeTitle = "SetupCodeTitle";
+    public const string SetupArrangeTitle = "SetupArrangeTitle";
+    public const string SetupArrangeHint = "SetupArrangeHint";
+    public const string SetupTryTitle = "SetupTryTitle";
+    public const string SetupTryHint = "SetupTryHint";
+    public const string SetupTryDone = "SetupTryDone";
+
+    // The HUD.
+    public const string HudTakeBackHint = "HudTakeBackHint";
+    public const string HudLockedHere = "HudLockedHere";
+    public const string HudLockedTo = "HudLockedTo";
+    public const string HudUnlocked = "HudUnlocked";
+    public const string HudPeerLost = "HudPeerLost";
+    public const string HudRemoteActivity = "HudRemoteActivity";
+    public const string HudBackHere = "HudBackHere";
+    public const string HudLayoutChanged = "HudLayoutChanged";
+    public const string HudScreenLocked = "HudScreenLocked";
+    public const string HudInputUnavailable = "HudInputUnavailable";
+    public const string HudPeerPaused = "HudPeerPaused";
+    public const string HudCaptureEnded = "HudCaptureEnded";
+    public const string HudTwoLines = "HudTwoLines";
+    public const string HudRelativeEntered = "HudRelativeEntered";
+    public const string HudRelativeEnteredTakeBack = "HudRelativeEnteredTakeBack";
+    public const string HudRelativeEnded = "HudRelativeEnded";
+    public const string HudRelativeReleased = "HudRelativeReleased";
+    public const string HudRelativeUnsupported = "HudRelativeUnsupported";
+
+    // Files dragged between computers.
+    public const string HudDraggingOne = "HudDraggingOne";
+    public const string HudDraggingMany = "HudDraggingMany";
+    public const string HudDropHere = "HudDropHere";
+    public const string HudDragSending = "HudDragSending";
+    public const string HudDragDeclined = "HudDragDeclined";
+    public const string HudDragInvalidFolder = "HudDragInvalidFolder";
+    public const string HudDragGone = "HudDragGone";
+    public const string HudDragNotReceived = "HudDragNotReceived";
+
+    // System notifications.
+    public const string NotifyReceivedOne = "NotifyReceivedOne";
+    public const string NotifyReceivedMany = "NotifyReceivedMany";
+    public const string NotifyOpenFolder = "NotifyOpenFolder";
+    public const string NotifyOfferTitle = "NotifyOfferTitle";
+    public const string NotifyOfferBody = "NotifyOfferBody";
+    public const string NotifyServiceStopped = "NotifyServiceStopped";
+    public const string NotifyListSeparator = "NotifyListSeparator";
+    public const string NotifyReceivedItems = "NotifyReceivedItems";
+    public const string NotifyFailedOne = "NotifyFailedOne";
+    public const string NotifyFailedMany = "NotifyFailedMany";
+    public const string ItemsFolderOne = "ItemsFolderOne";
+    public const string ItemsFolderMany = "ItemsFolderMany";
+    public const string ItemsFileOne = "ItemsFileOne";
+    public const string ItemsFileMany = "ItemsFileMany";
+    public const string ItemsAnd = "ItemsAnd";
+
+    // File Explorer's Send To.
+    public const string SendToNoneTitle = "SendToNoneTitle";
+    public const string SendToNoneMessage = "SendToNoneMessage";
+
+    // The license, About, and updates.
+    public const string NavLicense = "NavLicense";
+    public const string LicenseTrial = "LicenseTrial";
+    public const string LicenseLicensed = "LicenseLicensed";
+    public const string LicenseTrialBody = "LicenseTrialBody";
+    public const string LicensePrice = "LicensePrice";
+    public const string LicenseBuy = "LicenseBuy";
+    public const string LicenseEnter = "LicenseEnter";
+    public const string LicenseManage = "LicenseManage";
+    public const string LicenseTryAgain = "LicenseTryAgain";
+    public const string LicenseRemove = "LicenseRemove";
+    public const string LicenseHowTitle = "LicenseHowTitle";
+    public const string LicenseHow1 = "LicenseHow1";
+    public const string LicenseHow2 = "LicenseHow2";
+    public const string LicenseHow3 = "LicenseHow3";
+    public const string LicensePolarNote = "LicensePolarNote";
+    public const string LicenseSeatsFull = "LicenseSeatsFull";
+    public const string LicenseInvalid = "LicenseInvalid";
+    public const string LicenseUnavailable = "LicenseUnavailable";
+    public const string LicenseOffline = "LicenseOffline";
+    public const string LicensedTo = "LicensedTo";
+    public const string LicenseThanks = "LicenseThanks";
+    public const string LicenseFrom = "LicenseFrom";
+    public const string LicenseComputers = "LicenseComputers";
+    public const string LicenseCount = "LicenseCount";
+    public const string LicenseThisComputer = "LicenseThisComputer";
+    public const string LicensePaired = "LicensePaired";
+    public const string LicenseNotActivated = "LicenseNotActivated";
+    public const string LicenseListNote = "LicenseListNote";
+    public const string LicenseEnterTitle = "LicenseEnterTitle";
+    public const string LicenseKey = "LicenseKey";
+    public const string LicenseKeyHelp = "LicenseKeyHelp";
+    public const string LicenseActivate = "LicenseActivate";
+    public const string LicenseActivating = "LicenseActivating";
+    public const string LicenseErrorInvalid = "LicenseErrorInvalid";
+    public const string LicenseErrorFull = "LicenseErrorFull";
+    public const string LicenseErrorOffline = "LicenseErrorOffline";
+    public const string LicenseErrorBusy = "LicenseErrorBusy";
+    public const string LicenseErrorService = "LicenseErrorService";
+    public const string LicenseRemoveTitle = "LicenseRemoveTitle";
+    public const string LicenseRemoveBody = "LicenseRemoveBody";
+    public const string LicenseRemovedOffline = "LicenseRemovedOffline";
+    public const string AboutTitle = "AboutTitle";
+    public const string AboutVersion = "AboutVersion";
+    public const string AboutCopyright = "AboutCopyright";
+    public const string AboutGpl = "AboutGpl";
+    public const string AboutAcknowledgments = "AboutAcknowledgments";
+    public const string Close = "Close";
+    public const string MenuAbout = "MenuAbout";
+    public const string MenuCheckUpdates = "MenuCheckUpdates";
+    public const string GeneralUpdates = "GeneralUpdates";
+    public const string UpdatesAuto = "UpdatesAuto";
+    public const string UpdatesAutoHint = "UpdatesAutoHint";
+    public const string UpdatesVersion = "UpdatesVersion";
+    public const string UpdatesCheckNow = "UpdatesCheckNow";
+    public const string UpdatesNotChecked = "UpdatesNotChecked";
+    public const string UpdatesUpToDate = "UpdatesUpToDate";
+    public const string UpdatesChecking = "UpdatesChecking";
+    public const string UpdatesAvailable = "UpdatesAvailable";
+    public const string UpdatesYouHave = "UpdatesYouHave";
+    public const string UpdatesView = "UpdatesView";
+    public const string UpdatesOffline = "UpdatesOffline";
+    public const string UpdatesNeedsWindows = "UpdatesNeedsWindows";
+    public const string UpdateToastBody = "UpdateToastBody";
+    public const string UpdateLater = "UpdateLater";
+    public const string UpdateTitle = "UpdateTitle";
+    public const string UpdateBody = "UpdateBody";
+    public const string UpdateWhatsNew = "UpdateWhatsNew";
+    public const string UpdateSize = "UpdateSize";
+    public const string UpdateViewOnline = "UpdateViewOnline";
+    public const string UpdateInstall = "UpdateInstall";
+    public const string UpdateSkip = "UpdateSkip";
+    public const string UpdateDownloading = "UpdateDownloading";
+    public const string UpdateProgress = "UpdateProgress";
+    public const string UpdateVerifying = "UpdateVerifying";
+    public const string UpdateVerifyingNote = "UpdateVerifyingNote";
+    public const string UpdateInstalling = "UpdateInstalling";
+    public const string UpdateInstallingNote = "UpdateInstallingNote";
+    public const string UpdateBadSignature = "UpdateBadSignature";
+    public const string UpdateDownloadFailed = "UpdateDownloadFailed";
+    public const string UpdateDeclined = "UpdateDeclined";
+    public const string UpdateOpenSite = "UpdateOpenSite";
+    public const string LicenseRemovePending = "LicenseRemovePending";
+    public const string LicenseErrorSave = "LicenseErrorSave";
+    public const string LicenseErrorUnavailable = "LicenseErrorUnavailable";
+    public const string LicenseRemoving = "LicenseRemoving";
+    public const string UpdateRestartNeeded = "UpdateRestartNeeded";
+}

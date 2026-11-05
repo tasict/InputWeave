@@ -1,0 +1,1439 @@
+// IPC between the native UI (or `inputweave ctl`) and the local agent.
+//
+// Each message is framed with a big-endian u32 length prefix.
+syntax = "proto3";
+
+package inputweave.app.v1;
+
+message ClientHello {
+  uint32 ipc_version = 1;
+  // Free-form client identifier, e.g. "macos-ui/1.0.0" or "ctl/0.1.0".
+  string client = 2;
+  // The client puts files copied on another device on this computer's
+  // clipboard (ClipboardFilesPromised), as the Windows app does: where the
+  // agent cannot own the user's clipboard, the app holds a promise that has
+  // files.
+  bool takes_clipboard_files = 3;
+}
+
+message AgentHello {
+  uint32 ipc_version = 1;
+  string agent_version = 2;
+  // SHA-256 of the agent's executable, in lowercase hex; empty when
+  // unknown (an older agent, or one that could not read its executable).
+  // Tells builds of the same version apart: the macOS app restarts a
+  // service that runs another build than the one it carries.
+  string agent_digest = 3;
+}
+
+message GetStatus {}
+
+message SetSharing {
+  bool enabled = 1;
+}
+
+// Starts pairing with another device. That device shows a code, which the
+// user then types here (SubmitPairingCode). Only one pairing runs at a time.
+message StartPairing {
+  oneof target {
+    // A nearby device, by id.
+    string device_id = 1;
+    // "host:port", or just "host" for the default port.
+    string address = 2;
+  }
+}
+
+message SubmitPairingCode {
+  string code = 1;
+}
+
+// Cancels the pairing started here, or declines the one whose code is shown
+// here.
+message CancelPairing {}
+
+// Forgets a paired device.
+message Unpair {
+  string device_id = 1;
+}
+
+message GetNearby {}
+
+// The current pairing state, e.g. for a client that connects while a code
+// is already shown.
+message GetPairing {}
+
+message GetArrangement {}
+
+// Renames this device. Other devices learn the new name the next time they
+// connect; discovery announces it at once.
+message SetDeviceName {
+  string name = 1;
+}
+
+// Sends files and folders to a device, together: a batch whose items are
+// listed in transfers_changed events, one FileTransfer each, with the
+// batch's id. A folder goes with everything in it, empty folders
+// included; symbolic links are left out. Files beyond the two going to
+// the device at once are queued (TRANSFER_STATE_QUEUED) in the order
+// given, a folder's in the order of its contents.
+//
+// An item that cannot be sent is listed as FAILED ("symlink",
+// "not_a_file", "unreadable"), and so is a file in a folder, in the
+// folder's failures; the rest goes. Refused: "unknown_device";
+// "no_broker" on Windows while nobody is logged on; "too_many_items" over
+// 1,000 items, counting those still going from this device; "too_large"
+// over 10,000 files and folders or 100 GiB in all; and, when every item
+// is one that cannot be sent, the first one's reason ("not_a_file",
+// "unreadable", "symlink").
+message SendFiles {
+  string device_id = 1;
+  // Absolute paths of files and folders on this computer.
+  repeated string paths = 2;
+}
+
+// Cancels a transfer still going, named by its transfer_id: a file, or a
+// folder with everything in it still to go; or all of a batch still to
+// go, named by its batch_id.
+message CancelTransfer {
+  string transfer_id = 1;
+}
+
+// The user's answer about incoming files, when asked before receiving. The
+// answer holds for the whole batch of the transfer named.
+message AnswerFileOffer {
+  string transfer_id = 1;
+  bool accept = 2;
+}
+
+// Dragging files from here to another device (docs/architecture.md §9).
+// The app sends it when a drag of files enters the strip along an edge the
+// cursor can cross, before the cursor crosses. The agent checks the items
+// (as the user, through the broker, on Windows) and adds up their sizes,
+// without reading them, and lets the cursor cross that edge with the
+// button held. Answered with DragBegun, or refused like SendFiles
+// ("too_many_items", "too_large", "no_broker", every item unusable), or
+// with "not_dragging" when no mouse button is down on this device,
+// "controlled" while another device controls this one, and "unavailable"
+// before this device has an arrangement. Status.dragging shows the drag
+// while it lasts; Event.drag_ended says how it ended.
+message BeginDrag {
+  repeated DragPath items = 1;
+}
+
+message DragPath {
+  // Absolute.
+  string path = 1;
+  // As the app saw it; the agent looks for itself.
+  bool is_dir = 2;
+}
+
+// The drag that began here ended without crossing to another device.
+// Answered with Status; "not_found" for a drag not going on.
+message EndDrag {
+  string drag_id = 1;
+}
+
+// The user dropped the drag another device offered (Event.drag_arrived)
+// into `destination`, an absolute folder. The agent checks the user can
+// write there (on Windows, the broker does, as the user), tells the
+// device, and its files arrive in that folder as a batch whose transfers
+// carry the drag's id. Answered with Transfers; refused with "not_found"
+// for a drag not offered here (any more), "invalid_folder" for a folder
+// that is not absolute, or not one the user can write to, and "no_broker"
+// on Windows while nobody is logged on.
+message AcceptDrag {
+  string drag_id = 1;
+  string destination = 2;
+}
+
+// The drag another device offered was not dropped here: cancelled, dropped
+// where files cannot go, or the cursor went back. Answered with Status;
+// "not_found" for a drag not offered here.
+message DeclineDrag {
+  string drag_id = 1;
+}
+
+message GetTransfers {}
+
+// Takes a finished transfer (done, declined, failed or cancelled) off the
+// list, and out of the history the agent keeps across restarts. The file
+// itself stays where it is. Refused with "not_finished" for a transfer still
+// going (cancel it first) and "not_found" for one not listed.
+message RemoveTransfer {
+  string transfer_id = 1;
+}
+
+// Takes every finished transfer off the list; those still going stay.
+// Files stay where they are.
+message ClearTransfers {}
+
+message SetFileSettings {
+  // An absolute path; empty keeps the default (~/Downloads/InputWeave).
+  string receive_folder = 1;
+  bool ask_before_receiving = 2;
+}
+
+// Turns clipboard sync on or off on this device.
+message SetClipboardSync {
+  bool enabled = 1;
+}
+
+// Options for one paired device.
+message SetDeviceOptions {
+  string device_id = 1;
+  bool swap_gui_and_control = 2;
+}
+
+message DevicePosition {
+  string device_id = 1;
+  // Where the device's desktop origin goes on the canvas, in logical units.
+  double x = 2;
+  double y = 3;
+}
+
+// Moves devices on the canvas. The change applies at once and is shared with
+// every connected device. Positions that would make displays overlap are
+// refused as a whole.
+message SetArrangement {
+  repeated DevicePosition positions = 1;
+}
+
+// A plain-text report of the agent's state, versions, configuration and
+// the end of its logs, for bug reports. It holds no keys, pairing codes,
+// file names or clipboard contents. The client writes it to a file.
+message GetDiagnostics {}
+
+message Diagnostics {
+  string report = 1;
+}
+
+// Locks the cursor to the device it is on, or unlocks it. While locked the
+// cursor crosses no edge; the take-back hotkey still works. The lock hotkey
+// (Hotkeys.lock) toggles the same lock. It lasts until unlocked or the agent
+// stops.
+message SetLocked {
+  bool locked = 1;
+}
+
+// Moves the cursor to the middle of a device's primary display: a connected
+// device in the arrangement, or this one. Refused while sharing is paused or
+// the cursor is locked, with "screen_locked" for a device whose screen is
+// locked where input from here cannot reach it, and with
+// "input_unavailable" for one no input from here reaches now
+// (DeviceStatus.input_unavailable).
+message JumpTo {
+  string device_id = 1;
+}
+
+// How the cursor crosses edges on this device, as the controller.
+message SetEdgeOptions {
+  // How long the cursor must push against an edge before it crosses, in
+  // milliseconds, at most 1000; 0 crosses at once.
+  uint32 dwell_ms = 1;
+}
+
+// The hotkeys InputWeave acts on itself, whichever device the cursor is on;
+// their keys never reach other devices. Each is written as its modifiers and
+// then its key, joined by "+": the modifiers "control", "alt", "shift" and
+// "gui" (⌘ on a Mac, the Windows key), then the key's UI Events code name
+// ("KeyL", "Digit1", "Escape", "F5"), such as "control+alt+shift+Escape".
+// They are read without regard to case and order; the agent reports them
+// with the modifiers in that order and the key as named there. A hotkey
+// works whatever other modifiers are held too.
+message Hotkeys {
+  // Takes the keyboard and mouse back to this device. Default
+  // control+alt+shift+Escape.
+  string take_back = 1;
+  // Locks the cursor to the device it is on, or unlocks it (SetLocked).
+  // Default control+alt+shift+KeyL.
+  string lock = 2;
+  // Held with a digit from 1 to 9, moves the cursor to the device with that
+  // number (ArrangedDevice.jump_slot), as JumpTo does; nothing happens when
+  // it is not connected. Modifiers alone, such as "control+alt+shift", the
+  // default; empty turns these hotkeys off.
+  string jump_modifiers = 3;
+  // Turns relative mode on or off for the device the cursor is on
+  // (SetRelativeMouse); default control+alt+shift+KeyG, empty when turned
+  // off. In SetHotkeys, absent keeps the one in effect: apps from before
+  // this field, a reset from them included, leave it be. A clash with it is
+  // refused with "duplicate_relative" rather than "duplicate".
+  optional string relative = 4;
+}
+
+// Sets every hotkey at once; the change applies at once and is remembered.
+// Answered with Status. Refused with "needs_modifier" for a hotkey without a
+// modifier; "unknown_key" for a name that is no key or modifier, or a
+// modifier where the key goes; and "duplicate" when two hotkeys are the same
+// keys, counting each digit with jump_modifiers as one.
+message SetHotkeys {
+  Hotkeys hotkeys = 1;
+}
+
+// A modifier key, left or right.
+enum SwitchModifier {
+  SWITCH_MODIFIER_NONE = 0;
+  SWITCH_MODIFIER_CONTROL = 1;
+  SWITCH_MODIFIER_ALT = 2;
+  SWITCH_MODIFIER_SHIFT = 3;
+  // ⌘ on a Mac, the Windows key.
+  SWITCH_MODIFIER_GUI = 4;
+}
+
+// Makes the cursor cross from one device to another, either way, only while
+// this modifier is held on this device's keyboard, as the controller; NONE
+// crosses whenever the cursor reaches an edge, the default. The modifier is
+// not pressed on the device the cursor enters. JumpTo, the jump hotkeys and
+// clicks on a device in the app are not crossings and need no modifier.
+// Kept apart from SetEdgeOptions; the wait at the edge applies as well.
+// Answered with Status; the choice is remembered.
+message SetSwitchModifier {
+  SwitchModifier modifier = 1;
+}
+
+// Shares previews of this device's desktop pictures with the devices it is
+// connected to, or stops. Turned off, connected devices drop the previews
+// they had from it at once. On by default; the choice is remembered.
+message SetPreviewSharing {
+  bool enabled = 1;
+}
+
+// Has every device show its name on each of its screens for a moment
+// (Event.screens_identified), this one and every connected one, so the
+// user can tell which screen is which. Answered with Status. At most once
+// a second; more often, the others are ignored.
+message IdentifyScreens {}
+
+// Gives another device a name of this device's user's choosing, shown on
+// this device in its place (DeviceStatus.name, ArrangedDevice.name); the
+// device itself and other devices are not told. Names are as for
+// SetDeviceName; an empty one clears it, and the device's own name shows
+// again. Works for paired devices and those in the configuration file.
+// Answered with Status; refused with "unknown_device" for a device not
+// trusted here (this one included: rename it with SetDeviceName) and
+// "invalid_name".
+message RenameDevice {
+  string device_id = 1;
+  string name = 2;
+}
+
+// Stops this device sharing its clipboard or files with another one, or
+// lets it again; on by default, remembered. With the clipboard off, this
+// device neither gives its clipboard to that device nor takes that
+// device's, nor passes either on between that device and others. With
+// files off, files sent to it are refused ("files_off"), drags are not
+// offered to it, and files and drags from it are declined (the sender
+// sees FILE_DECLINE_UNAVAILABLE, as from a device that does not receive
+// files). The other device is not told. Answered with Status; refused
+// with "unknown_device" as RenameDevice is.
+message SetDeviceSharing {
+  string device_id = 1;
+  bool clipboard_off = 2;
+  bool files_off = 3;
+}
+
+// Lets other devices control this Mac at the login window, or stops them;
+// off by default, remembered. Once it is on, the agent the installer sets
+// up for the login window runs as this device the next time the login
+// window shows, with this user's pairings, and only takes input.
+// Answered with Status. Turning it off always
+// works. Turning it on is refused with "unsupported" on any other system
+// or with mock backends; with "not_installed" when the login window's
+// agent is not installed, as when the app was not installed from its
+// installer package; with "custom_paths" when this agent keeps its files
+// outside the user's InputWeave folder (--config, or paths in the
+// configuration), the only place the login window's agent reads; and with
+// "no_lock_screen_input" where other devices cannot type on this Mac's
+// lock screen (Status.lock_screen_input), since the login window needs the
+// same virtual keyboard and mouse.
+message SetLoginWindowAccess {
+  bool on = 1;
+}
+
+// Files copied on another device and promised on this computer's clipboard
+// by an app that takes them (ClientHello.takes_clipboard_files): on Windows
+// the app puts them on the clipboard as files it promises
+// (docs/architecture.md §9). The app asks whether it may still put them
+// there (ClipboardFilesPlace) before it touches the clipboard, and says
+// whether it did (ClipboardFilesPlaced). An app pasting them asks for them
+// with PasteClipboardFiles, and says ClipboardFilesGone once the clipboard
+// no longer holds them.
+message ClipboardFilesPromised {
+  uint64 promise_id = 1;
+  // The device they were copied on.
+  string from_device_id = 2;
+  // In order; sizes and file counts are not known before they are pasted.
+  repeated DraggedItem items = 3;
+  // The clipboard's other content, when it is small (at most 1 MiB in
+  // all), ready for the Windows clipboard as the broker would write it:
+  // CF_UNICODETEXT with CRLF line ends, "HTML Format" with its header,
+  // "Rich Text Format". An image is left out: the agent decodes no image
+  // from another device. Larger content is left out when there are files.
+  // The app puts each on the clipboard as it is.
+  repeated ClipboardInline inline = 4;
+}
+
+// One format on the Windows clipboard.
+message ClipboardInline {
+  // A standard format's number (13 CF_UNICODETEXT), or 0 for a registered
+  // one.
+  uint32 standard = 1;
+  // A registered format's name, when `standard` is 0.
+  string name = 2;
+  bytes data = 3;
+}
+
+// Whether the app may still put the promise on the clipboard, asked before
+// it touches the clipboard. Answered with Status when it may; refused with
+// "too_late" once the agent no longer waits for it (the rest of the content
+// may be on the clipboard without the files by then), "superseded" when
+// something was copied on this computer since, and "not_found" for a
+// promise it was not handed. Once it may, the agent waits for
+// ClipboardFilesPlaced rather than promise anything else.
+message ClipboardFilesPlace {
+  uint64 promise_id = 1;
+}
+
+// The app put the promise on the clipboard, or could not.
+message ClipboardFilesPlaced {
+  uint64 promise_id = 1;
+  bool ok = 2;
+}
+
+// An app pastes the promised files: fetch them into `folder`, an absolute
+// folder of the user's the app made for them, which the agent checks the
+// user can write in. Refused with "not_found" for a promise the app does not
+// hold, "invalid_folder" for a folder the user cannot write in, and
+// "no_broker". ClipboardFilesArrived tells when they are there.
+message PasteClipboardFiles {
+  uint64 promise_id = 1;
+  string folder = 2;
+}
+
+// The clipboard no longer holds the promise, and no paste of it still
+// waits for its files: something else was copied, or the app is closing.
+message ClipboardFilesGone {
+  uint64 promise_id = 1;
+}
+
+// The user quit the app (Exit InputWeave…), as the app goes: the agent does
+// not start it again to hold files copied on another device until an app
+// connects again.
+message UserQuitApp {}
+
+// Turns relative mode on or off for the other device the cursor is on:
+// its movements go there as such, for games
+// that hide and hold the cursor, and the cursor crosses no edge until it
+// ends. Taking control back or jumping ends it too. Answered with Status.
+// Turning it on is refused with "not_controlling" while the cursor is on
+// this device, and "not_supported" when that device does not take relative
+// movements (an older agent); turning it off always succeeds.
+message SetRelativeMouse {
+  bool on = 1;
+}
+
+// Whether a device enters relative mode by itself when an app there holds
+// the pointer, and leaves it when the app lets go (PointerCaptured from that
+// device; Windows tells, macOS does not). On unless turned off; remembered.
+// Answered with Status.
+message SetRelativeAuto {
+  bool on = 1;
+}
+
+// Asks macOS for the folders it protects (Files & Folders) that InputWeave
+// reads files from and saves files in, before a transfer needs them:
+// the agent lists Downloads, Desktop and
+// Documents once each, one after the other, and macOS asks the user about
+// each it has not been told of. Answered at once with Status, a new
+// folder_access_round, the folders being asked about as
+// FOLDER_ACCESS_STATE_ASKING; what the user decided comes in later Status.
+// While a round is going on, joins it. The agent never lists them by
+// itself, not even as it starts: Status has what macOS said last
+// (remembered) until asked again. Refused with "unsupported" where the agent
+// has no such folders (Windows, Linux, the login window).
+message RequestFolderAccess {}
+
+// Asks the user for a permission the agent asks for itself
+// (PermissionStatus.ask is not PERMISSION_ASK_NOT_ASKABLE): on Wayland the
+// desktop's portal shows its dialog.
+// Answered with Status once it shows the permission being asked about, or
+// what came of it; the user's answer comes in later Status. The agent never
+// asks by itself, except that it uses what the user allowed before, as the
+// desktop remembers it. Refused with "unsupported" for a permission this
+// agent does not ask for, "unknown_permission" for one it does not know.
+message RequestPermission {
+  Permission permission = 1;
+}
+
+// Enters a license key on this computer, as the user typed or pasted it
+// (Enter License Key). It replaces any key this computer had, which starts
+// over as LICENSE_STATE_PENDING_ACTIVATION for the app to activate with
+// Polar, and lets this computer take keys from paired devices again if its
+// license had been removed (License.opted_out), and forgets the keys Polar
+// refused here before, so they may be taken again. The key this computer
+// already has, licensed or waiting, is kept as it is, activation and all;
+// one Polar refused starts over, for the app to try again (Try Again sends
+// this with the same key). Leading and trailing spaces are dropped.
+// Refused with "invalid_license_key" for a key that is not 20 to 96
+// printable ASCII characters without spaces. Answered with Status. This,
+// RecordLicenseResult and RemoveLicense are refused with
+// "license_unavailable" while the license is unavailable
+// (LICENSE_STATE_UNAVAILABLE), and with "unsupported" where the agent keeps
+// no license (Status.license unset).
+message SetLicenseKey {
+  string key = 1;
+}
+
+// What Polar answered about `key`, which the app asked (activate or
+// validate): the agent keeps it in this computer's license and tells paired
+// devices. An answer counts only for the state it answers: `activated`
+// while the license waits for activation; `validated`, and `refused` with
+// an activation_id, for the activation this computer has
+// (License.activation_id) while licensed; `refused` without one while the
+// license waits for activation. Answered with Status. Refused with
+// "license_changed" when `key` is no longer this computer's key (it changed
+// while the app was asking); with "already_licensed" for `activated` while
+// this computer is already licensed with another activation (another app on
+// it, or a late answer, activated it too), while the activation it is
+// licensed with, reported again, succeeds and changes nothing; with
+// "license_stale" for any other answer that does
+// not fit the state; and with "invalid_license_result" for a result with no
+// case, an activation without an activation id, `validated` without
+// activation_id, `refused` with SEATS_FULL and an activation_id, or fields
+// over their limits (activation ids 128 printable ASCII characters,
+// customer_email 320 characters without control characters, validated_at
+// from 2020 to a day ahead of this computer's clock). When the agent
+// refuses `activated` in any way, the app frees that activation with Polar
+// (deactivate), so it takes no seat.
+message RecordLicenseResult {
+  string key = 1;
+  oneof result {
+    // Polar activated this computer on the license (activate answered 200).
+    LicenseActivated activated = 2;
+    // Polar confirmed this computer's activation (validate answered 200).
+    LicenseValidated validated = 3;
+    // Polar refused: every seat is taken, or the key is no longer active
+    // (activate: 403 NotPermitted, told apart by a validate without
+    // activation_id), or the key is unknown, revoked or refunded, or this
+    // computer's activation is gone (404; from validate, only after two
+    // 404s a minute apart).
+    LicenseRefusal refused = 4;
+  }
+  // The activation the answer is about: the one validate was asked about,
+  // for `validated` and for `refused` from validate (INVALID only); empty
+  // for answers to activate (`activated` carries its new id).
+  string activation_id = 5;
+}
+
+message LicenseActivated {
+  string activation_id = 1;
+  // The buyer's address as Polar has it; the apps show it shortened.
+  string customer_email = 2;
+  // When Polar answered, in seconds since 1970 (the response's Date header
+  // where the app has one, otherwise its clock): from 2020-01-01 to a day
+  // ahead of this computer's clock. Where the Date header is further ahead,
+  // the app sends its clock.
+  uint64 validated_at = 3;
+}
+
+message LicenseValidated {
+  // As LicenseActivated.validated_at.
+  uint64 validated_at = 1;
+  // Empty to keep the one the agent has.
+  string customer_email = 2;
+}
+
+enum LicenseRefusal {
+  LICENSE_REFUSAL_UNSPECIFIED = 0;
+  LICENSE_REFUSAL_SEATS_FULL = 1;
+  LICENSE_REFUSAL_INVALID = 2;
+}
+
+// Removes the license from this computer (Remove License): its key and
+// activation are forgotten, and it takes no key from paired devices until a
+// key is entered here again (License.opted_out). The app frees the seat
+// with Polar (deactivate) itself before sending this, and sends this even
+// when Polar cannot be reached. Answered with Status.
+message RemoveLicense {}
+
+message ClientMessage {
+  uint64 request_id = 1;
+  oneof command {
+    ClientHello hello = 2;
+    GetStatus get_status = 3;
+    SetSharing set_sharing = 4;
+    StartPairing start_pairing = 5;
+    SubmitPairingCode submit_pairing_code = 6;
+    CancelPairing cancel_pairing = 7;
+    Unpair unpair = 8;
+    GetNearby get_nearby = 9;
+    GetPairing get_pairing = 10;
+    GetArrangement get_arrangement = 11;
+    SetArrangement set_arrangement = 12;
+    SetDeviceName set_device_name = 13;
+    SetDeviceOptions set_device_options = 14;
+    SetClipboardSync set_clipboard_sync = 15;
+    SendFiles send_files = 16;
+    CancelTransfer cancel_transfer = 17;
+    AnswerFileOffer answer_file_offer = 18;
+    GetTransfers get_transfers = 19;
+    SetFileSettings set_file_settings = 20;
+    GetDiagnostics get_diagnostics = 21;
+    SetLocked set_locked = 22;
+    JumpTo jump_to = 23;
+    SetEdgeOptions set_edge_options = 24;
+    SetPreviewSharing set_preview_sharing = 25;
+    RemoveTransfer remove_transfer = 26;
+    ClearTransfers clear_transfers = 27;
+    BeginDrag begin_drag = 28;
+    EndDrag end_drag = 29;
+    AcceptDrag accept_drag = 30;
+    DeclineDrag decline_drag = 31;
+    SetHotkeys set_hotkeys = 32;
+    SetSwitchModifier set_switch_modifier = 33;
+    IdentifyScreens identify_screens = 34;
+    RenameDevice rename_device = 35;
+    SetDeviceSharing set_device_sharing = 36;
+    SetLoginWindowAccess set_login_window_access = 37;
+    ClipboardFilesPlaced clipboard_files_placed = 38;
+    PasteClipboardFiles paste_clipboard_files = 39;
+    ClipboardFilesGone clipboard_files_gone = 40;
+    ClipboardFilesPlace clipboard_files_place = 41;
+    UserQuitApp user_quit_app = 42;
+    SetRelativeMouse set_relative_mouse = 43;
+    SetRelativeAuto set_relative_auto = 44;
+    RequestFolderAccess request_folder_access = 45;
+    RequestPermission request_permission = 46;
+    SetLicenseKey set_license_key = 47;
+    RecordLicenseResult record_license_result = 48;
+    RemoveLicense remove_license = 49;
+  }
+}
+
+enum ConnectionState {
+  CONNECTION_STATE_UNSPECIFIED = 0;
+  CONNECTION_STATE_CONNECTED = 1;
+  CONNECTION_STATE_OFFLINE = 2;
+  CONNECTION_STATE_INCOMPATIBLE = 3;
+}
+
+enum Permission {
+  PERMISSION_UNSPECIFIED = 0;
+  // macOS: lets the agent inject input and grab the keyboard and mouse.
+  PERMISSION_ACCESSIBILITY = 1;
+  // macOS: lets the agent see keystrokes.
+  PERMISSION_INPUT_MONITORING = 2;
+  PERMISSION_LOCAL_NETWORK = 3;
+  // Linux, Wayland: other devices may control this one, through the
+  // desktop's RemoteDesktop portal.
+  PERMISSION_REMOTE_CONTROL = 4;
+  // Linux, Wayland: this device's keyboard and mouse may control others,
+  // through the desktop's InputCapture portal.
+  PERMISSION_INPUT_CAPTURE = 5;
+}
+
+// Whether the agent asks for a permission itself (RequestPermission), and
+// what came of the last time.
+enum PermissionAsk {
+  // The agent cannot ask: the user grants it elsewhere, as in macOS's
+  // System Settings. Older agents send nothing else.
+  PERMISSION_ASK_NOT_ASKABLE = 0;
+  // The agent can ask, and has not since it started.
+  PERMISSION_ASK_ASKABLE = 1;
+  // The desktop is asking the user.
+  PERMISSION_ASK_ASKING = 2;
+  // The user said no the last time.
+  PERMISSION_ASK_DENIED = 3;
+  // Asking failed (PermissionStatus.failure says why): the desktop has no
+  // such portal, or it broke.
+  PERMISSION_ASK_FAILED = 4;
+  // Starting with what the user allowed before, as the desktop remembers
+  // it, as at login: no dialog is expected.
+  PERMISSION_ASK_RESTORING = 5;
+  // The user stopped what they allowed (sharing); the agent can ask again.
+  PERMISSION_ASK_STOPPED = 6;
+}
+
+message PermissionStatus {
+  Permission permission = 1;
+  bool granted = 2;
+  PermissionAsk ask = 3;
+  // The request this state answers: how many times it was asked for since
+  // the agent started. A reply to RequestPermission has the request's own;
+  // a client ignores statuses with a lower one, which are from before it.
+  uint64 asked = 4;
+  // Why asking failed, for PERMISSION_ASK_FAILED.
+  string failure = 5;
+}
+
+message DeviceStatus {
+  string id = 1;
+  // The name this device's user gave it (RenameDevice), or else its own.
+  string name = 2;
+  ConnectionState state = 3;
+  // Paired, rather than listed in the agent's configuration file; only
+  // paired devices can be unpaired or have their options changed.
+  bool paired = 4;
+  // "macos", "windows", "linux" or empty.
+  string os = 5;
+  // ⌘ and Ctrl are swapped in keys sent to this device.
+  bool swap_gui_and_control = 6;
+  // Round-trip time to the device in milliseconds, rounded up; 0 while it
+  // is offline or not yet measured. Refreshed every few seconds.
+  uint32 rtt_ms = 7;
+  // See ArrangedDevice.jump_slot.
+  uint32 jump_slot = 8;
+  // The name the device gives itself, or that the configuration file
+  // gives it; `name` differs while this device's user has renamed it.
+  // Empty from agents before RenameDevice.
+  string reported_name = 9;
+  // See SetDeviceSharing.
+  bool clipboard_off = 10;
+  bool files_off = 11;
+  // The device's screen is locked, as it last said; false while it is
+  // offline, and from agents before this field.
+  bool screen_locked = 12;
+  // Input from here reaches its lock screen, as it last said (see
+  // Status.lock_screen_input); true for agents that do not say. While it is
+  // locked and says no, the cursor does not go there. False while offline.
+  bool lock_screen_input = 13;
+  // An app on it holds the pointer, as it last said (PointerCaptured); false
+  // while offline, and from devices that do not say.
+  bool pointer_captured = 14;
+  // No input from here reaches it now, as it last said: a Linux Wayland
+  // desktop that has not allowed remote control, or a Mac without the
+  // Accessibility permission. The cursor stays off it. False while offline,
+  // and from devices that do not say.
+  bool input_unavailable = 15;
+  // It paused sharing: it neither controls others nor is controlled, and
+  // the cursor stays off it. False while offline, and from devices that do
+  // not say.
+  bool sharing_paused = 16;
+}
+
+// Why the keyboard and mouse came back to this device.
+enum ReturnReason {
+  RETURN_REASON_UNSPECIFIED = 0;
+  // The take-back hotkey was pressed.
+  RETURN_REASON_HOTKEY = 1;
+  // The connection to the controlled device was lost.
+  RETURN_REASON_PEER_LOST = 2;
+  // Someone used the controlled device's own keyboard or mouse.
+  RETURN_REASON_REMOTE_ACTIVITY = 3;
+  RETURN_REASON_SHARING_PAUSED = 4;
+  // The controlled device left the arrangement.
+  RETURN_REASON_LAYOUT_CHANGED = 5;
+  // The controlled device's screen locked, and input from here cannot
+  // reach it (DeviceStatus.lock_screen_input).
+  RETURN_REASON_SCREEN_LOCKED = 6;
+  // The controlled device can take no input from other devices now
+  // (DeviceStatus.input_unavailable).
+  RETURN_REASON_INPUT_UNAVAILABLE = 7;
+  // The desktop took this device's keyboard and mouse back from InputWeave
+  // (Wayland's InputCapture portal).
+  RETURN_REASON_CAPTURE_ENDED = 8;
+  // The controlled device paused sharing (DeviceStatus.sharing_paused).
+  RETURN_REASON_PEER_PAUSED = 9;
+}
+
+message Status {
+  bool sharing = 1;
+  string this_device_id = 2;
+  // The device currently under the cursor.
+  string active_device_id = 3;
+  repeated DeviceStatus devices = 4;
+  // The device controlling this one, or empty.
+  string controlled_by_device_id = 5;
+  string this_device_name = 6;
+  // Local input is being captured, so this device can control others.
+  bool capturing = 7;
+  // The permissions the agent needs on this platform; empty if none.
+  repeated PermissionStatus permissions = 8;
+  // Another app turned on secure keyboard entry (macOS), so keystrokes stay
+  // on this device.
+  bool secure_input = 9;
+  // Counts every time the keyboard and mouse came back to this device; the
+  // UI shows why whenever it increases.
+  uint64 control_returns = 10;
+  ReturnReason last_return = 11;
+  // The device involved, for PEER_LOST and REMOTE_ACTIVITY.
+  string last_return_device_id = 12;
+  bool clipboard_sync = 13;
+  // The last time a clipboard moved, or was held back, through this device.
+  ClipboardActivity last_clipboard = 14;
+  // The cursor is locked to the device it is on (active_device_id).
+  bool locked = 15;
+  // See SetEdgeOptions.
+  uint32 edge_dwell_ms = 16;
+  // The dwell_ms a client asks for when the user turns waiting at the edge
+  // on without choosing a time.
+  uint32 default_dwell_ms = 17;
+  // This device shares previews of its desktop pictures; see
+  // SetPreviewSharing.
+  bool preview_sharing = 18;
+  // The agent can read this device's desktop pictures now; on Windows,
+  // while the broker, which reads them as the logged-on user, is connected.
+  // When it never could, no previews go out whatever preview_sharing says.
+  // Agents from before this field leave it false; the app restarts an agent
+  // whose version differs from its own, and ctl is the agent's executable.
+  bool desktop_pictures_available = 19;
+  // The drag of files going on from this device (BeginDrag), while the
+  // button is held; none otherwise.
+  Dragging dragging = 20;
+  // The hotkeys in effect; see SetHotkeys. Missing from agents before them,
+  // whose hotkeys are the defaults.
+  Hotkeys hotkeys = 21;
+  // See SetSwitchModifier.
+  SwitchModifier switch_modifier = 22;
+  // This device's screen is locked: on macOS the lock screen, on Windows a
+  // locked session.
+  bool screen_locked = 23;
+  // Other devices can type and click on this device's lock screen: on
+  // Windows always; on macOS only when this build may create a virtual
+  // keyboard and mouse, which needs an entitlement Apple grants, creating
+  // it has not failed, and this session is on the console.
+  bool lock_screen_input = 24;
+  // See SetLoginWindowAccess.
+  bool login_window_access = 25;
+  // Another device controls this one and can carry a drag of files from
+  // here across: its protocol knows such drags
+  // and files are not turned off with it. The apps show their drop strips
+  // while controlled only then.
+  bool drags_carried = 26;
+  // The other device in relative mode (SetRelativeMouse), which is the one
+  // the cursor is on; empty when none is.
+  string relative_mouse = 27;
+  // Relative mode began because that device said an app there holds the
+  // pointer, rather than by hand.
+  bool relative_mouse_automatic = 28;
+  // See SetRelativeAuto.
+  bool relative_auto = 29;
+  // An app on this device holds the pointer now, as other devices are told
+  // (PointerCaptured): only Windows tells.
+  bool pointer_captured = 30;
+  // Counts every time relative mode ended; the UI tells why whenever it
+  // increases.
+  uint64 relative_ends = 31;
+  RelativeEnd last_relative_end = 32;
+  // This agent knows relative mode: its
+  // hotkey, SetRelativeMouse and SetRelativeAuto. Agents from before leave it
+  // false, and the apps show nothing of relative mode.
+  bool relative_supported = 33;
+  // The folders RequestFolderAccess asks for, in that order, and what macOS
+  // said of each, last time (remembered). Empty where there are none (see
+  // RequestFolderAccess) and from agents before.
+  repeated FolderAccess folder_access = 34;
+  // What macOS said of every one of them is known.
+  bool folder_access_asked = 35;
+  // Counts the rounds of RequestFolderAccess since the agent started: what
+  // a Status says of the folders is that round's. A reply to
+  // RequestFolderAccess carries its round, so a client can tell older
+  // statuses from it.
+  uint64 folder_access_round = 36;
+  // What kind of session this device runs and what serves each part of it,
+  // for the troubleshooting page. Only
+  // Linux agents say; unset elsewhere and from agents before.
+  SessionInfo session = 37;
+  // From this device the cursor normally leaves only across the edges of
+  // its screens: Wayland, where the desktop hands the keyboard and mouse
+  // over only as the cursor reaches an edge. A jump to another device (the
+  // jump hotkeys, JumpTo) is refused with "edge_only" unless input happens
+  // to be handed over at that moment, so the apps treat it as "do not offer
+  // jumps". It does not change while the agent runs.
+  bool cursor_leaves_at_edges_only = 38;
+  // Whether a firewall here lets other devices reach the agent, and on
+  // which port. Only Linux agents say (ufw); unset elsewhere.
+  FirewallStatus firewall = 39;
+  // This computer's license. Unset from agents before licenses; the apps
+  // then show nothing of them.
+  License license = 40;
+}
+
+// Where a license stands on this computer. The agent keeps it; the app
+// asks Polar and reports what Polar said (RecordLicenseResult).
+enum LicenseState {
+  // No key: the app shows "Trial".
+  LICENSE_STATE_NONE = 0;
+  // A key for the app to activate with Polar: entered here, or taken from
+  // a paired device. Shown as "Trial" until it is activated.
+  LICENSE_STATE_PENDING_ACTIVATION = 1;
+  // Activated here; the app shows "Licensed".
+  LICENSE_STATE_LICENSED = 2;
+  // Polar refused to activate the key here because every seat is taken.
+  LICENSE_STATE_SEATS_FULL = 3;
+  // Polar does not know the key, or it was revoked or refunded, or this
+  // computer's activation is gone.
+  LICENSE_STATE_INVALID = 4;
+  // The agent's license file is there but cannot be read right now (its
+  // permissions, a disk error): the app shows "Trial" with "License
+  // information can't be read right now." and offers nothing to change;
+  // the other License fields are empty. The agent reads the file again
+  // every two minutes, and the state changes once it can.
+  LICENSE_STATE_UNAVAILABLE = 5;
+}
+
+// This computer's license (Status.license).
+message License {
+  // Empty in LICENSE_STATE_NONE. The app needs it to ask Polar.
+  string key = 1;
+  LicenseState state = 2;
+  // This computer's activation, from Polar; empty unless activated.
+  string activation_id = 3;
+  string customer_email = 4;
+  // When Polar last activated or confirmed this computer, in seconds since
+  // 1970; 0 when it never did.
+  uint64 validated_at = 5;
+  // The paired device the key came from, and what this device calls it;
+  // both empty when the key was entered here.
+  string source_device_id = 6;
+  string source_device_name = 7;
+  // The license was removed here (RemoveLicense): keys from paired devices
+  // are not taken until a key is entered here (SetLicenseKey).
+  bool opted_out = 8;
+  // The paired devices that use the same key, as each last said, for
+  // "Computers on this license". Devices that never said (agents before
+  // licenses) are not listed; offline ones are, as they last said.
+  repeated LicensedDevice devices = 9;
+}
+
+message LicensedDevice {
+  string id = 1;
+  // What this device calls it.
+  string name = 2;
+  // Activated there with this key; false while it waits or found the seats
+  // full.
+  bool licensed = 3;
+}
+
+// The graphical session of a device (Status.session).
+message SessionInfo {
+  SessionType type = 1;
+  // As XDG_CURRENT_DESKTOP names it ("ubuntu:GNOME", "KDE"); empty when not
+  // known.
+  string desktop = 2;
+  // What serves each part of the session, in the order input, capture,
+  // clipboard, displays, desktop pictures; a part this device has no backend
+  // for at all is left out.
+  repeated SessionBackend backends = 3;
+}
+
+enum SessionType {
+  SESSION_TYPE_UNSPECIFIED = 0;
+  SESSION_TYPE_X11 = 1;
+  SESSION_TYPE_WAYLAND = 2;
+}
+
+// What serves one part of the session (SessionInfo.backends).
+message SessionBackend {
+  BackendRole role = 1;
+  // What serves it, by its technical name ("XTest", "RemoteDesktop portal",
+  // "data-control"); empty when nothing does.
+  string implementation = 2;
+  // Why nothing serves it, or what keeps it from working now, in English
+  // for logs and diagnostics; empty when it works.
+  string problem = 3;
+}
+
+enum BackendRole {
+  BACKEND_ROLE_UNSPECIFIED = 0;
+  // Input from other devices.
+  BACKEND_ROLE_INPUT = 1;
+  // This device's keyboard and mouse, captured to control others.
+  BACKEND_ROLE_CAPTURE = 2;
+  BACKEND_ROLE_CLIPBOARD = 3;
+  BACKEND_ROLE_DISPLAYS = 4;
+  BACKEND_ROLE_DESKTOP_PICTURES = 5;
+}
+
+// Whether a firewall lets other devices reach the agent (Status.firewall).
+message FirewallStatus {
+  FirewallState state = 1;
+  // The UDP port the agent takes connections on (47820 unless the
+  // configuration's [network] listen says otherwise). mDNS needs UDP 5353
+  // too; the package's ufw profile "InputWeave" lets both in.
+  uint32 port = 2;
+  // With FIREWALL_STATE_BLOCKS, the UDP ports kept out: `port` (other
+  // devices cannot connect), 5353 (they cannot find this one), or both.
+  // Empty from agents before.
+  repeated uint32 blocked_ports = 3;
+}
+
+enum FirewallState {
+  // Not known: no firewall the agent can read.
+  FIREWALL_STATE_UNSPECIFIED = 0;
+  // ufw is off.
+  FIREWALL_STATE_OFF = 1;
+  // ufw is on and lets the port in.
+  FIREWALL_STATE_ALLOWS = 2;
+  // ufw is on and its rules let nothing in on the port: other devices
+  // cannot reach this one until `sudo ufw allow InputWeave`.
+  FIREWALL_STATE_BLOCKS = 3;
+  // ufw is on, but only root can read its rules, so whether the port is let
+  // in is not known: if other devices cannot reach this one, `sudo ufw allow
+  // InputWeave`.
+  FIREWALL_STATE_ON_UNREADABLE = 4;
+}
+
+// A folder macOS protects (Status.folder_access).
+enum UserFolder {
+  USER_FOLDER_UNSPECIFIED = 0;
+  USER_FOLDER_DOWNLOADS = 1;
+  USER_FOLDER_DESKTOP = 2;
+  USER_FOLDER_DOCUMENTS = 3;
+}
+
+enum FolderAccessState {
+  // Never asked about on this Mac.
+  FOLDER_ACCESS_STATE_UNKNOWN = 0;
+  // Being listed; macOS may be asking the user.
+  FOLDER_ACCESS_STATE_ASKING = 1;
+  FOLDER_ACCESS_STATE_GRANTED = 2;
+  // The user did not allow it (or turned it off in System Settings).
+  FOLDER_ACCESS_STATE_DENIED = 3;
+  // The folder is not there.
+  FOLDER_ACCESS_STATE_MISSING = 4;
+  // Listing it failed for another reason.
+  FOLDER_ACCESS_STATE_FAILED = 5;
+}
+
+message FolderAccess {
+  UserFolder folder = 1;
+  FolderAccessState state = 2;
+}
+
+// Why relative mode ended (Status.last_relative_end).
+enum RelativeEndReason {
+  RELATIVE_END_REASON_UNSPECIFIED = 0;
+  // Its hotkey, or SetRelativeMouse, turned it off.
+  RELATIVE_END_REASON_TURNED_OFF = 1;
+  // The app on that device let go of the pointer.
+  RELATIVE_END_REASON_RELEASED = 2;
+  // SetRelativeAuto turned off what began by itself.
+  RELATIVE_END_REASON_AUTO_OFF = 3;
+  // The keyboard and mouse came back to this device; last_return says why.
+  RELATIVE_END_REASON_CONTROL_RETURNED = 4;
+  // The cursor jumped to another device (JumpTo, a jump hotkey).
+  RELATIVE_END_REASON_JUMPED = 5;
+  // Sharing was paused, and the keyboard and mouse came back.
+  RELATIVE_END_REASON_SHARING_PAUSED = 6;
+  // The connection to that device was lost, and the keyboard and mouse came
+  // back.
+  RELATIVE_END_REASON_DEVICE_LOST = 7;
+}
+
+// The last time relative mode ended: on which device, and why.
+message RelativeEnd {
+  string device_id = 1;
+  RelativeEndReason reason = 2;
+}
+
+message Dragging {
+  string drag_id = 1;
+  // Items dragged, and the files and empty folders and bytes in them.
+  uint32 items = 2;
+  uint32 files = 3;
+  uint64 bytes = 4;
+  // The device the drag is offered to now, the cursor being there; empty
+  // while it is on this device.
+  string device_id = 5;
+}
+
+enum TransferState {
+  TRANSFER_STATE_UNSPECIFIED = 0;
+  // Sending: reading the file to hash it.
+  TRANSFER_STATE_PREPARING = 1;
+  // The other device is not connected; the transfer goes on when it is.
+  TRANSFER_STATE_WAITING_FOR_CONNECTION = 2;
+  // A user has to accept: the other one when sending, this one when
+  // receiving (answer with AnswerFileOffer).
+  TRANSFER_STATE_WAITING_FOR_ANSWER = 3;
+  TRANSFER_STATE_TRANSFERRING = 4;
+  // Checking the received file's hash.
+  TRANSFER_STATE_VERIFYING = 5;
+  TRANSFER_STATE_DONE = 6;
+  TRANSFER_STATE_DECLINED = 7;
+  TRANSFER_STATE_FAILED = 8;
+  TRANSFER_STATE_CANCELLED = 9;
+  // Sending: waiting for its turn. At most two files go to a device at
+  // once; the rest wait in the order they were sent, and can be cancelled
+  // meanwhile.
+  TRANSFER_STATE_QUEUED = 10;
+}
+
+// An item of a batch (SendFiles, a drag): a file, or a folder with what is
+// in it. A folder's files go one by one, two at a time like other files,
+// and are counted here; only the item is listed.
+message FileTransfer {
+  // A file's transfer id, which is the same on both devices; a folder's is
+  // an id of the sender's, also the same on both.
+  string transfer_id = 1;
+  bool outgoing = 2;
+  string device_id = 3;
+  string name = 4;
+  // A folder's files together, as offered.
+  uint64 size = 5;
+  uint64 done_bytes = 6;
+  uint64 bytes_per_second = 7;
+  // A folder's: QUEUED until one of its files goes, then what its files
+  // do; once each has ended, DONE if any arrived (files_failed says how
+  // many did not), FAILED if none did, CANCELLED if cancelled, DECLINED if
+  // the other device turned the batch away.
+  TransferState state = 8;
+  // DECLINED: "rejected", "no_space", "busy", "unavailable", "too_large"
+  // or "invalid_path". FAILED: "unreadable", "file_changed", "corrupt",
+  // "write_failed", "symlink" or "not_a_file"; for a folder, the first of
+  // its failures'.
+  string reason = 9;
+  // Declined for lack of space: how many more bytes were needed.
+  uint64 missing_bytes = 10;
+  // Received: where the file or folder was saved, once it was. Sending:
+  // the file or folder.
+  string path = 11;
+  uint64 started_at_unix_ms = 12;
+  // The batch it belongs to, the same on both devices. Empty from agents
+  // before batches.
+  string batch_id = 13;
+  // Its place in the batch, from 0, and the batch's items, files and empty
+  // folders, and bytes, as sent; for a progress line over the batch and a
+  // notification such as "received 1 folder (120 files, 3 GB)".
+  uint32 batch_index = 14;
+  uint32 batch_items = 15;
+  uint32 batch_files = 16;
+  uint64 batch_bytes = 17;
+  // The drag that carried the batch (DragBegun, Event.drag_arrived); empty
+  // for files sent otherwise.
+  string drag_id = 18;
+  // A folder rather than a file.
+  bool folder = 19;
+  // Files and empty folders: in it (1 for a file), those that arrived, and
+  // those that did not (failed or declined on their own; one cancelled
+  // with the item is neither). For a folder being sent, its files that
+  // could not even be read count among them; the receiver never hears of
+  // those.
+  uint32 files = 20;
+  uint32 files_done = 21;
+  uint32 files_failed = 22;
+  // A folder's failures, the first 100: what failed and why.
+  repeated FailedFile failures = 23;
+  // The batch carries files copied on one device and pasted on another
+  // (docs/architecture.md §9). Received, they are first written to a
+  // folder the agent keeps for the paste, from which the app that pasted
+  // copies them; `path` is that copy, so it is not shown to the user.
+  bool clipboard = 24;
+}
+
+message FailedFile {
+  // Its path in the batch: the folder's name, the folders down to it and
+  // its name, separated by "/".
+  string relative_path = 1;
+  // As FileTransfer.reason.
+  string reason = 2;
+}
+
+message Transfers {
+  // Newest first. The 100 that finished last are kept, also across restarts
+  // of the agent, until removed (RemoveTransfer, ClearTransfers); those
+  // still going are always listed.
+  repeated FileTransfer transfers = 1;
+  // Where received files go; empty if this device does not receive files.
+  string receive_folder = 2;
+  bool ask_before_receiving = 3;
+}
+
+message ClipboardActivity {
+  uint64 at_unix_ms = 1;
+  string from_device_id = 2;
+  string to_device_id = 3;
+  // "text", "rich_text" and/or "image".
+  repeated string kinds = 4;
+  // Why it was held back: "sensitive", "too_large", or empty if it moved.
+  string skipped = 5;
+}
+
+enum PairingPhase {
+  PAIRING_PHASE_UNSPECIFIED = 0;
+  PAIRING_PHASE_IDLE = 1;
+  // Initiator: reaching the other device.
+  PAIRING_PHASE_CONNECTING = 2;
+  // Initiator: waiting for the user to type the code shown on the other device.
+  PAIRING_PHASE_ENTER_CODE = 3;
+  // Initiator: checking the code that was typed.
+  PAIRING_PHASE_VERIFYING = 4;
+  // Responder: show `code` until it expires or the other device succeeds.
+  PAIRING_PHASE_SHOW_CODE = 5;
+  PAIRING_PHASE_PAIRED = 6;
+  PAIRING_PHASE_FAILED = 7;
+}
+
+message PairingState {
+  PairingPhase phase = 1;
+  // The other device. Its id is empty until it has introduced itself.
+  string peer_device_id = 2;
+  string peer_name = 3;
+  // Responder: the six digits to show.
+  string code = 4;
+  // Responder: when the code stops being valid, in Unix milliseconds.
+  uint64 expires_at_unix_ms = 5;
+  // Initiator: how many more codes may be tried.
+  uint32 attempts_left = 6;
+  // With PAIRING_PHASE_FAILED, a stable identifier for the UI's localized
+  // message: wrong_code, too_many_attempts, expired, rejected, not_allowed,
+  // busy, id_conflict, incompatible, unreachable, cancelled, protocol.
+  string error = 7;
+}
+
+// A device found on the local network.
+message NearbyDevice {
+  string id = 1;
+  string name = 2;
+  // "macos", "windows", "linux" or empty.
+  string os = 3;
+  string address = 4;
+  bool paired = 5;
+  // Whether it currently accepts new pairings.
+  bool pairable = 6;
+}
+
+message NearbyDevices {
+  repeated NearbyDevice devices = 1;
+}
+
+// A display, in its device's own desktop coordinates (logical units).
+message Screen {
+  string id = 1;
+  double x = 2;
+  double y = 3;
+  double width = 4;
+  double height = 5;
+  double scale = 6;
+  bool primary = 7;
+  // A preview of the desktop picture on this display: a JPEG whose long
+  // edge is at most 320 pixels. This device's own is filled in whether or
+  // not it shares them; an offline device keeps the ones it last sent.
+  // Empty when there is none: the display shows a solid color or a picture
+  // that cannot be read, the device runs Windows (which sends none yet),
+  // its user turned sharing previews off, its pictures broke the limits,
+  // it has not been connected since pairing, or the arrangement's previews
+  // would together pass 2 MiB, in which case later devices go without.
+  bytes preview_jpeg = 8;
+}
+
+message ArrangedDevice {
+  string id = 1;
+  string name = 2;
+  // "macos", "windows", "linux" or empty.
+  string os = 3;
+  // Whether the device has a place on the canvas yet; until its displays
+  // are first known it has none.
+  bool placed = 4;
+  double x = 5;
+  double y = 6;
+  // Its displays as last reported, also while it is offline.
+  repeated Screen screens = 7;
+  bool connected = 8;
+  bool this_device = 9;
+  // The number the jump hotkeys (Hotkeys.jump_modifiers with a digit) move
+  // the cursor here by, from 1 to 9; 0 for none. Every device in the
+  // arrangement, this one and those offline included, is numbered from left
+  // to right by the left edge of its screens on the canvas, then from top to
+  // bottom; past the ninth, and devices not placed yet, have none. Kept
+  // whether or not the jump hotkeys are on.
+  uint32 jump_slot = 10;
+}
+
+message Arrangement {
+  // Changes whenever the arrangement changes anywhere in the group.
+  uint64 version = 1;
+  repeated ArrangedDevice devices = 2;
+}
+
+message Error {
+  // Stable identifier for the UI to choose its localized message.
+  string code = 1;
+  // English detail for logs.
+  string detail = 2;
+}
+
+message Response {
+  uint64 request_id = 1;
+  oneof result {
+    AgentHello hello = 2;
+    Status status = 3;
+    Error error = 4;
+    PairingState pairing = 5;
+    NearbyDevices nearby = 6;
+    Arrangement arrangement = 7;
+    Transfers transfers = 8;
+    Diagnostics diagnostics = 9;
+    DragBegun drag_begun = 10;
+  }
+}
+
+// In answer to BeginDrag.
+message DragBegun {
+  string drag_id = 1;
+  // What will go: the items, their files and empty folders, and bytes.
+  // Items and files that cannot be sent are left out and listed in
+  // `failures`.
+  uint32 items = 2;
+  uint32 files = 3;
+  uint64 bytes = 4;
+  repeated FailedFile failures = 5;
+}
+
+// The user shook the mouse while the cursor was on this device: show where
+// it is. Sent once, to the clients connected at the time, at most once a
+// second.
+message CursorLocated {
+  // In this device's desktop coordinates (logical units), like the screens
+  // in the arrangement.
+  double x = 1;
+  double y = 2;
+}
+
+// Another device drags files here (docs/architecture.md §9): the cursor
+// came here with the button held. Start a drag of the items, as files
+// promised, where the cursor is, and answer with AcceptDrag once they are
+// dropped in a folder, or DeclineDrag. Sent to the apps connected at the
+// time; with none connected, the agent declines at once.
+message DragArrived {
+  string drag_id = 1;
+  string from_device_id = 2;
+  repeated DraggedItem items = 3;
+  // Files and empty folders in all the items, and their bytes.
+  uint32 files = 4;
+  uint64 bytes = 5;
+  // The files are on a device this one controls, and the cursor brought
+  // the drag back here: this device is not controlled by from_device_id,
+  // and the button is held on its own mouse.
+  bool at_controller = 6;
+  // The device the files are on, when it is not from_device_id: the
+  // device controlling this one carries a drag of files on another device
+  // it controls. Empty otherwise.
+  string source_device_id = 7;
+}
+
+message DraggedItem {
+  string name = 1;
+  bool folder = 2;
+  // Its bytes; a folder's files together.
+  uint64 size = 3;
+  // A folder's files and empty folders; 1 for a file.
+  uint32 files = 4;
+}
+
+enum DragEnd {
+  DRAG_END_UNSPECIFIED = 0;
+  // Dropped on device_id and accepted there: the files go as a batch with
+  // the drag's id (on the source: going to device_id).
+  DRAG_END_ACCEPTED = 1;
+  // device_id's user did not drop it there, or no app was there to.
+  DRAG_END_DECLINED = 2;
+  // Released where nothing takes it: on the source, or the drag ended by
+  // EndDrag or as the keyboard and mouse came back.
+  DRAG_END_RELEASED = 3;
+  // On the target: the source took the offer back, the cursor having left
+  // still dragging, or the drag ended elsewhere.
+  DRAG_END_WITHDRAWN = 4;
+  // No answer in 10 minutes.
+  DRAG_END_EXPIRED = 5;
+}
+
+// A drag ended: on the source, the one that began here (BeginDrag); on the
+// target, one offered here (DragArrived) and not answered here.
+message DragEnded {
+  string drag_id = 1;
+  DragEnd reason = 2;
+  // The other device involved, if any.
+  string device_id = 3;
+}
+
+// Show this device's name on each of its screens for `duration_ms`: its
+// user, or another device's, asked to identify the screens
+// (IdentifyScreens). Sent once, to the clients connected at the time.
+message ScreensIdentified {
+  uint32 duration_ms = 1;
+}
+
+// The promised files an app pastes (PasteClipboardFiles) arrived, as far
+// as they did, or could not be had. Sent to the app that asked.
+message ClipboardFilesArrived {
+  uint64 promise_id = 1;
+  // Whether any arrived.
+  bool ok = 2;
+  // Where each promised item is now, in order; empty for one that did not
+  // come.
+  repeated string paths = 3;
+}
+
+// The relative mode hotkey was pressed with the cursor on a device that
+// does not take relative movements (an older agent); the key went there as
+// any other.
+message RelativeUnsupported {
+  string device_id = 1;
+}
+
+// An edge of a display.
+enum ScreenEdge {
+  SCREEN_EDGE_UNSPECIFIED = 0;
+  SCREEN_EDGE_LEFT = 1;
+  SCREEN_EDGE_RIGHT = 2;
+  SCREEN_EDGE_TOP = 3;
+  SCREEN_EDGE_BOTTOM = 4;
+}
+
+// The cursor crossed an edge of one of this device's displays, going to or
+// coming from another device: the app lights up that edge there, briefly.
+// Only for a real crossing of an edge, not a jump
+// or the keyboard and mouse coming back otherwise. Whether to show it is
+// the app's own setting.
+message CursorCrossed {
+  // The display, as in Arrangement (Screen.id).
+  string display_id = 1;
+  ScreenEdge edge = 2;
+  // Where along the edge, in this device's logical desktop coordinates: y
+  // on a left or right edge, x on a top or bottom one.
+  double along = 3;
+  // The display's bounds, in the same coordinates, so the app can place
+  // the point on its own screen without the arrangement.
+  double display_x = 4;
+  double display_y = 5;
+  double display_width = 6;
+  double display_height = 7;
+  // Whether the cursor came in here; false: it went out.
+  bool arriving = 8;
+  // The device on the other side, and what this device calls it; empty
+  // when not known (a device this one is not paired with).
+  string other_device_id = 9;
+  string other_device_name = 10;
+}
+
+// An event carries one of the cases in the `event` oneof, or one of the
+// fields after it, never more. The drag events and screens_identified are
+// outside the oneof because apps built before them switch over it
+// exhaustively; such an app sees an event with none of its cases and
+// leaves it.
+message Event {
+  oneof event {
+    Status status_changed = 1;
+    PairingState pairing_changed = 2;
+    NearbyDevices nearby_changed = 3;
+    Arrangement arrangement_changed = 4;
+    Transfers transfers_changed = 5;
+    CursorLocated cursor_located = 6;
+  }
+  DragArrived drag_arrived = 7;
+  DragEnded drag_ended = 8;
+  ScreensIdentified screens_identified = 9;
+  // Only to the app that takes clipboard files (ClientHello).
+  ClipboardFilesPromised clipboard_files_promised = 10;
+  ClipboardFilesArrived clipboard_files_arrived = 11;
+  RelativeUnsupported relative_unsupported = 12;
+  CursorCrossed cursor_crossed = 13;
+}
+
+message AgentMessage {
+  oneof msg {
+    Response response = 1;
+    Event event = 2;
+  }
+}

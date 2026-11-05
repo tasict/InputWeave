@@ -1,0 +1,19 @@
+#!/bin/sh
+# Enables the agent's user unit for every user, so it starts with each
+# desktop session from the next login, as dh_installsystemduser would.
+# Nothing is started here: a user's service is the user's to start.
+set -e
+
+unit=app-cc.ctsite.inputweave@.service
+if [ "$1" = configure ] || [ "$1" = abort-upgrade ] || [ "$1" = abort-deconfigure ] || [ "$1" = abort-remove ]; then
+    # Removing the package masked it (postrm); installing it again
+    # unmasks it.
+    deb-systemd-helper --user unmask "$unit" >/dev/null || true
+    # A new installation enables it; an upgrade keeps an administrator's
+    # choice to disable it.
+    if deb-systemd-helper --quiet --user was-enabled "$unit"; then
+        deb-systemd-helper --user enable "$unit" >/dev/null || true
+    else
+        deb-systemd-helper --user update-state "$unit" >/dev/null || true
+    fi
+fi

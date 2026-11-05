@@ -1,0 +1,24 @@
+# The agent, as the user's systemd service.
+# The name matters: xdg-desktop-portal tells a host app by the unit it
+# runs in, app-<app id>@<instance>.service, so the desktop's dialogs for
+# remote control and input capture name the app, cc.ctsite.inputweave,
+# and remember what the user allowed. It runs as
+# app-cc.ctsite.inputweave@agent.service (DefaultInstance).
+[Unit]
+Description=InputWeave background service
+Documentation=man:inputweave(1)
+# Started with the desktop session and stopped with it, so the next login
+# starts it again in the new session.
+PartOf=graphical-session.target
+After=graphical-session.target
+StartLimitIntervalSec=60
+StartLimitBurst=5
+
+[Service]
+ExecStart=/usr/bin/inputweave agent
+Restart=on-failure
+RestartSec=3
+
+[Install]
+WantedBy=graphical-session.target
+DefaultInstance=agent

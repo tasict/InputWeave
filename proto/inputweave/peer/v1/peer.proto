@@ -1,0 +1,712 @@
+// Peer-to-peer protocol between InputWeave agents.
+//
+// Coordinates are logical units (physical pixels / scale) in the receiving
+// device's own desktop space unless stated otherwise.
+syntax = "proto3";
+
+package inputweave.peer.v1;
+
+enum Os {
+  OS_UNSPECIFIED = 0;
+  OS_MACOS = 1;
+  OS_WINDOWS = 2;
+  OS_LINUX = 3;
+}
+
+// First message on the control stream, sent by both sides.
+message Hello {
+  uint32 protocol_min = 1;
+  uint32 protocol_max = 2;
+  string device_id = 3;
+  string device_name = 4;
+  Os os = 5;
+  string app_version = 6;
+}
+
+message Display {
+  string id = 1;
+  double x = 2;
+  double y = 3;
+  double width = 4;
+  double height = 5;
+  double scale = 6;
+  bool primary = 7;
+  // A preview of the display's desktop picture: a JPEG whose long edge is
+  // at most 320 pixels, at most 96 KiB. Empty for a solid color, when the
+  // sender cannot read its desktop picture, or when its user turned
+  // sharing previews off.
+  bytes preview_jpeg = 8;
+}
+
+// The sender's displays, in its own desktop coordinates. Sent when a
+// session starts and again whenever the displays or their pictures change,
+// or previews are turned on or off. Each one replaces the last: pictures it
+// does not carry are gone, unless previews_unchanged says otherwise. A
+// receiver drops every picture in it, keeping the displays, if any is over
+// 128 KiB or not a JPEG, if together they are over 1 MiB, if more than 16
+// displays have one, or if a display id is over 64 bytes. Senders keep to
+// these limits by leaving out the largest pictures.
+message Displays {
+  repeated Display displays = 1;
+  // The sender cannot read its desktop pictures now, as at the macOS login
+  // window, where its agent runs as a user's device without that user's
+  // desktop. The receiver keeps the pictures it has of the displays still
+  // listed, and ignores any in this message.
+  bool previews_unchanged = 2;
+}
+
+message Placement {
+  string device_id = 1;
+  // Offset of the device's desktop origin on the shared canvas.
+  double x = 2;
+  double y = 3;
+}
+
+// The group's shared arrangement. A device replaces its copy with a newer
+// one and passes it on. Versions compare by number, then by author.
+message Layout {
+  uint64 version = 1;
+  repeated Placement placements = 2;
+  // Device id of the device that made this version.
+  string author = 3;
+}
+
+message Heartbeat {
+  uint64 seq = 1;
+}
+
+// The controller's cursor arrives on the receiver.
+message Enter {
+  double x = 1;
+  double y = 2;
+  // USB HID usages (Keyboard/Keypad page) of modifiers to press on arrival.
+  repeated uint32 modifiers = 3;
+  // Buttons to press on arrival, after moving to (x, y): the controller
+  // drags files across (DragOffer), so the receiver's apps see a drag in
+  // progress. Released like any other button, or with the rest on Leave.
+  repeated Button buttons = 4;
+  // Where the cursor came in, when it crossed an edge of one of the
+  // receiver's displays (not on a jump): its apps light up that edge
+  // there. A controller that does not send it gives no light.
+  EdgeSpot crossed = 5;
+}
+
+// The controller's cursor left. The receiver releases every key and button
+// it holds on the controller's behalf.
+message Leave {
+  // Where the cursor went out, when it crossed an edge of one of the
+  // receiver's displays to another device (not when the keyboard and mouse
+  // came back otherwise): its apps light up that edge there.
+  EdgeSpot crossed = 1;
+}
+
+// An edge of a display.
+enum ScreenEdge {
+  SCREEN_EDGE_UNSPECIFIED = 0;
+  SCREEN_EDGE_LEFT = 1;
+  SCREEN_EDGE_RIGHT = 2;
+  SCREEN_EDGE_TOP = 3;
+  SCREEN_EDGE_BOTTOM = 4;
+}
+
+// A point on an edge of one of the receiver's displays, where the cursor
+// crossed it (Enter, Leave).
+message EdgeSpot {
+  // The display, as the receiver reported it (Display.id).
+  string display_id = 1;
+  ScreenEdge edge = 2;
+  // Where along the edge, in the receiver's logical desktop coordinates: y
+  // on a left or right edge, x on a top or bottom one.
+  double along = 3;
+  // The device on the other side of the crossing: where the cursor came
+  // from, or went to.
+  string other_device_id = 4;
+}
+
+// Receiver to controller: someone used the receiver's own keyboard or mouse.
+message LocalActivity {}
+
+// Clipboard (docs/architecture.md §8). The controller asks the device the
+// cursor just left for its clipboard; the content itself travels on a
+// transfer stream, so it never holds up input or heartbeats.
+message ClipboardRequest {
+  uint64 id = 1;
+}
+
+enum ClipboardSkip {
+  CLIPBOARD_SKIP_UNSPECIFIED = 0;
+  // Nothing was copied since the clipboard last moved between devices.
+  CLIPBOARD_SKIP_UNCHANGED = 1;
+  // Marked as not to be shared, as password managers do.
+  CLIPBOARD_SKIP_SENSITIVE = 2;
+  CLIPBOARD_SKIP_TOO_LARGE = 3;
+  CLIPBOARD_SKIP_EMPTY = 4;
+  // Clipboard sync is turned off on that device.
+  CLIPBOARD_SKIP_DISABLED = 5;
+  CLIPBOARD_SKIP_UNAVAILABLE = 6;
+  // Answers a ClipboardPull: the clipboard offered has been replaced since.
+  CLIPBOARD_SKIP_CHANGED = 7;
+  // Answers a ClipboardPull or ClipboardFilesPull: the origin, or a device
+  // passing it on, is busy with others for now. The puller asks again a
+  // moment later. Protocol 3.
+  CLIPBOARD_SKIP_BUSY = 8;
+}
+
+// Answers a ClipboardRequest when no content is sent, or a ClipboardPull.
+message ClipboardSkipped {
+  uint64 id = 1;
+  ClipboardSkip reason = 2;
+}
+
+// A clipboard too large to send as the cursor moves, offered instead (peer
+// protocol 2; docs/architecture.md §8). It answers a ClipboardRequest
+// (request_id), or comes from the controller's own clipboard (0), and the
+// controller passes it on to the device the cursor entered, which promises
+// the formats to its apps. Only when an app pastes does that device pull
+// the content (ClipboardPull) through the device it got the offer from.
+message ClipboardOffer {
+  uint64 request_id = 1;
+  // Picked by the origin, which only answers pulls for offers it made.
+  uint64 offer_id = 2;
+  // Whose clipboard it is.
+  string origin_device_id = 3;
+  // The origin's clipboard change count when it offered; a pull after it
+  // changed gets CLIPBOARD_SKIP_CHANGED.
+  uint64 origin_change = 4;
+  // Formats and their sizes, together at most 256 MiB. May be empty when
+  // files are offered.
+  repeated ClipboardPart parts = 5;
+  // Files and folders copied on the origin, offered whatever their size
+  // (docs/architecture.md §9): at most 1,000, together at most 10,000
+  // files and 100 GiB, as a batch. Never sent before a paste asks for
+  // them (ClipboardFilesPull), and only to a device linked to the origin
+  // itself; a device passing the offer on keeps them in it. Each name is
+  // one a receiver writes as it is: without "/" or "\", control
+  // characters or spaces at either end, at most 255 bytes; a receiver
+  // leaves out any other, alone, and promises the rest.
+  repeated DragItem items = 6;
+}
+
+// Asks for an offered clipboard. A device that did not make the offer
+// passes the pull on to the origin under a pull id of its own, and the
+// answer back. The answer is a clipboard transfer whose request_id is
+// pull_id, or a ClipboardSkipped with that id. Pull ids have the top bit
+// set, so they never meet ClipboardRequest ids.
+message ClipboardPull {
+  uint64 pull_id = 1;
+  uint64 offer_id = 2;
+  string origin_device_id = 3;
+  // The formats wanted, by mime; all of them when empty.
+  repeated string mimes = 4;
+}
+
+// Asks the origin itself for the files of its offer, as an app pastes
+// them. The origin answers only offers it made, while its clipboard has
+// not changed since, by sending the very files it offered, as a batch
+// whose FileBatch.clipboard_offer_id is offer_id, after a
+// ClipboardFilesSending; otherwise with a ClipboardSkipped whose id is
+// pull_id. The receiver writes them only into a folder of its own for
+// that offer.
+message ClipboardFilesPull {
+  uint64 pull_id = 1;
+  uint64 offer_id = 2;
+}
+
+// The origin sends the files of an offer pulled with pull_id: the items
+// it sends, by their place in the offer. Items not listed could not be
+// read now, and do not come. Sent again now and then while they wait their
+// turn behind other files the origin sends that device, so it does not
+// take them for lost; the items are the same each time.
+message ClipboardFilesSending {
+  uint64 pull_id = 1;
+  repeated uint32 items = 2;
+}
+
+// A device to the devices it has a session with (protocol 5): whether an
+// app on it holds the pointer now, hidden and kept in its window as games
+// do. Sent when the session starts and whenever it changes. The controller
+// may then put it in relative mode (Input.relative).
+message PointerCaptured {
+  bool captured = 1;
+}
+
+// Receiver to the controller that ended relative mode with the cursor still
+// on it (protocol 5): where its pointer is now, in its desktop's logical
+// coordinates, as for PointerMotion. The controller carries on from there
+// rather than from where relative mode began.
+message PointerAt {
+  double x = 1;
+  double y = 2;
+}
+
+// Controller to receiver: the user shook the mouse while the cursor was on
+// the receiver, so it shows where the cursor is (x, y). A receiver takes it
+// only from the device controlling it, and at most once a second.
+message Locate {
+  double x = 1;
+  double y = 2;
+}
+
+// Dragging files across (docs/architecture.md §9). The controller drags
+// files of its own (its app told its agent which) and the cursor, button
+// held, enters the receiver:
+//
+//   source (controller)               target
+//   Enter{buttons} (input stream)  ──▶
+//   DragOffer                      ──▶    its app starts a drag of the
+//                                         items, as files it promises
+//   button released (input stream) ──▶    the user drops them
+//                                  ◀──    DragAccept, or DragDecline
+//   the items, as a batch whose
+//   files carry the drag's id      ──▶    written where they were dropped
+//
+// The source sends DragCancel when the cursor leaves the target still
+// dragging, when the drag ends elsewhere, and in answer to a DragAccept
+// for a drag it no longer offers there. Offers lapse after 10 minutes.
+// The target writes a drag's files only into the folder its own user
+// dropped them in; the source never learns where that is.
+//
+// From protocol 4 the files may also be on a device the controller
+// controls. That device, the source, tells
+// its controller (RemoteDrag) once its app reports the drag, and the
+// controller carries the cursor and the button across:
+//
+//   source (controlled)        controller                 target
+//   RemoteDrag             ──▶
+//                              Leave (input)          ──▶ source
+//                              DragOffer{source}      ──▶ target, or its
+//                                                         own app if the
+//                                                         controller is it
+//                              ◀── DragAccept, or DragDecline
+//                     ◀──      DragAccept{device_id}, or DragDecline
+//   the items, as a batch carrying the drag's id     ──▶ target
+//
+// The controller sends the source DragCancel when the drag is released
+// on the source, or ends without a drop; the source sends the controller
+// DragCancel when it ends there first. The controller offers the drag
+// only to devices the source names as linked to it.
+message DragOffer {
+  // Picked by the source: letters, digits and hyphens, at most 64.
+  string drag_id = 1;
+  // The items dragged, in order, at most 1,000.
+  repeated DragItem items = 2;
+  // Files and empty folders in all the items.
+  uint32 files = 3;
+  uint64 bytes = 4;
+  // The device the files are on and come from, when not the sender: the
+  // sender controls it and offers its drag. Empty for the sender itself.
+  string source_device_id = 5;
+}
+
+// A controlled device to its controller (protocol 4): its user drags
+// these files there, the button held, so the cursor may cross with them.
+message RemoteDrag {
+  // Picked by the source, as a DragOffer's.
+  string drag_id = 1;
+  repeated DragItem items = 2;
+  uint32 files = 3;
+  uint64 bytes = 4;
+  // The devices the source has a session with, which it can send the
+  // files to; at most 64.
+  repeated string linked_device_ids = 5;
+}
+
+// A file or a folder dragged.
+message DragItem {
+  // Its name, without any directory.
+  string name = 1;
+  bool folder = 2;
+  // Its bytes; a folder's files together.
+  uint64 size = 3;
+  // A folder's files and empty folders; 1 for a file.
+  uint32 files = 4;
+  // In a clipboard offer: the origin could not tell what it is when it
+  // offered it (it could not read it, or did not hear in time), so `folder`
+  // and `size` say nothing; what is sent when it is pasted does.
+  bool unknown = 5;
+}
+
+// Target to source: its user dropped the drag there; the files may come.
+message DragAccept {
+  string drag_id = 1;
+  // Controller to a source it controls (RemoteDrag): the device that
+  // accepted the drag, which the files go to. Empty for the sender itself.
+  string device_id = 2;
+}
+
+// Target to source: its user did not drop it there or cancelled it, or no
+// app is there to show it.
+message DragDecline {
+  string drag_id = 1;
+}
+
+// Source to target: forget the offer; no files come for it.
+message DragCancel {
+  string drag_id = 1;
+}
+
+// The sender's user asked every device to show its name on its screens
+// for a moment, so they can tell which screen is which. A receiver shows
+// it at most once a second for each sender.
+message Identify {}
+
+// The state of the sender's own session, sent once the session starts and
+// whenever it changes.
+message SessionState {
+  // Its screen is locked: on macOS the lock screen, on Windows a locked
+  // session. Input may not reach a locked Mac.
+  bool screen_locked = 1;
+  // Its locked screen does not take input from other devices: on macOS
+  // without the entitlement for its virtual keyboard and mouse, while fast
+  // user switching has moved its session off the console, or once creating
+  // the device failed; on Windows never. A controller does not move the
+  // cursor onto a device whose screen is locked and which says so, nor
+  // keeps controlling one that locks. Agents before this field say nothing,
+  // and are reached as before.
+  bool lock_screen_blocked = 2;
+  // No input from other devices reaches it now, locked or not: on a Linux
+  // Wayland desktop until the desktop allows remote control, on macOS
+  // without the Accessibility permission. A controller keeps the cursor off
+  // it, and gives control back if it had it. Agents before this field say
+  // nothing, and are reached as before.
+  bool input_unavailable = 3;
+  // Its user paused sharing there: it neither controls others nor is
+  // controlled. A controller keeps the cursor off it, and gives control
+  // back if it had it. Agents before this field say nothing; as it pauses,
+  // the device also says its user took over (LocalActivity) to a
+  // controller, which those understand.
+  bool sharing_paused = 4;
+}
+
+// The sender's license key and whether it is activated there, sent once a
+// session starts (version 6) and whenever either changes; never while
+// pairing. An empty key: the sender has none any more, or Polar refused its
+// key as invalid. A receiver lists the sender among the computers on the
+// license while their keys match, and takes the key itself (for its app to
+// activate) only when it has no key, or its own was refused, and the sender
+// is licensed with it, unless its user removed its license there. Keys are
+// 20 to 96 printable ASCII characters; a receiver ignores others. A
+// receiver never takes a key Polar refused there since its user last
+// entered a key.
+message LicenseInfo {
+  string key = 1;
+  bool licensed = 2;
+}
+
+// Messages on the reliable, ordered control stream.
+message Control {
+  reserved 5, 6;
+  oneof msg {
+    Hello hello = 1;
+    Displays displays = 2;
+    Layout layout = 3;
+    Heartbeat heartbeat = 4;
+    LocalActivity local_activity = 7;
+    ClipboardRequest clipboard_request = 8;
+    ClipboardSkipped clipboard_skipped = 9;
+    Locate locate = 10;
+    DragOffer drag_offer = 11;
+    DragAccept drag_accept = 12;
+    DragDecline drag_decline = 13;
+    DragCancel drag_cancel = 14;
+    Identify identify = 15;
+    SessionState session_state = 16;
+    ClipboardOffer clipboard_offer = 17;
+    ClipboardPull clipboard_pull = 18;
+    ClipboardFilesPull clipboard_files_pull = 19;
+    ClipboardFilesSending clipboard_files_sending = 20;
+    RemoteDrag remote_drag = 21;
+    PointerCaptured pointer_captured = 22;
+    PointerAt pointer_at = 23;
+    LicenseInfo license_info = 24;
+  }
+}
+
+// Transfer streams: bidirectional streams either side opens after the
+// handshake, one per transfer. The first frame says what follows.
+message Transfer {
+  oneof kind {
+    ClipboardHeader clipboard = 1;
+    FileOffer file = 2;
+  }
+}
+
+// File transfer (docs/architecture.md §9), one file per transfer stream:
+//
+//   sender                         receiver
+//   Transfer{file: FileOffer} ──▶
+//                              ◀── FileAnswer: accepted from an offset, or not
+//   Chunk… then finish         ──▶
+//                              ◀── FileDone: whether the file matched its hash
+//
+// A transfer cut off midway resumes with the same transfer_id from what
+// the receiver already has.
+//
+// Files go in batches: what a user sends together, each file or folder of
+// it an item. Each file in a folder, and each empty folder in it, goes on
+// a transfer stream of its own, with its path in the folder. The receiver
+// decides about a batch once, when the first of its files is offered: it
+// may turn away a batch of more than 1,000 items, 10,000 files or 100 GiB
+// (FILE_DECLINE_TOO_LARGE), and asks its user, when it asks, about the
+// batch as a whole. A decline other than BUSY or INVALID_PATH stands for
+// the rest of the batch, and the sender stops offering it. A folder whose
+// name is taken is received whole under another name (" (1)", " (2)"…),
+// never into the folder already there.
+message FileOffer {
+  // Picked by the sender; the same when it resumes after a reconnect.
+  string transfer_id = 1;
+  // The file's name, without any directory.
+  string name = 2;
+  uint64 size = 3;
+  // BLAKE3 of the whole file, 32 bytes.
+  bytes blake3 = 4;
+  // The batch it belongs to. Senders before batches leave it out: each of
+  // their files is a batch of its own.
+  FileBatch batch = 5;
+  // Where it goes: the item's name, then for what is in a folder the
+  // folders down to it and its own name, separated by "/". Never absolute,
+  // without empty, "." or ".." parts, at most 64 parts and 4,096 bytes;
+  // receivers decline anything else (FILE_DECLINE_INVALID_PATH). Empty
+  // from senders before batches: the file goes where `name` says.
+  string relative_path = 6;
+  // An empty folder rather than a file: size 0, the BLAKE3 of nothing, no
+  // chunks. The receiver creates it, and answers FileDone once it has.
+  bool folder = 7;
+  // A file of a folder the sender could not read, and why ("unreadable"):
+  // size 0, the BLAKE3 of nothing, no chunks. The receiver counts it among
+  // the folder's failures, so it knows the folder is complete without it,
+  // and answers as for an empty folder, with FileDone not verified.
+  string failed = 8;
+}
+
+message FileBatch {
+  // Picked by the sender, like transfer ids.
+  string batch_id = 1;
+  // The item the file belongs to: a file sent on its own is an item of
+  // its own, with its transfer_id; the files of a folder share an id the
+  // sender picks for the folder.
+  string item_id = 2;
+  // The item's place in the batch, from 0, and the items in the batch.
+  uint32 item_index = 3;
+  uint32 items = 4;
+  // Files and empty folders in the whole batch, and their bytes, as the
+  // sender offers them: what it could not read is left out.
+  uint32 files = 5;
+  uint64 bytes = 6;
+  // The same for the item alone.
+  uint32 item_files = 7;
+  uint64 item_bytes = 8;
+  // The drag that carries the batch (DragOffer): it goes where the
+  // receiver's user dropped the drag, and nowhere else. Empty otherwise.
+  string drag_id = 9;
+  // The clipboard offer whose files these are (ClipboardFilesPull): they
+  // go into the folder the receiver keeps for that offer, and nowhere
+  // else. 0 otherwise.
+  uint64 clipboard_offer_id = 10;
+}
+
+enum FileDecline {
+  FILE_DECLINE_UNSPECIFIED = 0;
+  // The user said no.
+  FILE_DECLINE_REJECTED = 1;
+  FILE_DECLINE_NO_SPACE = 2;
+  // Too many transfers at once.
+  FILE_DECLINE_BUSY = 3;
+  // The device does not receive files.
+  FILE_DECLINE_UNAVAILABLE = 4;
+  // The batch has more items, files or bytes than the receiver takes at
+  // once.
+  FILE_DECLINE_TOO_LARGE = 5;
+  // The relative path is not one the receiver writes. Only this file is
+  // declined; the rest of the batch goes on.
+  FILE_DECLINE_INVALID_PATH = 6;
+}
+
+message FileAnswer {
+  bool accept = 1;
+  // When accepted: bytes the receiver already has; the sender goes on from
+  // there.
+  uint64 offset = 2;
+  FileDecline decline = 3;
+  // With FILE_DECLINE_NO_SPACE: how many more bytes would be needed.
+  uint64 missing_bytes = 4;
+}
+
+message FileDone {
+  // Whether the file matched the offered hash. If not, the receiver threw
+  // it away.
+  bool verified = 1;
+}
+
+message ClipboardPart {
+  // "text/plain;charset=utf-8", "text/rtf", "text/html" or "image/png".
+  string mime = 1;
+  uint64 size = 2;
+}
+
+// Clipboard content; the parts follow as Chunk frames, in order.
+message ClipboardHeader {
+  // The ClipboardRequest this answers, or 0 when not asked for.
+  uint64 request_id = 1;
+  // Whose clipboard it is. The controller forwards other devices' content.
+  string origin_device_id = 2;
+  repeated ClipboardPart parts = 3;
+}
+
+message Chunk {
+  bytes data = 1;
+}
+
+enum Button {
+  BUTTON_UNSPECIFIED = 0;
+  BUTTON_LEFT = 1;
+  BUTTON_RIGHT = 2;
+  BUTTON_MIDDLE = 3;
+  BUTTON_BACK = 4;
+  BUTTON_FORWARD = 5;
+}
+
+// Carries the cursor position so the click lands where the pointer is, even
+// if the latest motion datagram was lost or reordered.
+message PointerButton {
+  Button button = 1;
+  bool pressed = 2;
+  double x = 3;
+  double y = 4;
+  // Press or release where the pointer is, ignoring x and y (protocol 5):
+  // in relative mode, and as it ends until the controller knows where the
+  // pointer went (PointerAt).
+  bool at_pointer = 5;
+}
+
+message Key {
+  // USB HID usage ID on the Keyboard/Keypad page (0x07).
+  uint32 usage = 1;
+  bool pressed = 2;
+}
+
+// Controller to receiver (protocol 5): relative mode began or ended. In it
+// the controller sends how far the pointer moved (RelativeMotion) rather
+// than where it is, the receiver ignores positions, and buttons go down
+// wherever its pointer is. It ends with Leave too.
+message Relative {
+  bool on = 1;
+  // Numbers this relative mode, the same when it begins and ends; each
+  // time it begins on a session, a higher one. RelativeMotion of another
+  // never counts, so one overtaking its beginning, or late after its end,
+  // does nothing.
+  uint64 session = 2;
+  // Ending: how far the pointer moved in all in it, as RelativeMotion, so
+  // movements whose datagrams were lost still count.
+  double total_dx = 3;
+  double total_dy = 4;
+}
+
+// Messages on the reliable, ordered input stream, opened by the controller.
+// Enter and Leave travel here rather than on the control stream so they stay
+// in order with the keys and buttons between them.
+message Input {
+  oneof msg {
+    PointerButton button = 1;
+    Key key = 2;
+    Enter enter = 3;
+    Leave leave = 4;
+    Relative relative = 5;
+  }
+}
+
+message PointerMotion {
+  uint64 seq = 1;
+  double x = 2;
+  double y = 3;
+}
+
+message Scroll {
+  uint64 seq = 1;
+  double dx = 2;
+  double dy = 3;
+}
+
+// In relative mode (Relative): how far the pointer moved in all since the
+// mode began, in logical units, which the receiver takes as its own. A
+// receiver moves its pointer by the difference from the newest total it
+// applied, so a lost datagram loses no movement.
+message RelativeMotion {
+  uint64 seq = 1;
+  double total_dx = 2;
+  double total_dy = 3;
+  // The relative mode it belongs to (Relative.session).
+  uint64 session = 4;
+}
+
+// Unreliable QUIC datagrams. Receivers drop anything older than the newest
+// sequence number they have applied.
+message Datagram {
+  oneof msg {
+    PointerMotion motion = 1;
+    Scroll scroll = 2;
+    RelativeMotion relative_motion = 3;
+  }
+}
+
+// Pairing, on a connection with ALPN inputweave-pair/1. The initiator is the
+// device whose user types the code; the responder shows it. The initiator
+// opens one bidirectional stream and the exchange runs on it:
+//
+//   initiator                         responder
+//   hello            ───────────▶
+//                    ◀───────────     hello, or outcome (refused)
+//   pake             ───────────▶     (once the user has typed the code)
+//                    ◀───────────     pake
+//   confirm          ───────────▶
+//                    ◀───────────     confirm, or outcome (wrong code: the
+//                                     initiator may start again from pake)
+//   outcome (paired) ───────────▶
+//
+// Either side may send an outcome and close at any time. The responder only
+// sends its confirm after verifying the initiator's, so a wrong guess
+// reveals nothing that could be tested offline.
+
+// A SPAKE2 message (Ed25519 group). The code is the password; each side's
+// identity is its certificate fingerprint followed by its device id.
+message PairPake {
+  bytes message = 1;
+}
+
+// HMAC-SHA256 under the SPAKE2 key, proving knowledge of the code.
+message PairConfirm {
+  bytes mac = 1;
+}
+
+enum PairResult {
+  PAIR_RESULT_UNSPECIFIED = 0;
+  PAIR_RESULT_PAIRED = 1;
+  PAIR_RESULT_WRONG_CODE = 2;
+  PAIR_RESULT_TOO_MANY_ATTEMPTS = 3;
+  PAIR_RESULT_EXPIRED = 4;
+  // The responder's user declined.
+  PAIR_RESULT_REJECTED = 5;
+  // The responder does not accept new pairings.
+  PAIR_RESULT_NOT_ALLOWED = 6;
+  // The responder is already pairing, or recently refused too many attempts.
+  PAIR_RESULT_BUSY = 7;
+  // The initiator's device id is the responder's own or another device's.
+  PAIR_RESULT_ID_CONFLICT = 8;
+  PAIR_RESULT_INCOMPATIBLE = 9;
+  PAIR_RESULT_CANCELLED = 10;
+}
+
+message PairOutcome {
+  PairResult result = 1;
+  // With PAIR_RESULT_WRONG_CODE: how many more codes the initiator may try.
+  uint32 attempts_left = 2;
+}
+
+message Pairing {
+  oneof msg {
+    Hello hello = 1;
+    PairPake pake = 2;
+    PairConfirm confirm = 3;
+    PairOutcome outcome = 4;
+  }
+}

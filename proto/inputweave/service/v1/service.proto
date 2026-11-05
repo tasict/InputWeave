@@ -1,0 +1,559 @@
+// Messages between InputWeave's processes on Windows.
+//
+// - The agent's requests to the InputWeave service, over the service's
+//   named pipe \\.\pipe\InputWeave\service, which only SYSTEM can open:
+//   ServiceRequest, answered with ServiceResponse.
+// - The broker and the agent, over the agent's broker pipe
+//   \\.\pipe\InputWeave\broker-<SessionId>, which SYSTEM and the user logged
+//   on to that session can open: the broker sends BrokerMessage, the agent
+//   AgentToBroker. The broker runs as that user and does what must not run
+//   as SYSTEM: reading the user's desktop pictures, reading and writing the
+//   clipboard, writing received files and folders, listing and reading the
+//   files and folders the user sends, checking the folder the user drops
+//   files from another device in, keeping the user's transfer history, and
+//   starting the app when the user has to see or decide something.
+//
+// Each message is framed with a big-endian u32 length prefix, and no frame
+// is larger than 4 MiB, so clipboards and files travel in pieces of at most
+// 1 MiB. The broker is less trusted than the agent (any process of the user
+// can open the pipe), so the agent holds what it sends to limits.
+syntax = "proto3";
+
+package inputweave.service.v1;
+
+// Generates the secure attention sequence (Ctrl+Alt+Del) as if pressed on
+// the console. Injected keys cannot do this; the service calls SendSAS.
+message SendSas {}
+
+message ServiceRequest {
+  oneof request {
+    SendSas send_sas = 1;
+  }
+}
+
+message ServiceResponse {
+  // Empty if the request was carried out; otherwise why not, in English.
+  string error = 1;
+}
+
+// A preview of the picture on one display's desktop.
+message DisplayPicture {
+  // The display's id as the agent reports it, such as "\\.\DISPLAY1".
+  string display_id = 1;
+  // A JPEG whose long edge is at most 320 pixels, at most 96 KiB.
+  bytes jpeg = 2;
+}
+
+// The pictures on the desktops of the user's displays. Each one replaces
+// the last; displays showing a solid color, or a picture that cannot be
+// read, are left out. The agent drops them all if any breaks the limits it
+// holds other devices' pictures to.
+message DesktopPictures {
+  repeated DisplayPicture pictures = 1;
+}
+
+// One representation of the clipboard's content, by the MIME type devices
+// exchange it as: "text/plain;charset=utf-8", "text/rtf", "text/html" or
+// "image/png". Text is UTF-8 with LF line ends.
+message ClipboardPart {
+  string mime = 1;
+  // Its length in bytes; the bytes follow in ClipboardData.
+  uint64 size = 2;
+}
+
+// Content in pieces of at most 1 MiB. They follow a ClipboardContents, a
+// WriteClipboard or a ClipboardRendered at once, with nothing in between,
+// and fill its parts in order.
+message ClipboardData {
+  bytes data = 1;
+}
+
+enum ClipboardState {
+  CLIPBOARD_STATE_UNSPECIFIED = 0;
+  CLIPBOARD_STATE_CONTENT = 1;
+  // Nothing in a format InputWeave carries.
+  CLIPBOARD_STATE_EMPTY = 2;
+  // Marked as not to be shared, as password managers do
+  // (ExcludeClipboardContentFromMonitorProcessing, or
+  // CanIncludeInClipboardHistory or CanUploadToCloudClipboard set to 0).
+  // The content is not sent.
+  CLIPBOARD_STATE_SENSITIVE = 3;
+  // Larger than the agent asked for. The content is not sent.
+  CLIPBOARD_STATE_TOO_LARGE = 4;
+  // It could not be read, as when another app kept it open.
+  CLIPBOARD_STATE_UNAVAILABLE = 5;
+}
+
+// Someone other than InputWeave changed the clipboard. Also sent once
+// connected, unless the clipboard holds what InputWeave wrote.
+message ClipboardChanged {
+  // The clipboard's sequence number (GetClipboardSequenceNumber) after the
+  // change.
+  uint64 sequence = 1;
+}
+
+// The clipboard, in answer to a ReadClipboard; answers come in the order
+// of the requests. With CLIPBOARD_STATE_CONTENT, ClipboardData with the
+// parts' bytes follow.
+message ClipboardContents {
+  ClipboardState state = 1;
+  repeated ClipboardPart parts = 2;
+  // With CLIPBOARD_STATE_TOO_LARGE: the size found, in bytes.
+  uint64 size = 3;
+  // Files and folders copied in File Explorer (CF_HDROP), as the user
+  // reads them: absolute paths on a drive or a network share, in order,
+  // never device paths (\\?\, \\.\). At most 1,000, at most 512 KiB
+  // together; more breaks the protocol. Only with CLIPBOARD_STATE_CONTENT,
+  // _EMPTY (files and nothing else carried) and _TOO_LARGE. The agent
+  // offers them to other devices and has the broker list and read them
+  // when one pastes; it never opens them itself.
+  repeated string files = 4;
+}
+
+// Asks for one format of what a PromiseClipboard promised, which an app
+// is pasting: the broker answers WM_RENDERFORMAT with it. Answered with
+// ClipboardRendered. The broker waits at most 30 seconds, while the
+// clipboard stays locked for other apps, and then sends RenderCancelled;
+// that paste gets nothing, but the promise stays, and a later paste asks
+// again.
+message RenderClipboard {
+  uint64 promise_id = 1;
+  // The MIME type, as in ClipboardPart.
+  string mime = 2;
+}
+
+// The broker stopped waiting for a RenderClipboard of this promise: the
+// agent sends nothing more for it. An answer already on its way is read
+// and dropped.
+message RenderCancelled {
+  uint64 promise_id = 1;
+  string mime = 2;
+}
+
+// In answer to a PromiseClipboard: whether the promise is on the
+// clipboard now.
+message ClipboardPromised {
+  uint64 promise_id = 1;
+  bool ok = 2;
+}
+
+// The clipboard no longer holds the promise: something else was copied
+// over it (WM_DESTROYCLIPBOARD), or the broker is going away.
+message PromiseGone {
+  uint64 promise_id = 1;
+}
+
+// Where received files go unless the user chose another folder: the
+// user's Downloads\InputWeave. Sent once connected.
+message ReceiveFolder {
+  string path = 1;
+}
+
+// The part file for a transfer is open; in answer to OpenFile.
+message FileOpened {
+  uint64 handle = 1;
+  // Bytes already in the part file, from an earlier attempt.
+  uint64 offset = 2;
+  // Free space where the file goes, or the largest value when unknown.
+  uint64 free_bytes = 3;
+}
+
+// The part file is complete and closed; in answer to FinishFile.
+message FileFinished {
+  uint64 handle = 1;
+  uint64 size = 2;
+  // The BLAKE3 hash of its contents, 32 bytes.
+  bytes blake3 = 3;
+}
+
+// The file was given its name; in answer to KeepFile.
+message FileKept {
+  uint64 handle = 1;
+  // Where it is now.
+  string path = 2;
+}
+
+// Something about a file could not be done: the answer to an OpenFile,
+// FinishFile, KeepFile, HashFile or ReadChunk, or a FileData that could not
+// be written. The broker ignores the handle's data from then on.
+message FileFailed {
+  uint64 handle = 1;
+  // Why, in English, for the logs.
+  string error = 2;
+}
+
+// A file to send is open; in answer to OpenForSending.
+message OpenedForSending {
+  uint64 handle = 1;
+  // Its length in bytes when opened.
+  uint64 size = 2;
+}
+
+enum OpenFailure {
+  OPEN_FAILURE_UNSPECIFIED = 0;
+  // Nothing is there, or it is a folder or a device rather than a file.
+  OPEN_FAILURE_NOT_A_FILE = 1;
+  // The user may not read it.
+  OPEN_FAILURE_ACCESS_DENIED = 2;
+}
+
+// A file to send could not be opened; in answer to OpenForSending.
+message OpenFailed {
+  uint64 handle = 1;
+  OpenFailure reason = 2;
+  // Why, in English, for the logs.
+  string error = 3;
+}
+
+// The hash of a file open for sending; in answer to HashFile.
+message FileHashed {
+  uint64 handle = 1;
+  // The bytes hashed: the file's length as it was read to the end.
+  uint64 size = 2;
+  // The BLAKE3 hash of its contents, 32 bytes.
+  bytes blake3 = 3;
+}
+
+// Part of a file open for sending; in answer to ReadChunk. Shorter than
+// asked for only at the end of the file, and empty past it.
+message ChunkData {
+  uint64 handle = 1;
+  uint64 offset = 2;
+  bytes data = 3;
+}
+
+enum PathKind {
+  PATH_KIND_UNSPECIFIED = 0;
+  PATH_KIND_FILE = 1;
+  PATH_KIND_FOLDER = 2;
+  // A symbolic link or a junction: never followed.
+  PATH_KIND_LINK = 3;
+  // A device, a pipe, or anything else that is neither file nor folder.
+  PATH_KIND_OTHER = 4;
+  // Nothing is there.
+  PATH_KIND_MISSING = 5;
+  // The user may not look at it, or the broker could not.
+  PATH_KIND_UNREADABLE = 6;
+}
+
+// Something directly in a folder.
+message PathEntry {
+  // Its name in the folder.
+  string name = 1;
+  PathKind kind = 2;
+  // A file's length in bytes.
+  uint64 size = 3;
+}
+
+// In answer to ListPath: what the path is, and for a folder what is
+// directly in it, in no particular order.
+message PathListed {
+  uint64 handle = 1;
+  PathKind kind = 2;
+  // A file's length in bytes.
+  uint64 size = 3;
+  repeated PathEntry entries = 4;
+  // The folder holds more than the broker lists, which is more than the
+  // agent sends at once.
+  bool truncated = 5;
+  // With PATH_KIND_UNREADABLE: why, in English, as the system said it.
+  string error = 6;
+}
+
+// In answer to ClaimFolder, MakeFolder and CheckFolder: the folder.
+message FolderReady {
+  uint64 handle = 1;
+  // An absolute path.
+  string path = 2;
+}
+
+// In answer to LaunchApp.
+message AppLaunched {
+  // The app runs: it was started now, ran already, or was started moments
+  // ago.
+  bool ok = 1;
+  // Why not, in English, for the logs.
+  string error = 2;
+  // Whether this request started it.
+  bool started = 3;
+}
+
+// The transfer history the broker keeps for the user, in answer to
+// LoadHistory: the bytes the agent last saved, which the broker does not
+// read. Empty when there is none yet, or when it cannot be read or is
+// larger than 1 MiB; `error` then says why.
+message HistoryLoaded {
+  bytes toml = 1;
+  // Why it could not be loaded, in English, for the logs; empty if it was,
+  // or if there was none yet.
+  string error = 2;
+}
+
+// In answer to SaveHistory.
+message HistorySaved {
+  // Why it could not be saved, in English, for the logs; empty if it was.
+  string error = 1;
+}
+
+message BrokerMessage {
+  oneof msg {
+    // Sent once connected, and in answer to each RequestDesktopPictures.
+    DesktopPictures desktop_pictures = 1;
+    ClipboardChanged clipboard_changed = 2;
+    ClipboardContents clipboard_contents = 3;
+    ClipboardData clipboard_data = 4;
+    ReceiveFolder receive_folder = 5;
+    FileOpened file_opened = 6;
+    FileFinished file_finished = 7;
+    FileKept file_kept = 8;
+    FileFailed file_failed = 9;
+    OpenedForSending opened_for_sending = 10;
+    OpenFailed open_failed = 11;
+    FileHashed file_hashed = 12;
+    ChunkData chunk_data = 13;
+    AppLaunched app_launched = 14;
+    PathListed path_listed = 15;
+    FolderReady folder_ready = 16;
+    HistoryLoaded history_loaded = 17;
+    HistorySaved history_saved = 18;
+    RenderClipboard render_clipboard = 19;
+    PromiseGone promise_gone = 20;
+    ClipboardPromised clipboard_promised = 21;
+    RenderCancelled render_cancelled = 22;
+  }
+}
+
+// Asks the broker to read the desktop pictures again: the displays changed,
+// or a while passed, and the user may have picked another picture.
+message RequestDesktopPictures {}
+
+// Asks for the clipboard's content, in every format carried, unless it is
+// sensitive or larger than max_bytes together.
+message ReadClipboard {
+  uint64 max_bytes = 1;
+}
+
+// Replaces the clipboard's content with these parts, whose bytes follow in
+// ClipboardData. The broker marks what it writes as InputWeave's, so it
+// does not report the write as a change.
+message WriteClipboard {
+  repeated ClipboardPart parts = 1;
+}
+
+// Replaces the clipboard's content with a promise of content in these
+// formats, which another device offered (docs/architecture.md §8): the
+// broker puts them on the clipboard with delayed rendering and asks for
+// each (RenderClipboard) only when an app pastes it. Marked as
+// InputWeave's, as WriteClipboard is. At most 4 formats and size at most
+// 64 MiB, as for WriteClipboard; more breaks the protocol. Answered with
+// ClipboardPromised; an agent that stops waiting for the answer withdraws
+// the promise (WithdrawPromise).
+message PromiseClipboard {
+  // The agent's number for this promise, in RenderClipboard and
+  // PromiseGone.
+  uint64 promise_id = 1;
+  repeated string mimes = 2;
+  // All formats together, in bytes, as offered.
+  uint64 size = 3;
+}
+
+// The agent stopped waiting for its PromiseClipboard to be answered and
+// forgot the promise: the broker does not put it on the clipboard, or, if
+// it did, takes it off again while the clipboard still holds it.
+message WithdrawPromise {
+  uint64 promise_id = 1;
+}
+
+// In answer to a RenderClipboard: the bytes of that format, in
+// ClipboardData that follow, or none when it cannot be had (the device it
+// was copied on has had something else copied since, or it could not be
+// reached). At most 64 MiB.
+message ClipboardRendered {
+  uint64 promise_id = 1;
+  string mime = 2;
+  bool ok = 3;
+  // The bytes in the ClipboardData that follow; 0 unless ok.
+  uint64 size = 4;
+  // Not ok because the agent is still fetching this promise for an earlier
+  // request: nothing failed, and a later paste may get it.
+  bool busy = 5;
+}
+
+// Opens the part file for a transfer, .inputweave-<transfer id>.part in
+// the folder, to append to it. A part file left from an earlier attempt is
+// kept, unless it is longer than the file.
+message OpenFile {
+  // Chosen by the agent; names this file in the messages that follow.
+  uint64 handle = 1;
+  // Letters, digits and hyphens only.
+  string transfer_id = 2;
+  uint64 size = 3;
+  // An absolute path; the broker creates it if needed.
+  string folder = 4;
+}
+
+// Appends to an open part file.
+message FileData {
+  uint64 handle = 1;
+  // At most 1 MiB.
+  bytes data = 2;
+}
+
+// Writes the part file out, closes it and hashes it.
+message FinishFile {
+  uint64 handle = 1;
+}
+
+// Gives a finished file its name in the folder, with " (1)", " (2)"… added
+// when it is taken. The name must be one Windows allows, with no path in
+// it; the broker refuses any other.
+message KeepFile {
+  uint64 handle = 1;
+  string name = 2;
+  // A file of a folder another device sent goes in the folders on the way
+  // to it, inside the part file's folder: names Windows allows, separated
+  // by "/", which the broker creates if needed. Empty: the folder itself.
+  string subfolder = 3;
+}
+
+// Deletes the part file: the transfer was cancelled, or its hash did not
+// match.
+message DiscardFile {
+  uint64 handle = 1;
+}
+
+// Closes the part file and keeps it, for the transfer to resume.
+message CloseFile {
+  uint64 handle = 1;
+}
+
+// Opens a file the user sends to another device, to read it as the user.
+// The agent runs as SYSTEM and never opens it: any process of the user can
+// ask the agent to send a file, which must not reach files the user cannot
+// read. The file stays open until CloseSending.
+message OpenForSending {
+  // Chosen by the agent; names this file in the messages that follow.
+  uint64 handle = 1;
+  // The transfer it is for, for the logs.
+  string transfer_id = 2;
+  // An absolute path, as the user gave it.
+  string path = 3;
+}
+
+// Reads a file open for sending to its end and hashes it.
+message HashFile {
+  uint64 handle = 1;
+}
+
+// Reads part of a file open for sending.
+message ReadChunk {
+  uint64 handle = 1;
+  uint64 offset = 2;
+  // At most 1 MiB.
+  uint32 len = 3;
+}
+
+// Closes a file open for sending; an unfinished HashFile stops.
+message CloseSending {
+  uint64 handle = 1;
+}
+
+// Starts the InputWeave app as the user, in the broker's session, unless it
+// runs already: the user has to see or decide something (a pairing code, a
+// file offer) and no app is connected to the agent to show it, or files
+// copied on another device are to go on the clipboard, which only the app
+// can hold.
+message LaunchApp {
+  LaunchReason reason = 1;
+}
+
+enum LaunchReason {
+  // The user has to see or decide something.
+  LAUNCH_REASON_ASK_USER = 0;
+  // Files copied on another device, for the app to put on the clipboard.
+  // Refused while the user quit the app (QuitByUser under
+  // HKCU\Software\InputWeave\App, which the app sets as the user quits it
+  // and clears as it is opened): only a reason to show something starts
+  // it again.
+  LAUNCH_REASON_CLIPBOARD_FILES = 1;
+}
+
+// Looks at an absolute path the user sends, as the user, without following
+// links: what it is, and for a folder what is directly in it (at most
+// `max_entries`). Answered with PathListed, or FileFailed for a path that
+// is not absolute.
+message ListPath {
+  // Chosen by the agent.
+  uint64 handle = 1;
+  string path = 2;
+  uint32 max_entries = 3;
+}
+
+// Creates the folder `name` in `folder`, or "name (1)", "name (2)"… when
+// that is taken, never using one already there: a folder another device
+// sends, received whole under a name of its own. The name must be one
+// Windows allows; `folder` is absolute. Answered with FolderReady.
+message ClaimFolder {
+  uint64 handle = 1;
+  string folder = 2;
+  string name = 3;
+}
+
+// Creates `subfolder` in `folder`, and the folders on the way: an empty
+// folder another device sent. `subfolder` is names Windows allows,
+// separated by "/"; `folder` is absolute. Answered with FolderReady.
+message MakeFolder {
+  uint64 handle = 1;
+  string folder = 2;
+  string subfolder = 3;
+}
+
+// Checks that `folder`, an absolute path, is a folder the user can create
+// files in: where the user dropped files another device drags here.
+// Answered with FolderReady, or FileFailed with why not.
+message CheckFolder {
+  uint64 handle = 1;
+  string folder = 2;
+}
+
+// Asks for the transfer history the broker keeps for the user, in the
+// user's %LOCALAPPDATA%\InputWeave\transfers.toml: the agent runs as SYSTEM,
+// and the history holds the names of the user's files. Sent once
+// connected; answered with HistoryLoaded.
+message LoadHistory {}
+
+// Replaces the transfer history the broker keeps for the user with these
+// bytes, at most 1 MiB, which the broker does not read. Answered with
+// HistorySaved; saves are answered in order.
+message SaveHistory {
+  bytes toml = 1;
+}
+
+message AgentToBroker {
+  oneof msg {
+    RequestDesktopPictures request_desktop_pictures = 1;
+    ReadClipboard read_clipboard = 2;
+    WriteClipboard write_clipboard = 3;
+    ClipboardData clipboard_data = 4;
+    OpenFile open_file = 5;
+    FileData file_data = 6;
+    FinishFile finish_file = 7;
+    KeepFile keep_file = 8;
+    DiscardFile discard_file = 9;
+    CloseFile close_file = 10;
+    OpenForSending open_for_sending = 11;
+    HashFile hash_file = 12;
+    ReadChunk read_chunk = 13;
+    CloseSending close_sending = 14;
+    LaunchApp launch_app = 15;
+    ListPath list_path = 16;
+    ClaimFolder claim_folder = 17;
+    MakeFolder make_folder = 18;
+    CheckFolder check_folder = 19;
+    LoadHistory load_history = 20;
+    SaveHistory save_history = 21;
+    PromiseClipboard promise_clipboard = 22;
+    ClipboardRendered clipboard_rendered = 23;
+    WithdrawPromise withdraw_promise = 24;
+  }
+}

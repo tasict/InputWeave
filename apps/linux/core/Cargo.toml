@@ -1,0 +1,21 @@
+[package]
+name = "inputweave-app-core"
+description = "What the Linux app decides without GTK: the IPC client of the agent, the app's view of it, and every text it shows"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+repository.workspace = true
+homepage.workspace = true
+
+[dependencies]
+bytes.workspace = true
+futures-channel.workspace = true
+iw-keymap.workspace = true
+iw-proto.workspace = true
+prost.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true

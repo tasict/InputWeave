@@ -1,0 +1,11 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- Draws the notification area icons into InputWeave/Assets/Tray. Run it
+       from the repository root after changing the geometry; see Program.cs
+       and apps/windows/README.md. -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net9.0</TargetFramework>
+  </PropertyGroup>
+
+</Project>

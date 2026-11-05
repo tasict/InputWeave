@@ -1,0 +1,27 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- Everything in the app that does not need WinUI: the IPC client and the
+       decisions the panel and the tray icon show. Kept free of UI and of
+       Windows-only APIs, so the tests run without a desktop. -->
+  <PropertyGroup>
+    <TargetFramework>net9.0</TargetFramework>
+    <RootNamespace>InputWeave</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Google.Protobuf" Version="3.36.2" />
+    <!-- Ed25519 for the update signature (Updates/UpdateFeed.cs): .NET has none. MIT. -->
+    <PackageReference Include="BouncyCastle.Cryptography" Version="2.5.1" />
+    <PackageReference Include="System.Security.Cryptography.ProtectedData" Version="9.0.0" />
+    <PackageReference Include="Grpc.Tools" Version="2.84.0">
+      <PrivateAssets>all</PrivateAssets>
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+    </PackageReference>
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Generated into obj/ at build time; nothing generated is committed. -->
+    <Protobuf Include="..\..\..\proto\inputweave\app\v1\app.proto" ProtoRoot="..\..\..\proto" GrpcServices="None" Access="Public" />
+  </ItemGroup>
+
+</Project>

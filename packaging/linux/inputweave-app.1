@@ -1,0 +1,25 @@
+.TH INPUTWEAVE-APP 1 "2026-10-29" "InputWeave" "User Commands"
+.SH NAME
+inputweave-app \- the InputWeave app
+.SH SYNOPSIS
+.B inputweave-app
+.RB [ \-\-background ]
+.SH DESCRIPTION
+The InputWeave app shows the background service's state and settings: the
+arrangement of the computers, pairing, file transfers and troubleshooting.
+It puts an icon in the panel's status area where the desktop shows one
+(KDE Plasma; GNOME with the AppIndicator extension, which Ubuntu turns on).
+Started from the application menu it opens its window; the first time, it
+walks through setting up.
+.PP
+Closing the window leaves the app in the status area; sharing goes on in
+the background service (\fBinputweave\fR(1)) whether the app runs or not.
+.SH OPTIONS
+.TP
+.B \-\-background
+Put up only the status icon, as when opened at login.
+.TP
+.B \-\-version
+Print the version and exit.
+.SH SEE ALSO
+.BR inputweave (1)

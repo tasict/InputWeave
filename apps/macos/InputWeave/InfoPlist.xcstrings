@@ -1,0 +1,96 @@
+{
+  "sourceLanguage": "en",
+  "strings": {
+    "NSDesktopFolderUsageDescription": {
+      "comment": "Shown when macOS asks whether InputWeave may use these files (the app is what macOS asks about).",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "InputWeave sends files on the desktop that you drag or send to your other computers, and saves files you drop there."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "InputWeave 會把你從桌面拖曳或傳送的檔案送到其他電腦，也會把你拖放到桌面上的檔案存在這裡。"
+          }
+        }
+      }
+    },
+    "NSDocumentsFolderUsageDescription": {
+      "comment": "Shown when macOS asks whether InputWeave may use these files (the app is what macOS asks about).",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "InputWeave sends files in Documents that you drag or send to your other computers, and saves files you drop there."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "InputWeave 會把你從「文件」拖曳或傳送的檔案送到其他電腦，也會把你拖放到「文件」裡的檔案存在這裡。"
+          }
+        }
+      }
+    },
+    "NSDownloadsFolderUsageDescription": {
+      "comment": "Shown when macOS asks whether InputWeave may use these files (the app is what macOS asks about).",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "InputWeave saves files your other computers send you in Downloads, and sends files from there that you drag or send to them."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "InputWeave 會把其他電腦傳來的檔案存進「下載項目」，也會把你從這裡拖曳或傳送的檔案送到其他電腦。"
+          }
+        }
+      }
+    },
+    "NSNetworkVolumesUsageDescription": {
+      "comment": "Shown when macOS asks whether InputWeave may use these files (the app is what macOS asks about).",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "InputWeave sends files on network volumes that you drag or send to your other computers, and saves files you drop there."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "InputWeave 會把你從網路磁碟區拖曳或傳送的檔案送到其他電腦，也會把你拖放到磁碟區上的檔案存在那裡。"
+          }
+        }
+      }
+    },
+    "NSRemovableVolumesUsageDescription": {
+      "comment": "Shown when macOS asks whether InputWeave may use these files (the app is what macOS asks about).",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "InputWeave sends files on removable volumes that you drag or send to your other computers, and saves files you drop there."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "InputWeave 會把你從卸除式磁碟區拖曳或傳送的檔案送到其他電腦，也會把你拖放到磁碟區上的檔案存在那裡。"
+          }
+        }
+      }
+    }
+  },
+  "version": "1.0"
+}

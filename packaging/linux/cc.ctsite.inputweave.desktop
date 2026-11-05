@@ -1,0 +1,16 @@
+[Desktop Entry]
+Type=Application
+Name=InputWeave
+GenericName=Keyboard and Mouse Sharing
+GenericName[zh_TW]=鍵盤滑鼠共享
+Comment=Use one keyboard and mouse with all your computers, and share the clipboard and files
+Comment[zh_TW]=多台電腦共用一組鍵盤滑鼠，也共享剪貼簿、互傳檔案
+Exec=inputweave-app
+Icon=cc.ctsite.inputweave
+Terminal=false
+Categories=Utility;
+Keywords=keyboard;mouse;share;KVM;clipboard;files;
+Keywords[zh_TW]=鍵盤;滑鼠;共享;剪貼簿;檔案;
+StartupNotify=true
+DBusActivatable=true
+SingleMainWindow=true

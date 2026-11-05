@@ -1,0 +1,52 @@
+name: Bug report
+description: Something in InputWeave doesn't work as it should
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting! For a security problem, please don't use this form: see [SECURITY.md](https://github.com/tasict/InputWeave/blob/main/SECURITY.md).
+  - type: input
+    id: version
+    attributes:
+      label: InputWeave version
+      description: In About InputWeave on each computer, e.g. 1.0.0 (10000). Say if the computers run different versions.
+    validations:
+      required: true
+  - type: textarea
+    id: computers
+    attributes:
+      label: The computers involved
+      description: The operating system and version of every computer in the arrangement, and for Linux the desktop and session (e.g. Ubuntu 24.04, GNOME, Wayland). Say which computer had the keyboard and mouse.
+      placeholder: |
+        - MacBook Pro, macOS 26.1 (keyboard and mouse here)
+        - Windows 11 24H2 desktop
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: What you did
+      description: Steps to make it happen, as exactly as you can.
+    validations:
+      required: true
+  - type: textarea
+    id: result
+    attributes:
+      label: What happened, and what you expected
+    validations:
+      required: true
+  - type: textarea
+    id: diagnostics
+    attributes:
+      label: Diagnostics
+      description: |
+        In Settings › Troubleshooting, choose Export Diagnostics… on the affected computers and attach the files here (or run `inputweave ctl diagnose -o diagnostics.txt`).
+        The file holds the version, settings, connection states and recent log lines. It contains no keys, file names or clipboard contents, and the license key is masked, but it can contain your computers' names and local network addresses. Read it before attaching it to this public issue and remove anything you don't want to share.
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Checks
+      options:
+        - label: I am using the latest release, or I said which version I use.
+          required: true

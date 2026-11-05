@@ -1,0 +1,4 @@
+[InputWeave]
+title=InputWeave
+description=Shares one keyboard and mouse, the clipboard and files between computers on the local network (QUIC and mDNS)
+ports=47820/udp|5353/udp

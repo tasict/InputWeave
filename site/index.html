@@ -1,0 +1,300 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>InputWeave: one keyboard and mouse for every computer on your desk</title>
+<meta name="description" content="InputWeave lets the Mac, Windows and Linux computers on your desk share one keyboard and mouse over your local network. Move the pointer across the edge of a screen, copy on one computer and paste on another, drag files across. Free and open source.">
+<link rel="canonical" href="https://inputweave.ctsite.cc/">
+<link rel="alternate" hreflang="en" href="https://inputweave.ctsite.cc/">
+<link rel="alternate" hreflang="zh-Hant" href="https://inputweave.ctsite.cc/zh-Hant/">
+<link rel="alternate" hreflang="x-default" href="https://inputweave.ctsite.cc/">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="InputWeave">
+<meta property="og:title" content="InputWeave: one keyboard and mouse for every computer on your desk">
+<meta property="og:description" content="Share one keyboard and mouse between Mac, Windows and Linux computers on your local network. Free and open source.">
+<meta property="og:url" content="https://inputweave.ctsite.cc/">
+<meta property="og:image" content="https://inputweave.ctsite.cc/assets/img/app-icon-1024.png">
+<meta property="og:image:width" content="1024">
+<meta property="og:image:height" content="1024">
+<meta property="og:image:alt" content="The InputWeave app icon: two white screens on a purple square, joined by a stitched thread">
+<meta property="og:locale" content="en_US">
+<meta property="og:locale:alternate" content="zh_TW">
+<meta name="twitter:card" content="summary">
+<meta name="theme-color" content="#ECEDF1" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#18191D" media="(prefers-color-scheme: dark)">
+<link rel="icon" href="assets/icons/favicon.svg" type="image/svg+xml">
+<link rel="icon" href="assets/img/favicon-32.png" type="image/png" sizes="32x32">
+<link rel="apple-touch-icon" href="assets/icons/apple-touch-icon.png">
+<link rel="preload" href="assets/fonts/archivo-latin.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="stylesheet" href="assets/site.css">
+<script src="assets/site.js" defer></script>
+</head>
+<body data-page="home">
+<a class="skip" href="#main">Skip to content</a>
+<header class="top">
+  <div class="wrap">
+    <a class="brand" href="./">
+      <svg width="28" height="28" viewBox="0 0 32 32" aria-hidden="true"><rect x="1" y="1" width="30" height="30" rx="7" fill="#8E3FD8"/><rect x="4" y="13" width="11" height="8" rx="1.2" fill="#fff"/><rect x="15.5" y="9" width="12.5" height="10" rx="1.2" fill="#fff"/><path d="M7.5 18c3.5-5.5 8.5-7 14-5" fill="none" stroke="#8E3FD8" stroke-width="1.6" stroke-linecap="round" stroke-dasharray="2 1.4"/></svg>
+      InputWeave
+    </a>
+    <nav class="nav" aria-label="Site">
+      <a href="#features">Features</a>
+      <a href="#download">Download</a>
+      <a href="license.html">License</a>
+      <a href="https://github.com/tasict/InputWeave">GitHub</a>
+    </nav>
+    <a class="lang-switch" href="zh-Hant/" hreflang="zh-Hant" lang="zh-Hant" data-lang-switch>繁體中文</a>
+  </div>
+</header>
+
+<main id="main">
+  <section class="hero">
+    <div class="wrap">
+      <div class="text">
+        <h1>One keyboard and mouse for every computer on your desk.</h1>
+        <p class="lead">Move the pointer past the edge of a screen to work on the computer next to it. Copy on one computer and paste on another, or drag a file across. It works between Mac, Windows and Linux computers on your local network.</p>
+        <div class="actions">
+          <a class="btn btn-ink" href="#download" data-hero-download data-label-mac="Download for macOS" data-label-win="Download for Windows" data-label-linux="Download for Linux">Download</a>
+          <a href="#download">Other platforms</a>
+          <span class="small">Free and open source. Version <span data-latest="version">1.0.0</span>.</span>
+        </div>
+      </div>
+      <div class="stage">
+        <svg id="hero-svg" viewBox="60 50 880 350" role="img" aria-labelledby="hero-title hero-desc">
+          <title id="hero-title">InputWeave moving between three computers</title>
+          <desc id="hero-desc">A MacBook Pro, a Windows desktop and an Ubuntu computer side by side. The pointer copies a command on the Mac, crosses to the Ubuntu terminal and pastes it, then drags a file from the Windows desktop to the Mac. Where it crosses between screens, the seam lights up.</desc>
+          <defs>
+            <linearGradient id="glowL" x1="0" x2="1" y1="0" y2="0"><stop offset="0" class="g-thread" stop-opacity="0"/><stop offset="1" class="g-thread" stop-opacity="0.62"/></linearGradient>
+            <linearGradient id="glowR" x1="0" x2="1" y1="0" y2="0"><stop offset="0" class="g-thread" stop-opacity="0.62"/><stop offset="1" class="g-thread" stop-opacity="0"/></linearGradient>
+            <linearGradient id="bell1" x1="0" x2="0" y1="0" y2="1"><stop offset="0" stop-color="#fff" stop-opacity="0.38"/><stop offset="0.2" stop-color="#fff" stop-opacity="0.45"/><stop offset="0.5" stop-color="#fff" stop-opacity="1"/><stop offset="0.8" stop-color="#fff" stop-opacity="0.45"/><stop offset="1" stop-color="#fff" stop-opacity="0.38"/></linearGradient>
+            <linearGradient id="bell2" x1="0" x2="0" y1="0" y2="1"><stop offset="0" stop-color="#fff" stop-opacity="0.38"/><stop offset="0.2" stop-color="#fff" stop-opacity="0.45"/><stop offset="0.5" stop-color="#fff" stop-opacity="1"/><stop offset="0.8" stop-color="#fff" stop-opacity="0.45"/><stop offset="1" stop-color="#fff" stop-opacity="0.38"/></linearGradient>
+            <mask id="m1" maskUnits="userSpaceOnUse" x="340" y="160" width="60" height="140"><rect x="340" y="160" width="60" height="140" fill="url(#bell1)"/></mask>
+            <mask id="m2" maskUnits="userSpaceOnUse" x="700" y="100" width="60" height="200"><rect x="700" y="100" width="60" height="200" fill="url(#bell2)"/></mask>
+          </defs>
+
+          <rect class="t-tile" x="110" y="160" width="260" height="170" rx="5"/>
+          <rect class="t-bar" x="110.5" y="160.5" width="259" height="8" rx="4"/>
+          <rect class="t-pill" x="118" y="174" width="74" height="17" rx="8.5"/>
+          <text class="t-name" x="127" y="186">MacBook Pro</text>
+          <rect class="t-tile" x="172" y="196" width="186" height="104" rx="5"/>
+          <circle cx="181" cy="204" r="2.2" fill="#FF5F57"/><circle cx="189" cy="204" r="2.2" fill="#FEBC2E"/><circle cx="197" cy="204" r="2.2" fill="#28C840"/>
+          <rect class="t-line" x="182" y="218" width="120" height="5" rx="2.5"/>
+          <rect class="t-sel" id="sel" x="180" y="233" width="0" height="11"/>
+          <text class="t-text" x="182" y="241.5">gh repo clone tasict/InputWeave</text>
+          <rect class="t-line" x="182" y="256" width="150" height="5" rx="2.5"/>
+          <rect class="t-line" x="182" y="270" width="96" height="5" rx="2.5"/>
+          <rect class="t-line" x="182" y="284" width="132" height="5" rx="2.5"/>
+          <text class="t-res" x="362" y="323" text-anchor="end">3024 × 1964</text>
+
+          <rect class="t-tile" x="370" y="80" width="360" height="220" rx="5"/>
+          <rect class="t-pill" x="380" y="90" width="98" height="17" rx="8.5"/>
+          <text class="t-name" x="389" y="102">Windows Desktop</text>
+          <rect class="t-bar" x="370.5" y="287" width="359" height="12.5"/>
+          <rect class="t-tile" x="530" y="291" width="40" height="5" rx="2.5"/>
+          <text class="t-res" x="722" y="280" text-anchor="end">2560 × 1440</text>
+
+          <rect class="t-tile" x="730" y="100" width="150" height="270" rx="5"/>
+          <rect class="t-bar" x="730.5" y="100.5" width="149" height="8" rx="4"/>
+          <rect class="t-pill" x="738" y="115" width="48" height="17" rx="8.5"/>
+          <text class="t-name" x="747" y="127">Ubuntu</text>
+          <rect class="t-term" x="740" y="142" width="130" height="96" rx="4"/>
+          <text class="t-termtext" x="748" y="160">~ $</text>
+          <text class="t-termtext fade" id="paste1" x="768" y="160" opacity="0">gh repo clone</text>
+          <text class="t-termtext fade" id="paste2" x="748" y="173" opacity="0">tasict/InputWeave</text>
+          <text class="t-termdim fade" id="paste3" x="748" y="190" opacity="0">Cloning into</text>
+          <text class="t-termdim fade" id="paste4" x="748" y="202" opacity="0">'InputWeave'…</text>
+          <text class="t-res" x="872" y="362" text-anchor="end">1080 × 1920</text>
+
+          <path class="t-seam" id="seam1" d="M370 160 L373 166 L367 172 L373 178 L367 184 L373 190 L367 196 L373 202 L367 208 L373 214 L367 220 L373 226 L367 232 L373 238 L367 244 L373 250 L367 256 L373 262 L367 268 L373 274 L367 280 L373 286 L367 292 L373 298 L370 300"/>
+          <path class="t-seam" id="seam2" d="M730 100 L733 106 L727 112 L733 118 L727 124 L733 130 L727 136 L733 142 L727 148 L733 154 L727 160 L733 166 L727 172 L733 178 L727 184 L733 190 L727 196 L733 202 L727 208 L733 214 L727 220 L733 226 L727 232 L733 238 L727 244 L733 250 L727 256 L733 262 L727 268 L733 274 L727 280 L733 286 L727 292 L733 298 L730 300"/>
+
+          <g id="glow1" opacity="0" mask="url(#m1)"><rect class="t-glow-l" x="346" y="160" width="24" height="140"/><rect class="t-glow-r" x="370" y="160" width="24" height="140"/></g>
+          <g id="glow2" opacity="0" mask="url(#m2)"><rect class="t-glow-l" x="706" y="100" width="24" height="200"/><rect class="t-glow-r" x="730" y="100" width="24" height="200"/></g>
+
+          <g id="chip-copied" class="fade" opacity="0"><rect class="t-chip" x="292" y="214" width="58" height="16" rx="8"/><text class="t-chiptext" x="321" y="225" text-anchor="middle">Copied</text></g>
+          <g id="chip-pasted" class="fade" opacity="0"><rect class="t-chip" x="774" y="246" width="62" height="16" rx="8"/><text class="t-chiptext" x="805" y="257" text-anchor="middle">Pasted</text></g>
+          <g id="chip-recv" class="fade" opacity="0"><rect class="t-chip" x="214" y="171" width="148" height="16" rx="8"/><text class="t-chiptext" x="288" y="182" text-anchor="middle">Received report.pdf</text></g>
+
+          <g id="file" transform="translate(441 128)">
+            <path class="t-doc" d="M0 0h15l7 7v21H0z"/><path class="t-doc" d="M15 0v7h7"/>
+            <rect class="t-docline" x="3" y="12" width="14" height="2"/><rect class="t-docline" x="3" y="17" width="10" height="2"/>
+            <text class="t-doclabel" x="11" y="38" text-anchor="middle">report.pdf</text>
+          </g>
+
+          <g id="badge" style="transform: translate(222px, 304px)">
+            <rect class="t-badge" x="0" y="0" width="40" height="17" rx="8.5"/>
+            <rect class="t-glyph" x="7" y="5" width="15" height="8" rx="1.5"/><path class="t-glyph" d="M10 9h9"/>
+            <rect class="t-glyph" x="26" y="4" width="7" height="10" rx="3.5"/><path class="t-glyph" d="M29.5 4v3"/>
+          </g>
+
+          <g id="cursor" opacity="0" transform="translate(230 258)">
+            <path d="M0 0v15.5l4.2-3.9 3 6.6 2.6-1.2-3-6.4h5.9z" fill="#fff" stroke="#000" stroke-width="0.9" stroke-linejoin="round"/>
+          </g>
+        </svg>
+      </div>
+      <div class="caption" aria-live="polite">
+        <span class="turn" id="turn" hidden>
+          <span class="turn-hint">Now move your pointer across a seam.</span>
+          <button type="button" id="replay">Play again</button>
+        </span>
+      </div>
+    </div>
+  </section>
+
+  <section class="band" id="features">
+    <div class="wrap">
+      <h2>Three things follow your pointer</h2>
+      <div class="rows">
+        <div class="row">
+          <svg viewBox="0 0 240 90" aria-hidden="true"><rect class="t-tile" x="20" y="16" width="96" height="60" rx="4"/><rect class="t-tile" x="116" y="10" width="104" height="70" rx="4"/><path class="t-seam" d="M116 18 l3 4 l-6 4 l6 4 l-6 4 l6 4 l-6 4 l6 4 l-6 4 l6 4 l-6 4 l3 4"/><path class="t-trail" d="M60 48c22-16 52-18 84 2"/><g transform="translate(148 47)"><rect class="t-badge" x="0" y="0" width="40" height="17" rx="8.5"/><rect class="t-glyph" x="7" y="5" width="15" height="8" rx="1.5"/><path class="t-glyph" d="M10 9h9"/><rect class="t-glyph" x="26" y="4" width="7" height="10" rx="3.5"/></g></svg>
+          <div class="stack">
+            <h3>Keyboard and mouse</h3>
+            <p>The keyboard goes with the pointer, so you type on the computer you are pointing at. Lock the pointer to one computer while you work, jump to another with a shortcut, or switch to relative mouse for games.</p>
+          </div>
+        </div>
+        <div class="row">
+          <svg viewBox="0 0 240 90" aria-hidden="true"><rect class="t-tile" x="20" y="16" width="96" height="60" rx="4"/><rect class="t-tile" x="116" y="10" width="104" height="70" rx="4"/><path class="t-seam" d="M116 18 l3 4 l-6 4 l6 4 l-6 4 l6 4 l-6 4 l6 4 l-6 4 l6 4 l-6 4 l3 4"/><rect class="t-sel" x="32" y="38" width="62" height="11"/><text class="t-text" x="35" y="46.5">Copy</text><g transform="translate(146 36)"><rect class="t-chip" x="0" y="0" width="52" height="16" rx="8"/><text class="t-chiptext" x="26" y="11" text-anchor="middle">Paste</text></g></svg>
+          <div class="stack">
+            <h3>Clipboard</h3>
+            <p>Copy on one computer and paste on another: plain and formatted text, and images. Files you copy in Finder, File Explorer or your Linux file manager paste on the other computer too. Anything your password manager marks as secret stays where it is.</p>
+          </div>
+        </div>
+        <div class="row">
+          <svg viewBox="0 0 240 90" aria-hidden="true"><rect class="t-tile" x="20" y="16" width="96" height="60" rx="4"/><rect class="t-tile" x="116" y="10" width="104" height="70" rx="4"/><path class="t-seam" d="M116 18 l3 4 l-6 4 l6 4 l-6 4 l6 4 l-6 4 l6 4 l-6 4 l6 4 l-6 4 l3 4"/><path class="t-trail" d="M52 52c18-10 34-12 50-6"/><g transform="translate(104 30)"><path class="t-doc" d="M0 0h15l7 7v21H0z"/><path class="t-doc" d="M15 0v7h7"/></g></svg>
+          <div class="stack">
+            <h3>Files</h3>
+            <p>On a Mac or PC, drag files across the edge of the screen and drop them on the other computer. From any computer, Linux included, you can also use Send Files or drop files on a computer in the arrangement. They go straight there over your network.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="band" id="app">
+    <div class="wrap">
+      <div class="section-head">
+        <h2>A native app on each computer</h2>
+        <p>InputWeave lives in the menu bar on a Mac, in the notification area on Windows and in its own window on Linux. In Settings, you place the computers as they sit on your desk; a seam marks each place where the pointer crosses.</p>
+      </div>
+      <div class="shots">
+        <figure>
+          <div class="frame">
+            <picture>
+              <source srcset="assets/img/arrangement-dark.png" media="(prefers-color-scheme: dark)">
+              <img src="assets/img/arrangement.png" width="1800" height="1120" loading="lazy" alt="The Arrangement page in Settings: a MacBook Pro, a Mac mini and a Windows desktop with a second, vertical screen, placed as they sit on a desk. Purple stitched seams join the screens where they meet.">
+            </picture>
+          </div>
+          <figcaption>Settings › Arrangement on a Mac.</figcaption>
+        </figure>
+        <figure>
+          <div class="frame panel">
+            <picture>
+              <source srcset="assets/img/panel-dark.png" media="(prefers-color-scheme: dark)">
+              <img src="assets/img/panel.png" width="680" height="660" loading="lazy" alt="The menu bar panel: sharing is on, the cursor is on the MacBook Pro, a small map of the arrangement, a note that the Mac mini can’t be reached, and the Send Files and Settings buttons.">
+            </picture>
+          </div>
+          <figcaption>The menu bar panel, with a computer that is switched off.</figcaption>
+        </figure>
+      </div>
+    </div>
+  </section>
+
+  <section class="band" id="setup">
+    <div class="wrap">
+      <h2>Set up in a few minutes</h2>
+      <ol class="steps">
+        <li><h3>Install it on each computer</h3><p>Download InputWeave for each of your computers. On a Mac, it asks for Accessibility and Input Monitoring the first time it runs.</p></li>
+        <li><h3>Pair them</h3><p>One computer shows a 6-digit code. Type it on the other, and they trust each other from then on.</p><span class="code6" aria-label="Example pairing code: 4 8 2 9 1 3">482 913</span></li>
+        <li><h3>Arrange the screens</h3><p>Drag the computers to match where they sit on your desk. Where two screens meet, a seam shows where the pointer crosses.</p></li>
+      </ol>
+    </div>
+  </section>
+
+  <section class="band" id="local">
+    <div class="wrap">
+      <h2>It stays on your network</h2>
+      <div class="facts">
+        <div class="stack"><h3>No account, no cloud</h3><p>Computers find each other on your local network and connect directly. Your keystrokes, clipboard and files never pass through a server.</p></div>
+        <div class="stack"><h3>Encrypted between your computers</h3><p>Every connection uses mutual TLS over QUIC, pinned to each computer’s own certificate. A new computer joins only with the pairing code shown on yours.</p></div>
+        <div class="stack"><h3>Two reasons to go online</h3><p>InputWeave checks for a new version, which you can turn off, and talks to Polar only if you add a license. Nothing else leaves your network. <a href="privacy.html">Privacy</a></p></div>
+        <div class="stack"><h3>Open source</h3><p>The source is under the GNU GPL, version 3 or later. Read it, build it yourself, or report a problem on <a href="https://github.com/tasict/InputWeave">GitHub</a>.</p></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="band" id="download">
+    <div class="wrap">
+      <h2>Download InputWeave <span data-latest="version">1.0.0</span></h2>
+      <div class="platforms">
+        <div class="plat" data-platform="mac">
+          <span class="mine-note" hidden>For this computer</span>
+          <h3>macOS</h3>
+          <p class="small">macOS 15 or later, on Apple silicon or Intel.</p>
+          <div class="file" data-file="mac">InputWeave-1.0.0.pkg</div>
+          <p class="small grow">Signed with a Developer ID and notarized by Apple. New versions install from inside the app.</p>
+          <a class="btn btn-ink" href="https://github.com/tasict/InputWeave/releases/latest" data-asset="mac">Download for macOS</a>
+        </div>
+        <div class="plat" data-platform="win">
+          <span class="mine-note" hidden>For this computer</span>
+          <h3>Windows</h3>
+          <p class="small">Windows 10 22H2 or Windows 11, x64.</p>
+          <div class="file" data-file="win">InputWeave-1.0.0-x64.msi</div>
+          <p class="small grow">Installs the InputWeave service, so you can also sign in and answer UAC prompts from another computer. The installer isn’t code-signed yet, so Windows may ask you to confirm. New versions install from inside the app.</p>
+          <a class="btn btn-ink" href="https://github.com/tasict/InputWeave/releases/latest" data-asset="win">Download for Windows</a>
+        </div>
+        <div class="plat" data-platform="linux">
+          <span class="mine-note" hidden>For this computer</span>
+          <h3>Linux</h3>
+          <p class="small">Ubuntu 24.04 or later and Debian 13, on amd64 or arm64. X11 and Wayland: GNOME, KDE Plasma, sway, Hyprland and river.</p>
+          <div class="files">
+            <a class="file" href="https://github.com/tasict/InputWeave/releases/latest" data-asset="amd64" data-file="amd64">inputweave_1.0.0_amd64.deb</a>
+            <a class="file" href="https://github.com/tasict/InputWeave/releases/latest" data-asset="arm64" data-file="arm64">inputweave_1.0.0_arm64.deb</a>
+          </div>
+          <div class="cmd"><code id="apt-cmd" data-apt>sudo apt install ./inputweave_1.0.0_amd64.deb</code><button type="button" class="copy-btn" data-copy-from="#apt-cmd" data-copied="Copied">Copy</button></div>
+          <p class="small grow">Install the file with apt from the folder you downloaded it to; on arm64, use the arm64 file. The package adds InputWeave’s package source, so later versions arrive with your system’s software updates.</p>
+        </div>
+      </div>
+      <p class="small release-line"><span data-latest-dated hidden>Released <time data-latest="date"></time>. </span><a href="https://github.com/tasict/InputWeave/releases">All releases and checksums on GitHub</a></p>
+    </div>
+  </section>
+
+  <section class="band" id="price">
+    <div class="wrap lic">
+      <div class="stack">
+        <h2>Free to use. A license is US$10.</h2>
+        <p>Every feature works without a license, with no time limit. Until you add one, Settings and About show “Trial”.</p>
+        <p>A license replaces that with a Licensed label on up to 5 of your computers. Enter the key on one computer and the computers you’ve paired pick it up.</p>
+        <div class="actions">
+          <a class="btn btn-ink" href="https://buy.polar.sh/polar_cl_QlXeUC208E1POhQcAZe6AgpFHGbpsKGBXmhmu0x5LVd">Buy a license for US$10</a>
+          <a href="license.html">How the license works</a>
+        </div>
+      </div>
+      <div class="lic-demo">
+        <div class="pair"><span class="trialtag">Trial</span><span class="small">before</span></div>
+        <div class="pair"><span class="woven big">Licensed</span></div>
+        <span class="small">after, in Settings and About</span>
+      </div>
+    </div>
+  </section>
+</main>
+
+<footer class="foot">
+  <div class="wrap">
+    <a class="brand" href="./">InputWeave</a>
+    <nav class="links" aria-label="More">
+      <a href="https://github.com/tasict/InputWeave">Source code</a>
+      <a href="https://github.com/tasict/InputWeave/releases">Releases</a>
+      <a href="https://github.com/tasict/InputWeave/issues">Report a problem</a>
+      <a href="license.html">License</a>
+      <a href="privacy.html">Privacy</a>
+    </nav>
+    <div class="legal small">
+      <p>Questions: <span class="addr">support@ctsite.cc</span></p>
+      <p>Free and open source under the GNU GPL, version 3 or later. © 2026 InputWeave contributors.</p>
+      <p>Headings are set in Archivo by the Archivo Project Authors, under the <a href="assets/fonts/OFL.txt">SIL Open Font License</a>.</p>
+    </div>
+  </div>
+</footer>
+</body>
+</html>

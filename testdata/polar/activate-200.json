@@ -1,0 +1,39 @@
+{
+  "id": "6b1e3f9a-2c4d-4e8f-9a1b-3c5d7e9f1a2b",
+  "license_key_id": "0d2c4e6f-8a1b-4c3d-9e5f-7a9b1c3d5e7f",
+  "label": "MacBook Pro",
+  "meta": {},
+  "created_at": "2026-11-04T13:46:40.123456Z",
+  "modified_at": null,
+  "license_key": {
+    "id": "0d2c4e6f-8a1b-4c3d-9e5f-7a9b1c3d5e7f",
+    "created_at": "2026-11-04T13:40:00.000000Z",
+    "modified_at": "2026-11-04T13:46:40.123456Z",
+    "organization_id": "95b9d4a7-5dad-4df5-b309-2cd3383420ae",
+    "customer_id": "3f5a7c9e-1b2d-4f6a-8c0e-2a4b6c8d0e1f",
+    "customer": {
+      "id": "3f5a7c9e-1b2d-4f6a-8c0e-2a4b6c8d0e1f",
+      "created_at": "2026-11-04T13:39:00.000000Z",
+      "modified_at": null,
+      "metadata": {},
+      "email": "someone@example.com",
+      "email_verified": true,
+      "name": null,
+      "billing_address": null,
+      "tax_id": null,
+      "organization_id": "95b9d4a7-5dad-4df5-b309-2cd3383420ae",
+      "deleted_at": null,
+      "avatar_url": null
+    },
+    "benefit_id": "e59ffe92-1939-4b57-a002-ca2332d1ef62",
+    "key": "INPUTWEAVE-7F3A2C1E-58D4-4B9A-A2E1-0C6D3F9B7E42",
+    "display_key": "****-0C6D3F9B7E42",
+    "status": "granted",
+    "limit_activations": 5,
+    "usage": 0,
+    "limit_usage": null,
+    "validations": 0,
+    "last_validated_at": null,
+    "expires_at": null
+  }
+}

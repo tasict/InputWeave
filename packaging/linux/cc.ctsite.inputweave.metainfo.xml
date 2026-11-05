@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>cc.ctsite.inputweave</id>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>GPL-3.0-or-later</project_license>
+  <name>InputWeave</name>
+  <summary>Use one keyboard and mouse with all your computers</summary>
+  <summary xml:lang="zh-TW">多台電腦共用一組鍵盤滑鼠</summary>
+  <description>
+    <p>
+      InputWeave lets the computers on your desk share one keyboard and
+      mouse. Move the pointer off the edge of a screen and it appears on the
+      computer next to it. Copy on one computer and paste on another, and
+      send files between them. It works with InputWeave on macOS and Windows.
+    </p>
+    <p xml:lang="zh-TW">
+      InputWeave 讓桌上的幾台電腦共用一組鍵盤滑鼠：游標移出螢幕邊緣，就會出現在旁邊那台電腦上；在一台複製，到另一台直接貼上，也能互傳檔案。可以和 macOS、Windows 上的 InputWeave 一起使用。
+    </p>
+  </description>
+  <url type="homepage">https://inputweave.ctsite.cc/</url>
+  <url type="bugtracker">https://github.com/tasict/InputWeave/issues</url>
+  <url type="vcs-browser">https://github.com/tasict/InputWeave</url>
+  <launchable type="desktop-id">cc.ctsite.inputweave.desktop</launchable>
+  <developer id="cc.ctsite">
+    <name>InputWeave contributors</name>
+  </developer>
+  <categories>
+    <category>Utility</category>
+  </categories>
+  <provides>
+    <binary>inputweave</binary>
+    <binary>inputweave-app</binary>
+  </provides>
+  <requires>
+    <display_length compare="ge">768</display_length>
+  </requires>
+  <supports>
+    <control>pointing</control>
+    <control>keyboard</control>
+  </supports>
+  <content_rating type="oars-1.1"/>
+  <releases>
+    <release version="1.0.0" date="2026-11-05"/>
+    <release version="0.1.0" date="2026-10-29"/>
+  </releases>
+</component>

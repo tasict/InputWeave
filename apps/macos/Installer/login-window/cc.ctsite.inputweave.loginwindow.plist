@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- The agent at the login window, installed
+     as /Library/LaunchAgents/cc.ctsite.inputweave.loginwindow.plist,
+     root:wheel 0644. launchd starts it as root each time the login window
+     shows and ends it when someone logs in. It exits successfully when the
+     last user did not let other devices control this Mac there, so
+     KeepAlive only starts it again after a failure, such as the port still
+     taken by an agent that is going away. -->
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>cc.ctsite.inputweave.loginwindow</string>
+    <key>AssociatedBundleIdentifiers</key>
+    <array>
+        <string>cc.ctsite.inputweave</string>
+    </array>
+    <key>LimitLoadToSessionType</key>
+    <string>LoginWindow</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>/Applications/InputWeave.app/Contents/Library/LoginItems/InputWeave Agent.app/Contents/MacOS/inputweave</string>
+        <string>agent</string>
+        <string>--login-window</string>
+    </array>
+    <key>RunAtLoad</key>
+    <true/>
+    <key>KeepAlive</key>
+    <dict>
+        <key>SuccessfulExit</key>
+        <false/>
+    </dict>
+    <key>ThrottleInterval</key>
+    <integer>10</integer>
+    <key>ProcessType</key>
+    <string>Interactive</string>
+</dict>
+</plist>

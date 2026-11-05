@@ -1,0 +1,46 @@
+#!/bin/sh
+# Runs before InputWeave is installed or replaced. scripts/package.sh fills
+# in the Team ID of the app in this package. What it prints goes to the
+# installer log (/var/log/install.log).
+new_team="@TEAM@"
+app=/Applications/InputWeave.app
+here=$(dirname "$0")
+
+pkill -x InputWeave
+
+# The background service belongs to the app that registered it, under the
+# team and the bundle identifier it was signed with, and so do the
+# permissions macOS granted it. Before an app signed by another team, or
+# v0.1.0 with its other identifiers (com.inputweave.InputWeave), is
+# replaced, have the old app unregister it, so it leaves Login Items; the
+# new app registers its own.
+bundle_id() {
+  /usr/libexec/PlistBuddy -c 'Print CFBundleIdentifier' "$app/Contents/Info.plist" 2>/dev/null
+}
+if [ -d "$app" ]; then
+  old_id=$(bundle_id)
+  old_team=$(codesign -dv "$app" 2>&1 | sed -n 's/^TeamIdentifier=//p')
+  if [ "$old_id" = com.inputweave.InputWeave ]; then
+    echo "InputWeave: replacing $old_id, which had other identifiers"
+    sh "$here/uninstall.sh" --migrate
+    # The new app goes into an empty folder: files only the old one had,
+    # such as its LaunchAgent plist, would otherwise stay inside the new
+    # one and break its signature.
+    if [ "$(bundle_id)" = com.inputweave.InputWeave ]; then
+      rm -rf "$app" && echo "InputWeave: removed the earlier app"
+    fi
+  elif [ "$old_team" != "$new_team" ]; then
+    echo "InputWeave: replacing an app signed by ${old_team:-nobody}"
+    sh "$here/uninstall.sh" --service-only
+  fi
+fi
+# A v0.1.0 service may still run without its app here: run from elsewhere,
+# or left running after its app was deleted.
+sh "$here/uninstall.sh" --stop-old
+# Where a package with a strict identifier put the app when updating
+# v0.1.0 (see package.sh); it never ran, so nothing else refers to it.
+stray=/Applications/InputWeave.localized
+if [ "$(/usr/libexec/PlistBuddy -c 'Print CFBundleIdentifier' "$stray/InputWeave.app/Contents/Info.plist" 2>/dev/null)" = cc.ctsite.inputweave ]; then
+  rm -rf "$stray" && echo "InputWeave: removed the app an earlier update left in $stray"
+fi
+exit 0

@@ -1,0 +1,11 @@
+/* The installer's choices (apps/macos/Installer/Distribution.xml). The
+   keys are the English titles and descriptions, exactly as written there. */
+
+"Install InputWeave" = "安裝 InputWeave";
+"Installs InputWeave, which shares one keyboard and mouse between your computers, in the Applications folder, replacing the current version. Open it to set up the background service. To uninstall instead, choose Remove InputWeave." = "把 InputWeave 安裝到「應用程式」，取代目前的版本。InputWeave 讓幾台電腦共用一組鍵盤滑鼠，打開它就能設定背景服務。如果要解除安裝，請改選「移除 InputWeave」。";
+
+"Remove InputWeave" = "移除 InputWeave";
+"Uninstalls instead of installing: stops sharing and removes InputWeave, its background service, its permissions, logs and settings from this Mac. Pairings are kept unless you also choose Delete pairings. Received files are always kept." = "改為解除安裝：停止共享，並從這台 Mac 移除 InputWeave、背景服務、權限、記錄與設定。除非同時勾選「刪除配對資料」，否則配對資料會保留。收到的檔案一律保留。";
+
+"Delete pairings" = "刪除配對資料";
+"When removing, also deletes this Mac's pairings, arrangement and identity for every user. Your other computers then have to pair with it again." = "移除時，一併刪除這台 Mac 上每位使用者的配對資料、排列與這台的身分。其他電腦之後需要重新和這台 Mac 配對。";

@@ -1,0 +1,4 @@
+/* English is the source language: Distribution.xml's titles and
+   descriptions are the keys and show as they are. This table stays
+   empty, but must exist, or Installer takes another language's table
+   for English. */

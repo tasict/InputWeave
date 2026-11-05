@@ -1,0 +1,189 @@
+# The macOS app, generated into InputWeave.xcodeproj by XcodeGen:
+#   xcodegen generate --spec apps/macos/project.yml
+#
+# InputWeave.app is the SwiftUI menu bar app. It never links Rust and never
+# calls APIs that need TCC permissions; it talks to the background service
+# over IPC. The service is the Rust `inputweave agent`, embedded by
+# scripts/embed-agent.sh as a helper bundle that SMAppService registers as a
+# LaunchAgent, so the permissions belong to the helper.
+name: InputWeave
+options:
+  bundleIdPrefix: cc.ctsite
+  developmentLanguage: en
+  deploymentTarget:
+    macOS: "15.0"
+  createIntermediateGroups: true
+packages:
+  SwiftProtobuf:
+    url: https://github.com/apple/swift-protobuf
+    # Must match the protoc-gen-swift that made Generated/app.pb.swift.
+    exactVersion: 1.39.0
+  Sparkle:
+    url: https://github.com/sparkle-project/Sparkle
+    # Its license is in third_party/sparkle; update both together.
+    exactVersion: 2.9.6
+settings:
+  base:
+    # The Cargo workspace version, and CFBundleVersion, which Sparkle
+    # compares to tell which version is newer: build-number.sh of it
+    # (major * 10000 + minor * 100 + patch, so 0.1.0 is 100, 1.0.0 10000).
+    # scripts/set-version.sh sets both with Cargo.toml; embed-agent.sh
+    # refuses a build where they disagree.
+    MARKETING_VERSION: 1.0.0
+    CURRENT_PROJECT_VERSION: 10000
+    SWIFT_VERSION: "6.0"
+    SWIFT_STRICT_CONCURRENCY: complete
+    ENABLE_USER_SCRIPT_SANDBOXING: NO
+    # Signed to run locally; release builds use the Developer ID identity.
+    CODE_SIGN_IDENTITY: "-"
+    CODE_SIGN_STYLE: Manual
+    # scripts/package.sh turns it on with a Developer ID identity. Ad hoc
+    # signatures have no team, so library validation would refuse the
+    # embedded Sparkle.framework and the app would not launch.
+    ENABLE_HARDENED_RUNTIME: NO
+    LOCALIZATION_PREFERS_STRING_CATALOGS: YES
+    SWIFT_EMIT_LOC_STRINGS: YES
+    # Sparkle's update feed and the base64 EdDSA public key its updates are
+    # signed with; the app checks for updates only when both are set.
+    # Debug builds have neither. Release builds (scripts/package.sh) check
+    # InputWeave's GitHub releases; package.sh's INPUTWEAVE_APPCAST_URL and
+    # INPUTWEAVE_SPARKLE_PUBLIC_KEY replace these values, and either set to
+    # nothing turns updates off for a test build.
+    INPUTWEAVE_APPCAST_URL: ""
+    INPUTWEAVE_SPARKLE_PUBLIC_KEY: ""
+  configs:
+    Release:
+      INPUTWEAVE_APPCAST_URL: https://inputweave.ctsite.cc/latest/appcast.xml
+      INPUTWEAVE_SPARKLE_PUBLIC_KEY: UorCjys4eeYiG7ivmGdNh4KTWhvDdHFumBtYrctpY6o=
+targets:
+  InputWeave:
+    type: application
+    platform: macOS
+    sources:
+      - path: InputWeave
+      - path: ../../THIRD_PARTY_NOTICES.md
+        buildPhase: resources
+      # The GPL's text travels with the app it covers.
+      - path: ../../LICENSE
+        buildPhase: resources
+      # Also in the installer package's scripts, for its removal choices.
+      - path: Installer/uninstall.sh
+        buildPhase: resources
+    dependencies:
+      - package: SwiftProtobuf
+      - package: Sparkle
+    info:
+      path: InputWeave/Info.plist
+      properties:
+        CFBundleDisplayName: InputWeave
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        CFBundleDevelopmentRegion: en
+        CFBundleLocalizations: [en, zh-Hant]
+        LSApplicationCategoryType: public.app-category.productivity
+        # A menu bar app: no Dock icon until a window is open.
+        LSUIElement: true
+        NSHumanReadableCopyright: Copyright © 2026 InputWeave contributors.
+        # macOS asks about these folders for the app, though the background
+        # service opens them, so the app explains why (zh-Hant in
+        # InfoPlist.xcstrings).
+        NSDownloadsFolderUsageDescription: InputWeave saves files your other computers send you in Downloads, and sends files from there that you drag or send to them.
+        NSDesktopFolderUsageDescription: InputWeave sends files on the desktop that you drag or send to your other computers, and saves files you drop there.
+        NSDocumentsFolderUsageDescription: InputWeave sends files in Documents that you drag or send to your other computers, and saves files you drop there.
+        NSNetworkVolumesUsageDescription: InputWeave sends files on network volumes that you drag or send to your other computers, and saves files you drop there.
+        NSRemovableVolumesUsageDescription: InputWeave sends files on removable volumes that you drag or send to your other computers, and saves files you drop there.
+        SUFeedURL: $(INPUTWEAVE_APPCAST_URL)
+        SUPublicEDKey: $(INPUTWEAVE_SPARKLE_PUBLIC_KEY)
+        # The license (docs/architecture.md §11): Polar's API and InputWeave's
+        # organization there, where Buy a License goes, and the customer
+        # portal for Manage Computers. A Debug build also takes
+        # -polarServer and -polarOrganization (scripts/mock-polar.py).
+        InputWeavePolarServer: https://api.polar.sh
+        InputWeavePolarOrganizationID: 95b9d4a7-5dad-4df5-b309-2cd3383420ae
+        InputWeaveCheckoutURL: https://buy.polar.sh/polar_cl_QlXeUC208E1POhQcAZe6AgpFHGbpsKGBXmhmu0x5LVd
+        InputWeaveCustomerPortalURL: https://polar.sh/ctsitecc/portal
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: cc.ctsite.inputweave
+        PRODUCT_NAME: InputWeave
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: ""
+    postBuildScripts:
+      - name: Embed the background service
+        script: '"$PROJECT_DIR/scripts/embed-agent.sh"'
+        basedOnDependencyAnalysis: false
+  InputWeaveTests:
+    type: bundle.unit-test
+    platform: macOS
+    # The logic under test is compiled in directly, so tests run without
+    # launching the app.
+    sources:
+      - path: InputWeaveTests
+      - path: InputWeave/Canvas/CanvasGeometry.swift
+      - path: InputWeave/Canvas/DesktopPicture.swift
+      - path: InputWeave/Agent/Frame.swift
+      - path: InputWeave/Agent/AgentConnection.swift
+      - path: InputWeave/Agent/AgentModel.swift
+      - path: InputWeave/Support/Countdown.swift
+      - path: InputWeave/Panel/TransferText.swift
+      - path: InputWeave/Panel/StatusIcon.swift
+      - path: InputWeave/Panel/PanelText.swift
+      - path: InputWeave/Settings/ConnectionText.swift
+      - path: InputWeave/Settings/LoginWindowText.swift
+      - path: InputWeave/Support/ProblemWatch.swift
+      - path: InputWeave/Support/LaunchReveal.swift
+      - path: InputWeave/Support/OutdatedService.swift
+      - path: InputWeave/Support/Preferences.swift
+      - path: InputWeave/Support/Brand.swift
+      - path: InputWeave/Support/LocatorGeometry.swift
+      - path: InputWeave/Support/DropStripGeometry.swift
+      - path: InputWeave/Support/DragFlow.swift
+      - path: InputWeave/Support/ScreenIdentity.swift
+      - path: InputWeave/Support/ShortcutText.swift
+      - path: InputWeave/Support/RelativeText.swift
+      - path: InputWeave/Support/FolderAccess.swift
+      - path: InputWeave/Support/HUD.swift
+      - path: InputWeave/Support/EdgeGlowGeometry.swift
+      - path: InputWeave/Support/EdgeGlow.swift
+      - path: InputWeave/License/PolarClient.swift
+      - path: InputWeave/License/LicenseController.swift
+      - path: InputWeave/Generated
+    dependencies:
+      - package: SwiftProtobuf
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: cc.ctsite.inputweave.tests
+        GENERATE_INFOPLIST_FILE: YES
+  InputWeaveSnapshots:
+    type: bundle.unit-test
+    platform: macOS
+    # Renders the main views offscreen with sample data, for looking at
+    # layouts without running the app. Not part of the regular test run.
+    sources:
+      - path: InputWeaveSnapshots
+      - path: InputWeave
+        excludes:
+          - InputWeaveApp.swift
+          - main.swift
+    dependencies:
+      - package: SwiftProtobuf
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: cc.ctsite.inputweave.snapshots
+        GENERATE_INFOPLIST_FILE: YES
+schemes:
+  InputWeave:
+    build:
+      targets:
+        InputWeave: all
+        InputWeaveTests: [test]
+    test:
+      targets:
+        - InputWeaveTests
+  InputWeaveSnapshots:
+    build:
+      targets:
+        InputWeaveSnapshots: [test]
+    test:
+      targets:
+        - InputWeaveSnapshots

@@ -1,0 +1,19 @@
+#!/bin/sh
+# Runs after InputWeave is installed.
+
+# The user at the screen, if any.
+user=$(stat -f %Su /dev/console)
+case "$user" in root | loginwindow | _mbsetupuser | "") exit 0 ;; esac
+uid=$(id -u "$user")
+
+if [ ! -d /Applications/InputWeave.app ]; then
+  echo "InputWeave: the app is not in /Applications; Installer put it elsewhere, so the background service is not set up" >&2
+  exit 0
+fi
+
+# Open the app: it sets up the background service on first use, and
+# restarts or registers again a service still running the old agent. (Not
+# launchctl kickstart here: on a service launchd refuses to start, such as
+# an ad hoc build's after an update, it waits for minutes.)
+launchctl asuser "$uid" sudo -u "$user" open /Applications/InputWeave.app
+exit 0

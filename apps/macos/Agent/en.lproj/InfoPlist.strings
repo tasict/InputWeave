@@ -1,0 +1,9 @@
+/* The Local Network prompt for the background service. */
+"NSLocalNetworkUsageDescription" = "InputWeave finds your other computers on the local network and shares the keyboard, mouse and clipboard with them.";
+
+/* The prompts for the folders macOS protects. */
+"NSDownloadsFolderUsageDescription" = "InputWeave saves files your other computers send you in Downloads, and sends files from there that you drag or send to them.";
+"NSDesktopFolderUsageDescription" = "InputWeave sends files on the desktop that you drag or send to your other computers, and saves files you drop there.";
+"NSDocumentsFolderUsageDescription" = "InputWeave sends files in Documents that you drag or send to your other computers, and saves files you drop there.";
+"NSNetworkVolumesUsageDescription" = "InputWeave sends files on network volumes that you drag or send to your other computers, and saves files you drop there.";
+"NSRemovableVolumesUsageDescription" = "InputWeave sends files on removable volumes that you drag or send to your other computers, and saves files you drop there.";

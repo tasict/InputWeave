@@ -1,0 +1,5 @@
+#!/bin/sh
+# "Delete pairings". Runs the whole removal again (it finds nothing left to
+# do) so the pairings are only deleted once the service has stopped,
+# whatever order the scripts run in.
+exec sh "$(dirname "$0")/uninstall.sh" --purge

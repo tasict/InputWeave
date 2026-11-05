@@ -1,0 +1,300 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>InputWeave：一組鍵盤滑鼠，控制桌上的每一台電腦</title>
+<meta name="description" content="InputWeave 讓桌上的 Mac、Windows 與 Linux 電腦經區域網路共用一組鍵盤滑鼠。游標移過螢幕邊緣就換到另一台，在一台複製、到另一台貼上，也能把檔案拖過去。免費開源。">
+<link rel="canonical" href="https://inputweave.ctsite.cc/zh-Hant/">
+<link rel="alternate" hreflang="en" href="https://inputweave.ctsite.cc/">
+<link rel="alternate" hreflang="zh-Hant" href="https://inputweave.ctsite.cc/zh-Hant/">
+<link rel="alternate" hreflang="x-default" href="https://inputweave.ctsite.cc/">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="InputWeave">
+<meta property="og:title" content="InputWeave：一組鍵盤滑鼠，控制桌上的每一台電腦">
+<meta property="og:description" content="讓 Mac、Windows 與 Linux 電腦經區域網路共用一組鍵盤滑鼠。免費開源。">
+<meta property="og:url" content="https://inputweave.ctsite.cc/zh-Hant/">
+<meta property="og:image" content="https://inputweave.ctsite.cc/assets/img/app-icon-1024.png">
+<meta property="og:image:width" content="1024">
+<meta property="og:image:height" content="1024">
+<meta property="og:image:alt" content="InputWeave 的 App 圖示：紫色方塊上兩塊白色螢幕，以一條縫線相連">
+<meta property="og:locale" content="zh_TW">
+<meta property="og:locale:alternate" content="en_US">
+<meta name="twitter:card" content="summary">
+<meta name="theme-color" content="#ECEDF1" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#18191D" media="(prefers-color-scheme: dark)">
+<link rel="icon" href="../assets/icons/favicon.svg" type="image/svg+xml">
+<link rel="icon" href="../assets/img/favicon-32.png" type="image/png" sizes="32x32">
+<link rel="apple-touch-icon" href="../assets/icons/apple-touch-icon.png">
+<link rel="preload" href="../assets/fonts/archivo-latin.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="stylesheet" href="../assets/site.css">
+<script src="../assets/site.js" defer></script>
+</head>
+<body data-page="home">
+<a class="skip" href="#main">跳到內容</a>
+<header class="top">
+  <div class="wrap">
+    <a class="brand" href="./">
+      <svg width="28" height="28" viewBox="0 0 32 32" aria-hidden="true"><rect x="1" y="1" width="30" height="30" rx="7" fill="#8E3FD8"/><rect x="4" y="13" width="11" height="8" rx="1.2" fill="#fff"/><rect x="15.5" y="9" width="12.5" height="10" rx="1.2" fill="#fff"/><path d="M7.5 18c3.5-5.5 8.5-7 14-5" fill="none" stroke="#8E3FD8" stroke-width="1.6" stroke-linecap="round" stroke-dasharray="2 1.4"/></svg>
+      InputWeave
+    </a>
+    <nav class="nav" aria-label="網站">
+      <a href="#features">功能</a>
+      <a href="#download">下載</a>
+      <a href="license.html">授權</a>
+      <a href="https://github.com/tasict/InputWeave">GitHub</a>
+    </nav>
+    <a class="lang-switch" href="../" hreflang="en" lang="en" data-lang-switch>English</a>
+  </div>
+</header>
+
+<main id="main">
+  <section class="hero">
+    <div class="wrap">
+      <div class="text">
+        <h1>一組鍵盤滑鼠，控制桌上的每一台電腦。</h1>
+        <p class="lead">游標移過螢幕邊緣，就到旁邊那台電腦繼續工作。在一台複製、到另一台貼上，也能把檔案拖過去。Mac、Windows 與 Linux 之間都可以，只走你的區域網路。</p>
+        <div class="actions">
+          <a class="btn btn-ink" href="#download" data-hero-download data-label-mac="下載 macOS 版" data-label-win="下載 Windows 版" data-label-linux="下載 Linux 版">下載</a>
+          <a href="#download">其他平台</a>
+          <span class="small">免費開源。版本 <span data-latest="version">1.0.0</span>。</span>
+        </div>
+      </div>
+      <div class="stage">
+        <svg id="hero-svg" viewBox="60 50 880 350" role="img" aria-labelledby="hero-title hero-desc">
+          <title id="hero-title">InputWeave 在三台電腦之間移動</title>
+          <desc id="hero-desc">MacBook Pro、Windows 桌機與 Ubuntu 電腦並排。游標在 Mac 上複製一行指令，跨到 Ubuntu 的終端機貼上，再把 Windows 桌面上的檔案拖到 Mac。游標跨過螢幕之間的地方，縫線會亮起來。</desc>
+          <defs>
+            <linearGradient id="glowL" x1="0" x2="1" y1="0" y2="0"><stop offset="0" class="g-thread" stop-opacity="0"/><stop offset="1" class="g-thread" stop-opacity="0.62"/></linearGradient>
+            <linearGradient id="glowR" x1="0" x2="1" y1="0" y2="0"><stop offset="0" class="g-thread" stop-opacity="0.62"/><stop offset="1" class="g-thread" stop-opacity="0"/></linearGradient>
+            <linearGradient id="bell1" x1="0" x2="0" y1="0" y2="1"><stop offset="0" stop-color="#fff" stop-opacity="0.38"/><stop offset="0.2" stop-color="#fff" stop-opacity="0.45"/><stop offset="0.5" stop-color="#fff" stop-opacity="1"/><stop offset="0.8" stop-color="#fff" stop-opacity="0.45"/><stop offset="1" stop-color="#fff" stop-opacity="0.38"/></linearGradient>
+            <linearGradient id="bell2" x1="0" x2="0" y1="0" y2="1"><stop offset="0" stop-color="#fff" stop-opacity="0.38"/><stop offset="0.2" stop-color="#fff" stop-opacity="0.45"/><stop offset="0.5" stop-color="#fff" stop-opacity="1"/><stop offset="0.8" stop-color="#fff" stop-opacity="0.45"/><stop offset="1" stop-color="#fff" stop-opacity="0.38"/></linearGradient>
+            <mask id="m1" maskUnits="userSpaceOnUse" x="340" y="160" width="60" height="140"><rect x="340" y="160" width="60" height="140" fill="url(#bell1)"/></mask>
+            <mask id="m2" maskUnits="userSpaceOnUse" x="700" y="100" width="60" height="200"><rect x="700" y="100" width="60" height="200" fill="url(#bell2)"/></mask>
+          </defs>
+
+          <rect class="t-tile" x="110" y="160" width="260" height="170" rx="5"/>
+          <rect class="t-bar" x="110.5" y="160.5" width="259" height="8" rx="4"/>
+          <rect class="t-pill" x="118" y="174" width="74" height="17" rx="8.5"/>
+          <text class="t-name" x="127" y="186">MacBook Pro</text>
+          <rect class="t-tile" x="172" y="196" width="186" height="104" rx="5"/>
+          <circle cx="181" cy="204" r="2.2" fill="#FF5F57"/><circle cx="189" cy="204" r="2.2" fill="#FEBC2E"/><circle cx="197" cy="204" r="2.2" fill="#28C840"/>
+          <rect class="t-line" x="182" y="218" width="120" height="5" rx="2.5"/>
+          <rect class="t-sel" id="sel" x="180" y="233" width="0" height="11"/>
+          <text class="t-text" x="182" y="241.5">gh repo clone tasict/InputWeave</text>
+          <rect class="t-line" x="182" y="256" width="150" height="5" rx="2.5"/>
+          <rect class="t-line" x="182" y="270" width="96" height="5" rx="2.5"/>
+          <rect class="t-line" x="182" y="284" width="132" height="5" rx="2.5"/>
+          <text class="t-res" x="362" y="323" text-anchor="end">3024 × 1964</text>
+
+          <rect class="t-tile" x="370" y="80" width="360" height="220" rx="5"/>
+          <rect class="t-pill" x="380" y="90" width="70" height="17" rx="8.5"/>
+          <text class="t-name" x="389" y="102">Windows 桌機</text>
+          <rect class="t-bar" x="370.5" y="287" width="359" height="12.5"/>
+          <rect class="t-tile" x="530" y="291" width="40" height="5" rx="2.5"/>
+          <text class="t-res" x="722" y="280" text-anchor="end">2560 × 1440</text>
+
+          <rect class="t-tile" x="730" y="100" width="150" height="270" rx="5"/>
+          <rect class="t-bar" x="730.5" y="100.5" width="149" height="8" rx="4"/>
+          <rect class="t-pill" x="738" y="115" width="48" height="17" rx="8.5"/>
+          <text class="t-name" x="747" y="127">Ubuntu</text>
+          <rect class="t-term" x="740" y="142" width="130" height="96" rx="4"/>
+          <text class="t-termtext" x="748" y="160">~ $</text>
+          <text class="t-termtext fade" id="paste1" x="768" y="160" opacity="0">gh repo clone</text>
+          <text class="t-termtext fade" id="paste2" x="748" y="173" opacity="0">tasict/InputWeave</text>
+          <text class="t-termdim fade" id="paste3" x="748" y="190" opacity="0">Cloning into</text>
+          <text class="t-termdim fade" id="paste4" x="748" y="202" opacity="0">'InputWeave'…</text>
+          <text class="t-res" x="872" y="362" text-anchor="end">1080 × 1920</text>
+
+          <path class="t-seam" id="seam1" d="M370 160 L373 166 L367 172 L373 178 L367 184 L373 190 L367 196 L373 202 L367 208 L373 214 L367 220 L373 226 L367 232 L373 238 L367 244 L373 250 L367 256 L373 262 L367 268 L373 274 L367 280 L373 286 L367 292 L373 298 L370 300"/>
+          <path class="t-seam" id="seam2" d="M730 100 L733 106 L727 112 L733 118 L727 124 L733 130 L727 136 L733 142 L727 148 L733 154 L727 160 L733 166 L727 172 L733 178 L727 184 L733 190 L727 196 L733 202 L727 208 L733 214 L727 220 L733 226 L727 232 L733 238 L727 244 L733 250 L727 256 L733 262 L727 268 L733 274 L727 280 L733 286 L727 292 L733 298 L730 300"/>
+
+          <g id="glow1" opacity="0" mask="url(#m1)"><rect class="t-glow-l" x="346" y="160" width="24" height="140"/><rect class="t-glow-r" x="370" y="160" width="24" height="140"/></g>
+          <g id="glow2" opacity="0" mask="url(#m2)"><rect class="t-glow-l" x="706" y="100" width="24" height="200"/><rect class="t-glow-r" x="730" y="100" width="24" height="200"/></g>
+
+          <g id="chip-copied" class="fade" opacity="0"><rect class="t-chip" x="292" y="214" width="58" height="16" rx="8"/><text class="t-chiptext" x="321" y="225" text-anchor="middle">已複製</text></g>
+          <g id="chip-pasted" class="fade" opacity="0"><rect class="t-chip" x="774" y="246" width="62" height="16" rx="8"/><text class="t-chiptext" x="805" y="257" text-anchor="middle">已貼上</text></g>
+          <g id="chip-recv" class="fade" opacity="0"><rect class="t-chip" x="214" y="171" width="148" height="16" rx="8"/><text class="t-chiptext" x="288" y="182" text-anchor="middle">已收到 report.pdf</text></g>
+
+          <g id="file" transform="translate(441 128)">
+            <path class="t-doc" d="M0 0h15l7 7v21H0z"/><path class="t-doc" d="M15 0v7h7"/>
+            <rect class="t-docline" x="3" y="12" width="14" height="2"/><rect class="t-docline" x="3" y="17" width="10" height="2"/>
+            <text class="t-doclabel" x="11" y="38" text-anchor="middle">report.pdf</text>
+          </g>
+
+          <g id="badge" style="transform: translate(222px, 304px)">
+            <rect class="t-badge" x="0" y="0" width="40" height="17" rx="8.5"/>
+            <rect class="t-glyph" x="7" y="5" width="15" height="8" rx="1.5"/><path class="t-glyph" d="M10 9h9"/>
+            <rect class="t-glyph" x="26" y="4" width="7" height="10" rx="3.5"/><path class="t-glyph" d="M29.5 4v3"/>
+          </g>
+
+          <g id="cursor" opacity="0" transform="translate(230 258)">
+            <path d="M0 0v15.5l4.2-3.9 3 6.6 2.6-1.2-3-6.4h5.9z" fill="#fff" stroke="#000" stroke-width="0.9" stroke-linejoin="round"/>
+          </g>
+        </svg>
+      </div>
+      <div class="caption" aria-live="polite">
+        <span class="turn" id="turn" hidden>
+          <span class="turn-hint">換你了：把游標移過縫線。</span>
+          <button type="button" id="replay">再播一次</button>
+        </span>
+      </div>
+    </div>
+  </section>
+
+  <section class="band" id="features">
+    <div class="wrap">
+      <h2>三樣東西跟著游標走</h2>
+      <div class="rows">
+        <div class="row">
+          <svg viewBox="0 0 240 90" aria-hidden="true"><rect class="t-tile" x="20" y="16" width="96" height="60" rx="4"/><rect class="t-tile" x="116" y="10" width="104" height="70" rx="4"/><path class="t-seam" d="M116 18 l3 4 l-6 4 l6 4 l-6 4 l6 4 l-6 4 l6 4 l-6 4 l6 4 l-6 4 l3 4"/><path class="t-trail" d="M60 48c22-16 52-18 84 2"/><g transform="translate(148 47)"><rect class="t-badge" x="0" y="0" width="40" height="17" rx="8.5"/><rect class="t-glyph" x="7" y="5" width="15" height="8" rx="1.5"/><path class="t-glyph" d="M10 9h9"/><rect class="t-glyph" x="26" y="4" width="7" height="10" rx="3.5"/></g></svg>
+          <div class="stack">
+            <h3>鍵盤與滑鼠</h3>
+            <p>鍵盤跟著游標，游標在哪台，打字就打在哪台。專心工作時可以把游標鎖在一台，用快速鍵跳到另一台，玩遊戲時切換成相對滑鼠。</p>
+          </div>
+        </div>
+        <div class="row">
+          <svg viewBox="0 0 240 90" aria-hidden="true"><rect class="t-tile" x="20" y="16" width="96" height="60" rx="4"/><rect class="t-tile" x="116" y="10" width="104" height="70" rx="4"/><path class="t-seam" d="M116 18 l3 4 l-6 4 l6 4 l-6 4 l6 4 l-6 4 l6 4 l-6 4 l6 4 l-6 4 l3 4"/><rect class="t-sel" x="32" y="38" width="62" height="11"/><text class="t-text" x="35" y="46.5">複製</text><g transform="translate(146 36)"><rect class="t-chip" x="0" y="0" width="52" height="16" rx="8"/><text class="t-chiptext" x="26" y="11" text-anchor="middle">貼上</text></g></svg>
+          <div class="stack">
+            <h3>剪貼簿</h3>
+            <p>在一台複製、到另一台貼上：純文字、格式化文字與圖片都可以。在 Finder、檔案總管或 Linux 的檔案管理員複製的檔案，也能到另一台貼上。密碼管理器標記為機密的內容不會同步。</p>
+          </div>
+        </div>
+        <div class="row">
+          <svg viewBox="0 0 240 90" aria-hidden="true"><rect class="t-tile" x="20" y="16" width="96" height="60" rx="4"/><rect class="t-tile" x="116" y="10" width="104" height="70" rx="4"/><path class="t-seam" d="M116 18 l3 4 l-6 4 l6 4 l-6 4 l6 4 l-6 4 l6 4 l-6 4 l6 4 l-6 4 l3 4"/><path class="t-trail" d="M52 52c18-10 34-12 50-6"/><g transform="translate(104 30)"><path class="t-doc" d="M0 0h15l7 7v21H0z"/><path class="t-doc" d="M15 0v7h7"/></g></svg>
+          <div class="stack">
+            <h3>檔案</h3>
+            <p>在 Mac 或 PC 上把檔案拖過螢幕邊緣，放到另一台電腦上。在任何一台電腦上（包括 Linux），也可以使用「傳送檔案」，或把檔案拖到排列裡的某台電腦。檔案經你的網路直接送到那台。</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="band" id="app">
+    <div class="wrap">
+      <div class="section-head">
+        <h2>每台電腦上都是原生 App</h2>
+        <p>InputWeave 在 Mac 上住在選單列，在 Windows 上住在系統匣，在 Linux 上有自己的視窗。在設定裡依電腦在桌上的位置排好，螢幕相接、游標穿過去的地方會畫出縫線。</p>
+      </div>
+      <div class="shots">
+        <figure>
+          <div class="frame">
+            <picture>
+              <source srcset="../assets/img/arrangement-dark.png" media="(prefers-color-scheme: dark)">
+              <img src="../assets/img/arrangement.png" width="1800" height="1120" loading="lazy" alt="設定的排列頁：MacBook Pro、Mac mini，以及接了一塊直立副螢幕的 Windows 桌機，依桌上的位置擺放。螢幕相接的地方以紫色縫線連起來。">
+            </picture>
+          </div>
+          <figcaption>Mac 上的「設定 › 排列」（英文介面）。</figcaption>
+        </figure>
+        <figure>
+          <div class="frame panel">
+            <picture>
+              <source srcset="../assets/img/panel-dark.png" media="(prefers-color-scheme: dark)">
+              <img src="../assets/img/panel.png" width="680" height="660" loading="lazy" alt="選單列面板：鍵鼠共享開著，游標在 MacBook Pro 上，下面是排列的小地圖、Mac mini 無法連線的提示，以及「傳送檔案」與「設定」按鈕。">
+            </picture>
+          </div>
+          <figcaption>選單列面板，其中一台電腦已關機。</figcaption>
+        </figure>
+      </div>
+    </div>
+  </section>
+
+  <section class="band" id="setup">
+    <div class="wrap">
+      <h2>幾分鐘就設定好</h2>
+      <ol class="steps">
+        <li><h3>每台電腦都安裝</h3><p>在每台電腦下載安裝 InputWeave。Mac 第一次執行時，會請你允許「輔助使用」與「輸入監控」。</p></li>
+        <li><h3>配對</h3><p>一台電腦顯示 6 位數配對碼，在另一台輸入，兩台之後就互相信任。</p><span class="code6" aria-label="配對碼範例：4 8 2 9 1 3">482 913</span></li>
+        <li><h3>排好螢幕</h3><p>依電腦在桌上的位置拖曳排好。兩塊螢幕相接的地方會出現縫線，游標就從那裡穿過去。</p></li>
+      </ol>
+    </div>
+  </section>
+
+  <section class="band" id="local">
+    <div class="wrap">
+      <h2>只在你的網路裡</h2>
+      <div class="facts">
+        <div class="stack"><h3>不用帳號，不經雲端</h3><p>電腦在區域網路上互相找到、直接連線。你打的字、剪貼簿與檔案都不經過任何伺服器。</p></div>
+        <div class="stack"><h3>電腦之間全程加密</h3><p>每條連線都以 QUIC 上的雙向 TLS 加密，並釘選每台電腦自己的憑證。新電腦只能用你螢幕上顯示的配對碼加入。</p></div>
+        <div class="stack"><h3>只有兩件事會連上網際網路</h3><p>InputWeave 會檢查有沒有新版本（可以關掉），加入授權時才會連到 Polar。其他資料都不會離開你的網路。<a href="privacy.html">隱私權</a></p></div>
+        <div class="stack"><h3>開放原始碼</h3><p>原始碼採用 GNU GPL 第 3 版或更新的版本。你可以閱讀、自己建置，或在 <a href="https://github.com/tasict/InputWeave">GitHub</a> 回報問題。</p></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="band" id="download">
+    <div class="wrap">
+      <h2>下載 InputWeave <span data-latest="version">1.0.0</span></h2>
+      <div class="platforms">
+        <div class="plat" data-platform="mac">
+          <span class="mine-note" hidden>適合這台電腦</span>
+          <h3>macOS</h3>
+          <p class="small">macOS 15 以上，Apple 晶片或 Intel。</p>
+          <div class="file" data-file="mac">InputWeave-1.0.0.pkg</div>
+          <p class="small grow">以 Developer ID 簽章並經 Apple 公證。新版本在 App 裡安裝。</p>
+          <a class="btn btn-ink" href="https://github.com/tasict/InputWeave/releases/latest" data-asset="mac">下載 macOS 版</a>
+        </div>
+        <div class="plat" data-platform="win">
+          <span class="mine-note" hidden>適合這台電腦</span>
+          <h3>Windows</h3>
+          <p class="small">Windows 10 22H2 或 Windows 11，x64。</p>
+          <div class="file" data-file="win">InputWeave-1.0.0-x64.msi</div>
+          <p class="small grow">會安裝 InputWeave 服務，所以也能從其他電腦登入與回應 UAC 提示。安裝檔目前還沒有程式碼簽章，Windows 可能會請你確認。新版本在 App 裡安裝。</p>
+          <a class="btn btn-ink" href="https://github.com/tasict/InputWeave/releases/latest" data-asset="win">下載 Windows 版</a>
+        </div>
+        <div class="plat" data-platform="linux">
+          <span class="mine-note" hidden>適合這台電腦</span>
+          <h3>Linux</h3>
+          <p class="small">Ubuntu 24.04 以上與 Debian 13，amd64 或 arm64。支援 X11 與 Wayland：GNOME、KDE Plasma、sway、Hyprland 與 river。</p>
+          <div class="files">
+            <a class="file" href="https://github.com/tasict/InputWeave/releases/latest" data-asset="amd64" data-file="amd64">inputweave_1.0.0_amd64.deb</a>
+            <a class="file" href="https://github.com/tasict/InputWeave/releases/latest" data-asset="arm64" data-file="arm64">inputweave_1.0.0_arm64.deb</a>
+          </div>
+          <div class="cmd"><code id="apt-cmd" data-apt>sudo apt install ./inputweave_1.0.0_amd64.deb</code><button type="button" class="copy-btn" data-copy-from="#apt-cmd" data-copied="已複製">複製</button></div>
+          <p class="small grow">在下載的資料夾以 apt 安裝；arm64 的電腦請用 arm64 的檔案。套件會加入 InputWeave 的套件來源，之後的版本會跟著系統的軟體更新一起送到。</p>
+        </div>
+      </div>
+      <p class="small release-line"><span data-latest-dated hidden>發佈於 <time data-latest="date"></time>。</span><a href="https://github.com/tasict/InputWeave/releases">GitHub 上的所有版本與檢查碼</a></p>
+    </div>
+  </section>
+
+  <section class="band" id="price">
+    <div class="wrap lic">
+      <div class="stack">
+        <h2>免費使用。授權是 US$10。</h2>
+        <p>沒有授權也能使用全部功能，沒有期限。加入授權之前，設定與「關於」會顯示「試用中」。</p>
+        <p>授權會把它換成「已授權」的標籤，最多 5 台電腦使用。在一台輸入授權碼，已配對的電腦會自動取得。</p>
+        <div class="actions">
+          <a class="btn btn-ink" href="https://buy.polar.sh/polar_cl_QlXeUC208E1POhQcAZe6AgpFHGbpsKGBXmhmu0x5LVd">以 US$10 購買授權</a>
+          <a href="license.html">授權怎麼運作</a>
+        </div>
+      </div>
+      <div class="lic-demo">
+        <div class="pair"><span class="trialtag">試用中</span><span class="small">購買前</span></div>
+        <div class="pair"><span class="woven big">已授權</span></div>
+        <span class="small">購買後，在設定與「關於」</span>
+      </div>
+    </div>
+  </section>
+</main>
+
+<footer class="foot">
+  <div class="wrap">
+    <a class="brand" href="./">InputWeave</a>
+    <nav class="links" aria-label="更多">
+      <a href="https://github.com/tasict/InputWeave">原始碼</a>
+      <a href="https://github.com/tasict/InputWeave/releases">版本</a>
+      <a href="https://github.com/tasict/InputWeave/issues">回報問題</a>
+      <a href="license.html">授權</a>
+      <a href="privacy.html">隱私權</a>
+    </nav>
+    <div class="legal small">
+      <p>聯絡：<span class="addr">support@ctsite.cc</span></p>
+      <p>免費開源，採用 GNU GPL 第 3 版或更新的版本。© 2026 InputWeave contributors。</p>
+      <p>標題的英文字型是 Archivo Project Authors 的 Archivo，採用 <a href="../assets/fonts/OFL.txt">SIL Open Font License</a>。</p>
+    </div>
+  </div>
+</footer>
+</body>
+</html>

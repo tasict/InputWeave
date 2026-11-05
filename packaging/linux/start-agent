@@ -1,0 +1,18 @@
+#!/bin/sh
+# Starts the agent's user unit with this session's environment, for
+# desktops that do not start graphical-session.target themselves (see
+# cc.ctsite.inputweave-agent.desktop). systemd's user manager outlives a
+# session: it keeps the variables an earlier login gave it, and on these
+# desktops nothing stops the agent at logout. So the variables this
+# session has are imported and the ones it lacks removed (an X11 login
+# after a Wayland one must not keep WAYLAND_DISPLAY), and the agent is
+# restarted, which starts it when it is not running, so it takes this
+# session's display.
+for name in DISPLAY WAYLAND_DISPLAY XAUTHORITY XDG_SESSION_TYPE XDG_CURRENT_DESKTOP XDG_SESSION_ID; do
+    if eval "[ -n \"\${$name:-}\" ]"; then
+        systemctl --user import-environment "$name"
+    else
+        systemctl --user unset-environment "$name"
+    fi
+done
+exec systemctl --user restart app-cc.ctsite.inputweave@agent.service

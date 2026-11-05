@@ -1,0 +1,134 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Window
+    x:Class="InputWeave.Main.MainWindow"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    Title="InputWeave">
+
+    <!-- The five pages in a NavigationView on the
+         left, the License page at its foot, under a title bar with the app's name; Mica behind both. -->
+    <Grid x:Name="Root">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+        </Grid.RowDefinitions>
+
+        <Grid x:Name="TitleBar" Height="48" Padding="16,0,0,0" ColumnSpacing="12">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="Auto" />
+                <ColumnDefinition Width="*" />
+            </Grid.ColumnDefinitions>
+            <Image Width="16" Height="16" Source="ms-appx:///Assets/AppIcon.png" VerticalAlignment="Center" />
+            <TextBlock
+                Grid.Column="1"
+                VerticalAlignment="Center"
+                Style="{StaticResource CaptionTextBlockStyle}"
+                Text="InputWeave" />
+        </Grid>
+
+        <NavigationView
+            x:Name="Nav"
+            Grid.Row="1"
+            AlwaysShowHeader="True"
+            IsBackButtonVisible="Collapsed"
+            IsPaneToggleButtonVisible="False"
+            IsSettingsVisible="False"
+            OpenPaneLength="220"
+            PaneDisplayMode="Left"
+            SelectionChanged="OnNavigationChanged">
+            <NavigationView.Resources>
+                <!-- Mica shows through the pane, as in Windows' Settings. -->
+                <SolidColorBrush x:Key="NavigationViewContentBackground" Color="Transparent" />
+                <SolidColorBrush x:Key="NavigationViewExpandedPaneBackground" Color="Transparent" />
+                <SolidColorBrush x:Key="NavigationViewDefaultPaneBackground" Color="Transparent" />
+                <Thickness x:Key="NavigationViewContentGridBorderThickness">0</Thickness>
+            </NavigationView.Resources>
+            <NavigationView.MenuItems>
+                <NavigationViewItem x:Name="GeneralItem" Tag="General">
+                    <NavigationViewItem.Icon>
+                        <FontIcon Glyph="&#xE713;" />
+                    </NavigationViewItem.Icon>
+                </NavigationViewItem>
+                <NavigationViewItem x:Name="DevicesItem" Tag="Devices">
+                    <NavigationViewItem.Icon>
+                        <FontIcon Glyph="&#xE7F4;" />
+                    </NavigationViewItem.Icon>
+                </NavigationViewItem>
+                <NavigationViewItem x:Name="ArrangementItem" Tag="Arrangement">
+                    <NavigationViewItem.Icon>
+                        <FontIcon Glyph="&#xF246;" />
+                    </NavigationViewItem.Icon>
+                </NavigationViewItem>
+                <NavigationViewItem x:Name="FilesItem" Tag="Files">
+                    <NavigationViewItem.Icon>
+                        <FontIcon Glyph="&#xE8AB;" />
+                    </NavigationViewItem.Icon>
+                </NavigationViewItem>
+                <NavigationViewItem x:Name="TroubleshootingItem" Tag="Troubleshooting">
+                    <NavigationViewItem.Icon>
+                        <FontIcon Glyph="&#xE90F;" />
+                    </NavigationViewItem.Icon>
+                </NavigationViewItem>
+            </NavigationView.MenuItems>
+            <!-- The license, at the foot of the sidebar, with "Trial" or the
+                 woven label beside it on every page. -->
+            <NavigationView.FooterMenuItems>
+                <NavigationViewItem x:Name="LicenseItem" Tag="License" Visibility="Collapsed">
+                    <NavigationViewItem.Icon>
+                        <FontIcon Glyph="&#xE8D7;" />
+                    </NavigationViewItem.Icon>
+                </NavigationViewItem>
+            </NavigationView.FooterMenuItems>
+
+            <Border
+                x:Name="PageFrame"
+                Background="{ThemeResource LayerFillColorDefaultBrush}"
+                BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                BorderThickness="1,1,0,0"
+                CornerRadius="8,0,0,0">
+                <Grid>
+                    <ContentControl
+                        x:Name="PageHost"
+                        HorizontalContentAlignment="Stretch"
+                        VerticalContentAlignment="Stretch"
+                        IsTabStop="False" />
+                    <!-- While the background service is out of reach. -->
+                    <Grid
+                        x:Name="Unavailable"
+                        Background="{ThemeResource SolidBackgroundFillColorBaseBrush}"
+                        CornerRadius="8,0,0,0"
+                        Visibility="Collapsed">
+                        <StackPanel
+                            MaxWidth="420"
+                            HorizontalAlignment="Center"
+                            VerticalAlignment="Center"
+                            Spacing="12">
+                            <FontIcon
+                                HorizontalAlignment="Center"
+                                FontSize="40"
+                                Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                Glyph="&#xE7BA;" />
+                            <TextBlock
+                                x:Name="UnavailableTitle"
+                                HorizontalAlignment="Center"
+                                Style="{StaticResource SubtitleTextBlockStyle}"
+                                TextAlignment="Center"
+                                TextWrapping="Wrap" />
+                            <TextBlock
+                                x:Name="UnavailableDetail"
+                                HorizontalAlignment="Center"
+                                Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                TextAlignment="Center"
+                                TextWrapping="Wrap" />
+                            <Button
+                                x:Name="UnavailableAction"
+                                HorizontalAlignment="Center"
+                                Click="OnUnavailableAction"
+                                Style="{StaticResource AccentButtonStyle}" />
+                        </StackPanel>
+                    </Grid>
+                </Grid>
+            </Border>
+        </NavigationView>
+    </Grid>
+</Window>

@@ -1,0 +1,24 @@
+<Project>
+  <!-- Shared by every project under apps/windows. -->
+  <PropertyGroup>
+    <!-- The Cargo workspace version, read from Cargo.toml at build time, like
+         the macOS app's MARKETING_VERSION must equal it: the app and the
+         background service ship together, and the MSI takes its version
+         from the same line. -->
+    <CargoManifest>$(MSBuildThisFileDirectory)..\..\Cargo.toml</CargoManifest>
+    <CargoVersion>$([System.Text.RegularExpressions.Regex]::Match($([System.IO.File]::ReadAllText('$(CargoManifest)')), '(?m)^\[workspace\.package\][^\[]*?^version = "([0-9]+\.[0-9]+\.[0-9]+)"').Groups[1].Value)</CargoVersion>
+    <Version>$(CargoVersion)</Version>
+    <Product>InputWeave</Product>
+    <Company>InputWeave contributors</Company>
+    <Copyright>Copyright © InputWeave contributors</Copyright>
+    <LangVersion>latest</LangVersion>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+  </PropertyGroup>
+
+  <Target Name="CheckCargoVersion" BeforeTargets="Build">
+    <Error Condition="'$(CargoVersion)' == ''"
+           Text="No version = &quot;x.y.z&quot; under [workspace.package] in $(CargoManifest)." />
+  </Target>
+</Project>

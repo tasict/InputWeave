@@ -1,0 +1,4 @@
+[D-BUS Service]
+Name=cc.ctsite.inputweave
+Exec=/usr/bin/inputweave-app --gapplication-service
+SystemdService=app-cc.ctsite.inputweave.service

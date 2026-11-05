@@ -1,0 +1,29 @@
+[package]
+name = "iw-ipc"
+description = "IPC transport between the InputWeave agent and its clients"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+repository.workspace = true
+homepage.workspace = true
+
+[dependencies]
+bytes.workspace = true
+iw-proto.workspace = true
+prost.workspace = true
+tokio = { workspace = true, features = ["io-util", "net"] }
+
+[target.'cfg(windows)'.dependencies]
+tokio = { workspace = true, features = ["io-util", "net", "sync", "time"] }
+windows = { workspace = true, features = [
+    "Win32_Foundation",
+    "Win32_Security",
+    "Win32_Security_Authorization",
+    "Win32_System_RemoteDesktop",
+    "Win32_System_Threading",
+] }
+
+[dev-dependencies]
+tempfile.workspace = true
+tokio = { workspace = true, features = ["io-util", "macros", "net", "rt"] }

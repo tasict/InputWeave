@@ -1,0 +1,57 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>CFBundleDevelopmentRegion</key>
+	<string>en</string>
+	<key>CFBundleDisplayName</key>
+	<string>InputWeave</string>
+	<key>CFBundleExecutable</key>
+	<string>$(EXECUTABLE_NAME)</string>
+	<key>CFBundleIdentifier</key>
+	<string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
+	<key>CFBundleInfoDictionaryVersion</key>
+	<string>6.0</string>
+	<key>CFBundleLocalizations</key>
+	<array>
+		<string>en</string>
+		<string>zh-Hant</string>
+	</array>
+	<key>CFBundleName</key>
+	<string>$(PRODUCT_NAME)</string>
+	<key>CFBundlePackageType</key>
+	<string>APPL</string>
+	<key>CFBundleShortVersionString</key>
+	<string>$(MARKETING_VERSION)</string>
+	<key>CFBundleVersion</key>
+	<string>$(CURRENT_PROJECT_VERSION)</string>
+	<key>InputWeaveCheckoutURL</key>
+	<string>https://buy.polar.sh/polar_cl_QlXeUC208E1POhQcAZe6AgpFHGbpsKGBXmhmu0x5LVd</string>
+	<key>InputWeaveCustomerPortalURL</key>
+	<string>https://polar.sh/ctsitecc/portal</string>
+	<key>InputWeavePolarOrganizationID</key>
+	<string>95b9d4a7-5dad-4df5-b309-2cd3383420ae</string>
+	<key>InputWeavePolarServer</key>
+	<string>https://api.polar.sh</string>
+	<key>LSApplicationCategoryType</key>
+	<string>public.app-category.productivity</string>
+	<key>LSUIElement</key>
+	<true/>
+	<key>NSDesktopFolderUsageDescription</key>
+	<string>InputWeave sends files on the desktop that you drag or send to your other computers, and saves files you drop there.</string>
+	<key>NSDocumentsFolderUsageDescription</key>
+	<string>InputWeave sends files in Documents that you drag or send to your other computers, and saves files you drop there.</string>
+	<key>NSDownloadsFolderUsageDescription</key>
+	<string>InputWeave saves files your other computers send you in Downloads, and sends files from there that you drag or send to them.</string>
+	<key>NSHumanReadableCopyright</key>
+	<string>Copyright © 2026 InputWeave contributors.</string>
+	<key>NSNetworkVolumesUsageDescription</key>
+	<string>InputWeave sends files on network volumes that you drag or send to your other computers, and saves files you drop there.</string>
+	<key>NSRemovableVolumesUsageDescription</key>
+	<string>InputWeave sends files on removable volumes that you drag or send to your other computers, and saves files you drop there.</string>
+	<key>SUFeedURL</key>
+	<string>$(INPUTWEAVE_APPCAST_URL)</string>
+	<key>SUPublicEDKey</key>
+	<string>$(INPUTWEAVE_SPARKLE_PUBLIC_KEY)</string>
+</dict>
+</plist>

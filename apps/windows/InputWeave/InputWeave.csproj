@@ -1,0 +1,130 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- The notification area app (WinUI 3). It only talks to the background
+       service over its pipe and never links Rust. Unpackaged, with the .NET
+       runtime and the Windows App SDK runtime in its folder, so it needs
+       nothing installed. The MSI installs what `dotnet publish` puts out
+       (packaging/windows/InputWeave.wxs, apps/windows/scripts/package.ps1). -->
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net9.0-windows10.0.19041.0</TargetFramework>
+    <TargetPlatformMinVersion>10.0.19041.0</TargetPlatformMinVersion>
+    <SupportedOSPlatformVersion>10.0.19041.0</SupportedOSPlatformVersion>
+    <RootNamespace>InputWeave</RootNamespace>
+    <AssemblyName>InputWeave</AssemblyName>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <Platforms>x64;ARM64</Platforms>
+    <RuntimeIdentifiers>win-x64;win-arm64</RuntimeIdentifiers>
+    <RuntimeIdentifier Condition="'$(RuntimeIdentifier)' == '' and '$(Platform)' == 'ARM64'">win-arm64</RuntimeIdentifier>
+    <RuntimeIdentifier Condition="'$(RuntimeIdentifier)' == ''">win-x64</RuntimeIdentifier>
+    <SelfContained>true</SelfContained>
+    <UseWinUI>true</UseWinUI>
+    <WindowsPackageType>None</WindowsPackageType>
+    <WindowsAppSDKSelfContained>true</WindowsAppSDKSelfContained>
+    <!-- Builds resources.pri from the .resw files, also when unpackaged. -->
+    <EnableMsixTooling>true</EnableMsixTooling>
+    <DefaultLanguage>en-US</DefaultLanguage>
+    <!-- Win32 calls through LibraryImport (Support/Native.cs). -->
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <!-- Drawn from the macOS app icon by scripts/MakeAppIcon. -->
+    <ApplicationIcon>Assets\InputWeave.ico</ApplicationIcon>
+    <!-- Program.cs has its own Main, for a single instance. -->
+    <DefineConstants>$(DefineConstants);DISABLE_XAML_GENERATED_MAIN</DefineConstants>
+  </PropertyGroup>
+
+  <!-- Publishing trims the .NET libraries and the Windows SDK and WinUI
+       projections to what the app uses (Microsoft.Windows.SDK.NET.dll alone
+       is 24 MB untrimmed). Partial: only assemblies that declare themselves
+       trimmable, never the app's own code or its other packages. The
+       trimmer warns about generic fallbacks inside CsWinRT (WinRT.Runtime,
+       Microsoft.Windows.SDK.NET), not about the app; those stay warnings. -->
+  <PropertyGroup>
+    <PublishTrimmed>true</PublishTrimmed>
+    <TrimMode>partial</TrimMode>
+    <ILLinkTreatWarningsAsErrors>false</ILLinkTreatWarningsAsErrors>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- The metapackage, because H.NotifyIcon asks for it, but only the
+         components the app uses go into its folder (WinUI, Foundation,
+         InteractiveExperiences, DWrite). Without Runtime, the self-contained
+         payload is taken from each component package rather than from the
+         whole runtime MSIX; ML (ONNX Runtime and DirectML, about 40 MB), AI
+         and Widgets are left out. The versions are the ones the metapackage
+         pins: update them with it. -->
+    <PackageReference Include="Microsoft.WindowsAppSDK" Version="1.8.260921001" />
+    <PackageReference Include="Microsoft.WindowsAppSDK.Runtime" Version="1.8.260921001" ExcludeAssets="all" GeneratePathProperty="true" />
+    <PackageReference Include="Microsoft.WindowsAppSDK.ML" Version="1.8.2223" ExcludeAssets="all" />
+    <PackageReference Include="Microsoft.WindowsAppSDK.AI" Version="1.8.79" ExcludeAssets="all" />
+    <PackageReference Include="Microsoft.WindowsAppSDK.Widgets" Version="1.8.251231004" ExcludeAssets="all" />
+    <PackageReference Include="Microsoft.Windows.SDK.BuildTools" Version="10.0.26100.7705" />
+    <PackageReference Include="H.NotifyIcon.WinUI" Version="2.3.2" />
+    <PackageReference Include="System.ServiceProcess.ServiceController" Version="9.0.21" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\InputWeave.Core\InputWeave.Core.csproj" />
+  </ItemGroup>
+  <!-- Only for trying the updater with a throwaway key: a build given
+       -p:UpdatePublicKey=<base64> checks update signatures with that key
+       instead of InputWeave's (Updates/Updater.cs). package.ps1 never sets
+       it, so released builds carry no such switch. -->
+  <ItemGroup Condition="'$(UpdatePublicKey)' != ''">
+    <AssemblyMetadata Include="UpdatePublicKey" Value="$(UpdatePublicKey)" />
+  </ItemGroup>
+  <!-- BouncyCastle is only there for Ed25519 (InputWeave.Core/Updates):
+       trimmed to what the app calls, a few hundred KB instead of 6 MB. -->
+  <ItemGroup>
+    <TrimmableAssembly Include="BouncyCastle.Cryptography" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Drawn by scripts/MakeTrayIcons. -->
+    <Content Include="Assets\Tray\*.ico" CopyToOutputDirectory="PreserveNewest" />
+    <!-- The window's icon and the title bar's, written by apps/macos/scripts/make-brand-assets.swift. -->
+    <Content Include="Assets\AppIcon.ico" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="Assets\AppIcon.png" CopyToOutputDirectory="PreserveNewest" />
+    <!-- The welcome page of setup, and notifications: the same, at 256 px. -->
+    <Content Include="Assets\AppIcon256.png" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+  <!-- App notifications need one file of the runtime MSIX that no component
+       package has: AppNotificationManager.Register loads
+       Microsoft.WindowsAppRuntime.Insights.Resource.dll from the app's
+       folder and fails without it ("The specified module could not be
+       found"). With Runtime's assets excluded above, the Windows App SDK
+       has no setting that brings this one file, so it is taken out of the
+       runtime MSIX in Runtime's package, alone, and copied next to the app
+       the way the SDK copies its own files: into the build output and the
+       published folder. Runtime's version, from the reference above, picks
+       the MSIX. -->
+  <Target Name="AddWindowsAppRuntimeInsights" BeforeTargets="AssignTargetPaths">
+    <PropertyGroup>
+      <WindowsAppRuntimeInsights>Microsoft.WindowsAppRuntime.Insights.Resource.dll</WindowsAppRuntimeInsights>
+      <!-- Set here, not at the top level: IntermediateOutputPath is only
+           defined after the project file has been read. -->
+      <WindowsAppRuntimeInsightsDir>$(IntermediateOutputPath)WindowsAppRuntimeInsights\</WindowsAppRuntimeInsightsDir>
+      <WindowsAppRuntimeInsightsArch>x64</WindowsAppRuntimeInsightsArch>
+      <WindowsAppRuntimeInsightsArch Condition="'$(RuntimeIdentifier)' == 'win-arm64'">arm64</WindowsAppRuntimeInsightsArch>
+    </PropertyGroup>
+    <ItemGroup>
+      <WindowsAppRuntimeMsix Include="$(PkgMicrosoft_WindowsAppSDK_Runtime)\tools\MSIX\win10-$(WindowsAppRuntimeInsightsArch)\Microsoft.WindowsAppRuntime.?.?.msix" />
+    </ItemGroup>
+    <Error Condition="'$(PkgMicrosoft_WindowsAppSDK_Runtime)' == '' or '@(WindowsAppRuntimeMsix)' == ''"
+           Text="No Windows App SDK runtime MSIX for $(WindowsAppRuntimeInsightsArch) in the Microsoft.WindowsAppSDK.Runtime package ('$(PkgMicrosoft_WindowsAppSDK_Runtime)'): without $(WindowsAppRuntimeInsights) the app cannot post notifications." />
+    <Unzip SourceFiles="@(WindowsAppRuntimeMsix)"
+           DestinationFolder="$(WindowsAppRuntimeInsightsDir)"
+           Include="$(WindowsAppRuntimeInsights)"
+           SkipUnchangedFiles="true"
+           OverwriteReadOnlyFiles="true" />
+    <Error Condition="!Exists('$(WindowsAppRuntimeInsightsDir)$(WindowsAppRuntimeInsights)')"
+           Text="@(WindowsAppRuntimeMsix) has no $(WindowsAppRuntimeInsights)." />
+    <ItemGroup>
+      <None Include="$(WindowsAppRuntimeInsightsDir)$(WindowsAppRuntimeInsights)"
+            Link="$(WindowsAppRuntimeInsights)"
+            CopyToOutputDirectory="PreserveNewest"
+            CopyToPublishDirectory="PreserveNewest" />
+    </ItemGroup>
+  </Target>
+
+</Project>

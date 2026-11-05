@@ -1,0 +1,10 @@
+# Stable addresses for the apps' update feeds, the Linux package source,
+# the links in the apps and the release notes (docs/architecture.md §12). Each one leads to
+# where the releases are hosted now, so moving them to another host
+# changes only these lines, never an installed app. 302, not 301, so no
+# client keeps an old target.
+/latest/*    https://github.com/tasict/InputWeave/releases/latest/download/:splat  302
+/download/*  https://github.com/tasict/InputWeave/releases/download/:splat  302
+/releases/*  https://github.com/tasict/InputWeave/releases/tag/:splat  302
+/user-guide  https://github.com/tasict/InputWeave/blob/main/docs/user-guide.md  302
+/zh-Hant/user-guide  https://github.com/tasict/InputWeave/blob/main/docs/user-guide.zh-TW.md  302
