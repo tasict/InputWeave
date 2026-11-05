@@ -7,7 +7,10 @@
 #   repository that had the old version (the root one, apps/linux, and any
 #   other workspace kept in step with them), and their Cargo.lock files;
 # - apps/macos/project.yml's MARKETING_VERSION, and CURRENT_PROJECT_VERSION,
-#   the build number derived from it (apps/macos/scripts/build-number.sh).
+#   the build number derived from it (apps/macos/scripts/build-number.sh);
+# - the website's download section as it reads before (or without) its
+#   script asking GitHub for the newest release: the version and the
+#   installers' names on both home pages.
 #
 # Builds check that these agree (apps/macos/scripts/embed-agent.sh, the
 # Linux app's tests). What needs words, the metainfo's <release> entry and
@@ -63,6 +66,14 @@ grep -q "^    MARKETING_VERSION: $new\$" "$project" && grep -q "^    CURRENT_PRO
     exit 1
 }
 echo "apps/macos/project.yml: MARKETING_VERSION $new, CURRENT_PROJECT_VERSION $build"
+
+for page in "$here/site/index.html" "$here/site/zh-Hant/index.html"; do
+    edit "$page" -E \
+        -e "s/(data-latest=\"version\">)[0-9]+\.[0-9]+\.[0-9]+</\1$new</g" \
+        -e "s/InputWeave-[0-9]+\.[0-9]+\.[0-9]+(\.pkg|-x64\.msi)/InputWeave-$new\1/g" \
+        -e "s/inputweave_[0-9]+\.[0-9]+\.[0-9]+_(amd64|arm64)\.deb/inputweave_${new}_\1.deb/g"
+    echo "${page#"$here"/}: the download section names $new"
+done
 
 echo "Still to write by hand:"
 grep -q "<release version=\"$new\"" "$here/packaging/linux/cc.ctsite.inputweave.metainfo.xml" ||
