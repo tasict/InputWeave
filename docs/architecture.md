@@ -213,7 +213,7 @@ Keys travel as physical keys (USB HID usages) and are interpreted by the receive
 | Injection | `CGEventPost` | `SendInput` (absolute, virtual desk; scan codes) | X11: XTest; GNOME/KDE Wayland: RemoteDesktop portal + libei; wlroots: virtual pointer/keyboard |
 | Displays | `CGGetActiveDisplayList`, points, scale | `EnumDisplayMonitors` + `GetDpiForMonitor`, PerMonitorV2 | XRandR; `wl_output` |
 | Clipboard | `NSPasteboard` (polling `changeCount`), agent | `AddClipboardFormatListener`, **broker** | X11 `CLIPBOARD` selection; Wayland data-control (ext/wlr), else the Clipboard portal; agent |
-| Desktop pictures | `NSWorkspace.desktopImageURL(for:)`, agent | `IDesktopWallpaper` + WIC, **broker** | GNOME settings, KDE's configuration, agent |
+| Desktop pictures | `NSWorkspace.desktopImageURL(for:)`, agent | `IDesktopWallpaper` + WIC, **broker** | GNOME settings, KDE's configuration, other X11 desktops' root window picture (`_XROOTPMAP_ID`), agent |
 | Writing files | agent | **broker** | agent |
 | Permissions | Accessibility, Input Monitoring, Local Network (all the agent's) | one UAC prompt at install | portal dialogs (RemoteDesktop remembers with a restore token) |
 | Lock / sign-in screen | needs the virtual HID entitlement (§2.3) | yes, through the service and input desktop switching | no |

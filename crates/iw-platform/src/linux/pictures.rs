@@ -20,11 +20,17 @@
 //!   another wallpaper plugin, or that has no containment shows none,
 //!   never another screen's. Not tried on a real desktop.
 //!
-//! Other desktops have none (`available` is false). JPEG, PNG and WebP are
-//! read (the `image` crate), anything else counts as none, as an XML
-//! slideshow does. A preview is made again only when its file's path,
-//! modification time or size changed; the agent asks again as displays
-//! change and every 60 seconds.
+//! - Other X11 desktops show the picture a program put on the root window
+//!   and named in its `_XROOTPMAP_ID` (feh, nitrogen and the like;
+//!   `x11::root_picture`): each display the part of it under that display.
+//!   Without one, or of a solid colour, a display shows none.
+//!
+//! Other Wayland desktops have none (`available` is false). JPEG, PNG and
+//! WebP files are read (the `image` crate), anything else counts as none,
+//! as an XML slideshow does. A preview is made again only when its file's
+//! path, modification time or size changed, or the root window shows
+//! another pixmap; the agent asks again as displays change and every 60
+//! seconds.
 
 use std::path::{Path, PathBuf};
 
@@ -297,6 +303,7 @@ mod platform {
     use crate::linux::desktop::{
         Desktop, config_home, gsettings_list, gsettings_string, gvariant_string, listed,
     };
+    use crate::linux::x11::root_picture::{RootPicture, Shown, region, solid};
     use crate::{DesktopPictures, PlatformError, preview};
 
     /// The largest image read, on either side.
@@ -307,6 +314,11 @@ mod platform {
         desktop: Desktop,
         /// Previews made, by picture file.
         made: Mutex<HashMap<PathBuf, Made>>,
+        /// The root window's picture, on an X11 desktop other than GNOME
+        /// and Plasma.
+        root: Option<RootPicture>,
+        /// Previews made of it, by display.
+        root_made: Mutex<HashMap<String, RootMade>>,
     }
 
     struct Made {
@@ -315,12 +327,75 @@ mod platform {
         jpeg: Option<Vec<u8>>,
     }
 
+    /// A display's preview of the root window's picture, and of what.
+    struct RootMade {
+        shown: Shown,
+        region: (u16, u16, u16, u16),
+        jpeg: Option<Vec<u8>>,
+    }
+
     impl LinuxPictures {
-        pub(crate) fn new(desktop: Desktop) -> Self {
+        /// The pictures of `desktop`, or of the root window when
+        /// `root_picture` (`Info::root_picture`).
+        pub(crate) fn new(desktop: Desktop, root_picture: bool) -> Self {
             Self {
                 desktop,
                 made: Mutex::new(HashMap::new()),
+                root: root_picture.then(RootPicture::new),
+                root_made: Mutex::new(HashMap::new()),
             }
+        }
+
+        /// Each display's part of the root window's picture, made again
+        /// only for a display that moved or when the root window shows
+        /// another pixmap.
+        fn root_pictures(
+            &self,
+            root: &RootPicture,
+            displays: &[Display],
+        ) -> HashMap<String, Vec<u8>> {
+            let mut out = HashMap::new();
+            let mut made = lock(&self.root_made);
+            let Some(shown) = root.shown() else {
+                made.clear();
+                return out;
+            };
+            made.retain(|id, _| displays.iter().any(|d| &d.id == id));
+            for screen in displays {
+                let Some(part) = region(screen.bounds, shown.width, shown.height) else {
+                    made.remove(&screen.id);
+                    continue;
+                };
+                let jpeg = match made.get(&screen.id) {
+                    Some(m) if m.shown == shown && m.region == part => m.jpeg.clone(),
+                    _ => {
+                        let jpeg = root
+                            .read(&shown, part)
+                            .filter(|rgb| !solid(rgb.as_raw()))
+                            .and_then(|rgb| preview_of_image(&image::DynamicImage::ImageRgb8(rgb)));
+                        if jpeg.is_none() {
+                            tracing::debug!(
+                                display = %screen.id,
+                                pixmap = shown.pixmap,
+                                "no preview of the root window's picture"
+                            );
+                        }
+                        made.insert(
+                            screen.id.clone(),
+                            RootMade {
+                                shown,
+                                region: part,
+                                jpeg: jpeg.clone(),
+                            },
+                        );
+                        jpeg
+                    }
+                };
+                if let Some(jpeg) = jpeg {
+                    out.insert(screen.id.clone(), jpeg);
+                }
+            }
+            out
         }
 
         /// The wallpaper image of each display, as written.
@@ -386,6 +461,9 @@ mod platform {
             &self,
             displays: &[Display],
         ) -> Result<HashMap<String, Vec<u8>>, PlatformError> {
+            if let Some(root) = &self.root {
+                return Ok(self.root_pictures(root, displays));
+            }
             let mut out = HashMap::new();
             let mut used = Vec::new();
             for (display, image) in self.images(displays) {
@@ -402,7 +480,7 @@ mod platform {
         }
 
         fn available(&self) -> bool {
-            self.desktop != Desktop::Other
+            self.desktop != Desktop::Other || self.root.is_some()
         }
     }
 
@@ -422,11 +500,16 @@ mod platform {
         limits.max_image_width = Some(MAX_SIDE);
         limits.max_image_height = Some(MAX_SIDE);
         reader.limits(limits);
-        let image = reader.decode().ok()?;
+        preview_of_image(&reader.decode().ok()?)
+    }
+
+    /// A JPEG preview of `image`, or `None` if no size of it is light
+    /// enough.
+    fn preview_of_image(image: &image::DynamicImage) -> Option<Vec<u8>> {
         preview::smallest_fitting(
             f64::from(image.width()),
             f64::from(image.height()),
-            |width, height| jpeg_of(&image, width, height),
+            |width, height| jpeg_of(image, width, height),
         )
     }
 

@@ -74,7 +74,10 @@ pub(crate) fn native(
     );
     let info = info::Info::of(&session);
     // The desktop's pictures, whichever kind of session shows them.
-    let pictures = Box::new(pictures::LinuxPictures::new(info.desktop()));
+    let pictures = Box::new(pictures::LinuxPictures::new(
+        info.desktop(),
+        info.root_picture(),
+    ));
     match session.kind {
         SessionKind::X11 => x11::native(&info, pictures),
         SessionKind::Wayland => wayland::native(options, &info, pictures),

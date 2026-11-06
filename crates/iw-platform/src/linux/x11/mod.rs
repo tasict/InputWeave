@@ -1,6 +1,7 @@
 //! X11 backends: XInput 2 raw events for capture, XTest for injection,
 //! RandR for the displays, the
-//! `CLIPBOARD` selection for the clipboard.
+//! `CLIPBOARD` selection for the clipboard, and the root window's picture
+//! (`root_picture`) for previews on desktops other than GNOME and Plasma.
 //!
 //! Each backend keeps a connection of its own to the X server, so a
 //! request of one never waits behind another's. Grabs, a hidden cursor and
@@ -12,6 +13,8 @@
 //! container (`scripts/linux-x11-tests.sh`). Nothing has been tried on a
 //! real X11 desktop yet.
 
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+pub(crate) mod root_picture;
 pub(crate) mod translate;
 
 #[cfg(target_os = "linux")]

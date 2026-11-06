@@ -34,11 +34,22 @@ impl Info {
         self.pictures
     }
 
+    /// Whether the desktop pictures are the root window's: an X11 desktop
+    /// other than GNOME and Plasma, whose picture, if a program publishes
+    /// it, is on the root window (`x11::root_picture`).
+    pub(crate) fn root_picture(&self) -> bool {
+        self.kind == SessionType::X11 && self.pictures == Desktop::Other
+    }
+
     /// The session with `backends`, and what reads its desktop pictures.
     pub(crate) fn with(&self, mut backends: Vec<Backend>) -> SessionInfo {
         backends.push(match self.pictures {
             Desktop::Gnome => Backend::serving(BackendRole::DesktopPictures, "GNOME settings"),
             Desktop::Kde => Backend::serving(BackendRole::DesktopPictures, "KDE Plasma settings"),
+            Desktop::Other if self.root_picture() => Backend::serving(
+                BackendRole::DesktopPictures,
+                "X11 root window (_XROOTPMAP_ID)",
+            ),
             Desktop::Other => {
                 Backend::missing(BackendRole::DesktopPictures, "not read on this desktop")
             }
@@ -93,5 +104,23 @@ mod tests {
                 .kind,
             SessionType::X11
         );
+    }
+
+    #[test]
+    fn other_x11_desktops_show_the_root_windows_picture() {
+        let openbox = Info::of(&session(SessionKind::X11, None));
+        assert!(openbox.root_picture());
+        assert_eq!(
+            openbox.with(Vec::new()).backends,
+            [Backend::serving(
+                BackendRole::DesktopPictures,
+                "X11 root window (_XROOTPMAP_ID)"
+            )]
+        );
+        // GNOME and Plasma on X11 keep their settings; Wayland has no
+        // root window to read.
+        assert!(!Info::of(&session(SessionKind::X11, Some("GNOME"))).root_picture());
+        assert!(!Info::of(&session(SessionKind::X11, Some("KDE"))).root_picture());
+        assert!(!Info::of(&session(SessionKind::Wayland, Some("sway"))).root_picture());
     }
 }

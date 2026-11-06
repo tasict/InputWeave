@@ -918,3 +918,89 @@ fn keys_from_other_devices_reach_the_app_even_when_they_are_hotkeys_here() {
     let (keys_heard, _) = probe.heard(QUIET);
     assert_eq!(keys_heard, vec![37, 64, 50]);
 }
+
+#[test]
+#[ignore = "needs an X server: scripts/linux-x11-tests.sh"]
+fn each_display_previews_its_part_of_the_root_windows_picture() {
+    use iw_core::layout::Display;
+    use x11rb::protocol::xproto::{AtomEnum, ChangeGCAux, CreateGCAux, PropMode, Rectangle};
+    use x11rb::wrapper::ConnectionExt as _;
+
+    use crate::DesktopPictures;
+    use crate::linux::desktop::Desktop;
+    use crate::linux::pictures::LinuxPictures;
+
+    // As feh does: a pixmap of the whole root window, named on it. Red on
+    // the left half and blue on the right, each with a white corner so
+    // neither is a solid colour.
+    let (conn, root) = connect().unwrap();
+    let screen = conn.setup().roots[0].clone();
+    let (width, height) = (screen.width_in_pixels, screen.height_in_pixels);
+    let half = width / 2;
+    let pixmap = conn.generate_id().unwrap();
+    conn.create_pixmap(screen.root_depth, pixmap, root, width, height)
+        .unwrap();
+    let gc = conn.generate_id().unwrap();
+    conn.create_gc(gc, pixmap, &CreateGCAux::new()).unwrap();
+    let fill = |colour: u32, x: u16, w: u16, h: u16| {
+        conn.change_gc(gc, &ChangeGCAux::new().foreground(colour))
+            .unwrap();
+        let rect = Rectangle {
+            x: x as i16,
+            y: 0,
+            width: w,
+            height: h,
+        };
+        conn.poly_fill_rectangle(pixmap, gc, &[rect]).unwrap();
+    };
+    fill(0xff0000, 0, half, height);
+    fill(0x0000ff, half, half, height);
+    fill(0xffffff, 0, 64, 64);
+    fill(0xffffff, half, 64, 64);
+    let atom = conn
+        .intern_atom(false, b"_XROOTPMAP_ID")
+        .unwrap()
+        .reply()
+        .unwrap()
+        .atom;
+    conn.change_property32(PropMode::REPLACE, root, atom, AtomEnum::PIXMAP, &[pixmap])
+        .unwrap();
+    conn.get_input_focus().unwrap().reply().unwrap();
+
+    let display = |id: &str, x: u16, primary: bool| Display {
+        id: id.to_owned(),
+        bounds: Rect::new(f64::from(x), 0.0, f64::from(half), f64::from(height)),
+        scale: 1.0,
+        primary,
+    };
+    let displays = [display("left", 0, true), display("right", half, false)];
+    let pictures = LinuxPictures::new(Desktop::Other, true);
+    assert!(pictures.available());
+    let previews = pictures.pictures(&displays).unwrap();
+    for (id, expected) in [("left", [255u8, 0, 0]), ("right", [0, 0, 255])] {
+        let jpeg = previews
+            .get(id)
+            .unwrap_or_else(|| panic!("no preview of {id}"));
+        assert!(jpeg.len() <= crate::preview::MAX_BYTES);
+        let image = image::load_from_memory(jpeg).unwrap().to_rgb8();
+        assert!(image.width().max(image.height()) <= crate::preview::LONG_EDGE);
+        let centre = image.get_pixel(image.width() / 2, image.height() / 2).0;
+        let off = centre
+            .iter()
+            .zip(expected)
+            .map(|(a, b)| a.abs_diff(b))
+            .max()
+            .unwrap();
+        assert!(off < 24, "{id}: {centre:?}, not {expected:?}");
+    }
+    // Asked again: the same, from what was made.
+    assert_eq!(pictures.pictures(&displays).unwrap(), previews);
+
+    // Without the property, none.
+    conn.delete_property(root, atom).unwrap();
+    conn.get_input_focus().unwrap().reply().unwrap();
+    assert!(pictures.pictures(&displays).unwrap().is_empty());
+    conn.free_gc(gc).unwrap();
+    conn.free_pixmap(pixmap).unwrap();
+    conn.flush().unwrap();
+}

@@ -152,6 +152,7 @@ To stop sharing yours, turn off "Share this computer's desktop picture with pair
 - its desktop picture is a solid color;
 - it is a Windows computer on the sign-in screen: the desktop picture can only be read once someone signs in, so nothing is sent before (and it's cleared after signing out);
 - it is a Mac whose display was connected while the background service was running: the thumbnail may need the service restarted (for example by signing out and in);
+- it is a Linux computer whose desktop is neither GNOME nor KDE Plasma, unless it's an X11 desktop that puts its picture on the root window for other programs (as feh and nitrogen do); on such a desktop each screen shows the part of the picture under it;
 - it hasn't connected since pairing.
 
 <picture>
