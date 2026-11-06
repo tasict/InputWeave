@@ -30,6 +30,9 @@ pub(crate) mod win32 {
     pub const XBUTTON1: u16 = 0x0001;
     pub const XBUTTON2: u16 = 0x0002;
     pub const WHEEL_DELTA: f64 = 120.0;
+    /// Break's virtual key, for the tests: Break reads as Pause by its
+    /// scan code.
+    #[cfg(test)]
     pub const VK_CANCEL: u32 = 0x03;
     pub const VK_PAUSE: u32 = 0x13;
     pub const VK_NUMLOCK: u32 = 0x90;
@@ -58,11 +61,11 @@ pub(crate) struct RawKey {
 pub(crate) fn key_event(key: RawKey) -> Option<InputEvent> {
     let pressed = !key.up;
     let usage = match key.vk {
-        // Pause arrives as scan 0x45 without the extended flag, Ctrl+Pause
-        // as Break (VK_CANCEL, extended 0x46); the virtual key tells them
-        // apart from NumLock and ScrollLock.
+        // Pause arrives as scan 0x45 without the extended flag, NumLock with
+        // it, unless a driver leaves the flag off; the virtual key tells
+        // them apart. Ctrl+Pause arrives as Break (VK_CANCEL, extended
+        // 0x46), which the table reads as Pause.
         win32::VK_PAUSE => usage::PAUSE,
-        win32::VK_CANCEL if key.scan == 0x46 && key.extended => usage::PAUSE,
         win32::VK_NUMLOCK => usage::NUM_LOCK,
         _ => {
             let code = u8::try_from(key.scan).ok().filter(|&c| c != 0)?;

@@ -11,7 +11,6 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Duration;
 
 use iw_core::geometry::Point;
-use iw_core::hotkey::Hotkeys;
 use iw_ipc::{IpcConnection, IpcListener};
 use iw_net::PairingCode;
 use iw_net::discovery::reachable_from;
@@ -27,6 +26,7 @@ use tokio::sync::{broadcast, mpsc, watch};
 use tokio::task::JoinSet;
 use tracing::warn;
 
+use super::APPLY_TIMEOUT;
 use super::app_clipboard::{AppClipboard, AppEvent, AppSession, Pasting};
 use super::directory::Directory;
 use super::drag::{DragEnd, DragEvent};
@@ -40,9 +40,6 @@ use super::status::{
 };
 use super::this_device::ThisDevice;
 use crate::config::DEFAULT_PORT;
-
-/// How long a request waits for the engine to apply a change.
-const APPLY_TIMEOUT: Duration = Duration::from_secs(2);
 
 /// How long SubmitPairingCode waits for the other device's verdict.
 const VERIFY_TIMEOUT: Duration = Duration::from_secs(30);
@@ -956,29 +953,14 @@ async fn respond(
         }
         Command::SetHotkeys(set) => {
             let keys = set.hotkeys.unwrap_or_default();
-            // An app from before the relative mode hotkey leaves it out, and
-            // changes the others only: it stays as it is.
-            let relative = keys.relative.unwrap_or_else(|| {
-                let current = ctx.status.borrow().hotkeys.relative;
-                current.map(|h| h.to_string()).unwrap_or_default()
-            });
-            let hotkeys = match Hotkeys::parse(
-                &keys.take_back,
-                &keys.lock,
-                &keys.jump_modifiers,
-                Some(&relative),
-            ) {
-                Ok(hotkeys) => hotkeys,
-                Err(e) => return error(e.code(), &e.to_string()),
-            };
-            if let Err(e) = super::set_hotkeys(&ctx.directory, &ctx.engine, hotkeys) {
-                return error(e.code(), &e.to_string());
-            }
-            let mut status = ctx.status.clone();
-            let applied = status.wait_for(|s| s.hotkeys == hotkeys);
-            match tokio::time::timeout(APPLY_TIMEOUT, applied).await {
-                Ok(Ok(current)) => response::Result::Status(current.to_proto()),
-                _ => error("timeout", "the agent did not apply the change in time"),
+            // What an app from before relative mode or the double press
+            // leaves out stays as it is when the change is put in effect.
+            let change: super::HotkeysChange =
+                Box::new(move |current| super::status::hotkeys_from_proto(&keys, current));
+            match super::set_hotkeys(&ctx.engine, change).await {
+                // In the status by now, perhaps with a later change too.
+                Ok(()) => response::Result::Status(ctx.status.borrow().to_proto()),
+                Err(e) => error(e.code(), &e.to_string()),
             }
         }
     }

@@ -487,7 +487,7 @@ impl Setup {
         };
         self.arrange_hint.set_label(&arrange);
         let trying = if setup::worked(model, self.returns_before.get()) {
-            tr(&ui!(keys::SETUP_TRY_DONE, model.take_back_shortcut()))
+            tr(&model.take_back_worked())
         } else {
             match &other {
                 Some(name) => tr(&ui!(keys::SETUP_TRY_HINT, name.clone())),

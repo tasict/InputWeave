@@ -186,7 +186,7 @@ struct OnboardingView: View {
         case .tryIt:
             StepLayout(title: "Try it", symbol: "cursorarrow.motionlines") {
                 if model.status.controlReturns > 0 || model.controllingOther {
-                    Label("It works. Press \(model.takeBackShortcut) to take back control at any time.", systemImage: "checkmark.circle.fill")
+                    Label(model.takeBackWorked, systemImage: "checkmark.circle.fill")
                         .foregroundStyle(.green)
                 } else {
                     Text("Move the cursor towards “\(otherName)”.")

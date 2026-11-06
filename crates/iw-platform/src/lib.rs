@@ -13,6 +13,7 @@ use std::sync::mpsc::Sender;
 
 use iw_core::HidUsage;
 use iw_core::geometry::Point;
+use iw_core::hotkey::HeldHotkeys;
 use iw_core::input::{Button, InputEvent};
 use iw_core::layout::{Display, Exit};
 use iw_core::router::Hotkey;
@@ -177,6 +178,22 @@ pub enum PlatformError {
     Os(String),
 }
 
+/// Whether this computer's keyboard can report `key` at all: whether this
+/// platform has a key code for it. A Mac has none for Scroll Lock or Pause.
+pub fn keyboard_reports(key: HidUsage) -> bool {
+    #[cfg(target_os = "macos")]
+    return key.to_mac().is_some();
+    #[cfg(windows)]
+    return key.to_windows().is_some();
+    #[cfg(target_os = "linux")]
+    return key.to_evdev().is_some();
+    #[cfg(not(any(target_os = "macos", windows, target_os = "linux")))]
+    {
+        let _ = key;
+        true
+    }
+}
+
 /// Reads local keyboard and mouse input.
 ///
 /// Implementations run their own thread (with a run loop or message loop as
@@ -206,11 +223,14 @@ pub trait InputCapture: Send {
     /// new set. A key already held back stays so until it is released, and
     /// a key that went down before its hotkey was reserved stays the apps'.
     ///
-    /// Returns whether this backend holds the keys back, so local apps
-    /// never see them go down.
-    fn reserve_hotkeys(&mut self, hotkeys: &[Hotkey]) -> bool {
+    /// Returns those of them this backend holds back, so local apps never
+    /// see their keys go down; the others reach local apps. A backend that
+    /// may lose some or get them back afterwards (X11, as another app grabs
+    /// or lets go of one) tells each change as it comes, in order with the
+    /// keys (`InputEvent::HotkeysHeldBack`).
+    fn reserve_hotkeys(&mut self, hotkeys: &[Hotkey]) -> HeldHotkeys {
         let _ = hotkeys;
-        false
+        HeldHotkeys::default()
     }
 
     /// Every hotkey the router acts on while input is grabbed: taking
@@ -223,13 +243,16 @@ pub trait InputCapture: Send {
         let _ = hotkeys;
     }
 
-    /// Whether the hotkeys are held back now, for a backend that may lose
-    /// them or get them back after `reserve_hotkeys` returned, as X11's
-    /// does when its connection breaks or the keyboard mapping changes.
-    /// `None`: what `reserve_hotkeys` returned still holds. Asked about
-    /// once a second, so it must be cheap.
-    fn hotkeys_held_back(&self) -> Option<bool> {
-        None
+    /// Whether Control pressed twice quickly takes control back
+    /// (`Hotkeys::take_back_double`). A backend that may hold input back
+    /// while grabbed but not yet holding the input (X11, while another app
+    /// holds a grab) tells such a double press meanwhile as
+    /// `InputEvent::DoublePressed` once it is complete
+    /// (`iw_core::hotkey::DoublePressWatch`), and none of those keys, which
+    /// went to that app. Called again whenever it changes; nothing is done
+    /// with it by default.
+    fn watch_double_press(&mut self, on: bool) {
+        let _ = on;
     }
 
     /// Whether a key or button the local session saw go down before input

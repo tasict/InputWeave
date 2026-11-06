@@ -286,9 +286,16 @@ internal sealed class FakeAgent
                 return new Response { Status = Status };
             case ClientMessage.CommandOneofCase.SetHotkeys:
                 var keys = request.SetHotkeys.Hotkeys ?? new Hotkeys();
-                if (!keys.TakeBack.Contains('+') || !keys.Lock.Contains('+'))
+                // As the agent: taking back and the lock may be a key typing never uses, alone.
+                static bool Alone(string key) => key is "ScrollLock" or "Pause"
+                    || (key.Length == 3 && key[0] == 'F' && int.TryParse(key[1..], out var n) && n is >= 13 and <= 19);
+                if ((!keys.TakeBack.Contains('+') && !Alone(keys.TakeBack)) || (!keys.Lock.Contains('+') && !Alone(keys.Lock)))
                 {
                     return Refuse("needs_modifier", "a hotkey needs a modifier");
+                }
+                if (keys.HasTakeBackDouble && keys.TakeBackDouble is not ("" or "double+control"))
+                {
+                    return Refuse("unknown_key", "no such double press");
                 }
                 var jumps = keys.JumpModifiers.Length == 0
                     ? []
@@ -307,9 +314,20 @@ internal sealed class FakeAgent
                 {
                     return Refuse("duplicate_relative", "the relative mode hotkey is the same keys as another");
                 }
+                // Without one, the double press stays as it is, or unreported as before.
+                var doublePress = keys.HasTakeBackDouble ? keys.TakeBackDouble
+                    : Status.Hotkeys is { HasTakeBackDouble: true } current ? current.TakeBackDouble : null;
                 Status = Status.Clone();
                 Status.Hotkeys = keys.Clone();
                 Status.Hotkeys.Relative = relative;
+                if (doublePress is null)
+                {
+                    Status.Hotkeys.ClearTakeBackDouble();
+                }
+                else
+                {
+                    Status.Hotkeys.TakeBackDouble = doublePress;
+                }
                 return new Response { Status = Status };
             case ClientMessage.CommandOneofCase.SetRelativeAuto:
                 Status = Status.Clone();

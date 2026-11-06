@@ -46,13 +46,13 @@ enum PanelText {
             if let shortcut = model.relativeShortcut {
                 return String(localized: "Press \(shortcut) to end relative mouse.")
             }
-            return String(localized: "Press \(model.takeBackShortcut) to take back control.")
+            return model.takeBackHint
         }
         if model.status.sharing && model.status.locked {
             return String(localized: "Press \(model.lockShortcut) to unlock.")
         }
         if model.status.sharing && model.controllingOther {
-            return String(localized: "Press \(model.takeBackShortcut) to take back control.")
+            return model.takeBackHint
         }
         if model.status.sharing && !model.status.thisDeviceName.isEmpty {
             return String(localized: "Cursor on \(model.status.thisDeviceName)")

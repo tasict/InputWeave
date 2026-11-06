@@ -717,6 +717,38 @@ mod tests {
         assert!(feed(key(k_code, kind::KEY_UP), &other));
     }
 
+    /// A lock on F13 alone is held back whatever modifiers are down; F12,
+    /// on no hotkey, is not.
+    #[test]
+    fn a_lock_on_a_key_alone_is_held_back_with_any_modifiers() {
+        use iw_core::hotkey::{Hotkey, Modifiers};
+
+        let lock = [Hotkey::new(Modifiers::NONE, usage::F13)];
+        let mut t = Translator::default();
+        let mut held = HeldBack::default();
+        let mut feed = |e: RawEvent| {
+            let events = t.translate(&e);
+            assert!(!events.is_empty(), "{e:?}");
+            held.holds(&lock, &events, t.held_modifiers(), e.autorepeat)
+        };
+        let key = |key: HidUsage, kind| RawEvent {
+            keycode: key.to_mac().unwrap(),
+            ..raw(kind)
+        };
+        let f12 = HidUsage::from_name("F12").unwrap();
+        assert!(feed(key(usage::F13, kind::KEY_DOWN)));
+        assert!(feed(key(usage::F13, kind::KEY_UP)));
+        assert!(!feed(key(f12, kind::KEY_DOWN)));
+        assert!(!feed(key(f12, kind::KEY_UP)));
+        assert!(!feed(RawEvent {
+            keycode: 0x3b,
+            flags: flag::CONTROL | flag::LEFT_CONTROL,
+            ..raw(kind::FLAGS_CHANGED)
+        }));
+        assert!(feed(key(usage::F13, kind::KEY_DOWN)));
+        assert!(feed(key(usage::F13, kind::KEY_UP)));
+    }
+
     #[test]
     fn a_key_held_before_the_hotkey_modifiers_reaches_apps_whole() {
         let lock = [iw_core::hotkey::Hotkeys::default().lock];

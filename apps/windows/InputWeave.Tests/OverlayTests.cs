@@ -2,6 +2,7 @@ using Inputweave.App.V1;
 using InputWeave.Agent;
 using InputWeave.Overlay;
 using InputWeave.Panel;
+using InputWeave.Settings;
 using InputWeave.Support;
 using Xunit;
 
@@ -276,6 +277,52 @@ public class HudWatchTests
         Assert.Equal(
             new UiText(TextKeys.HudLockedTo, "MacBook Pro", "Shift + Win + K"),
             watch.Update(Sample.Model(active: "mac", locked: true, hotkeys: hotkeys), ref hints));
+    }
+
+    /// <summary>With the double press on, every notice that says how to take control back says it as the panel does.</summary>
+    [Fact]
+    public void HintsNameTheDoublePressWhileItIsOn()
+    {
+        var watch = new HudWatch();
+        int hints = 0;
+        var withDouble = ShortcutText.WithDoublePress(Shortcut.Defaults, true);
+        var hint = new UiText(TextKeys.SubtitleControllingDouble, "Ctrl + Alt + Shift + Esc");
+        watch.Update(Sample.Model(hotkeys: withDouble), ref hints);
+        var there = Sample.Model(active: "mac", hotkeys: withDouble);
+        Assert.Equal(hint, watch.Update(there, ref hints));
+        Assert.Equal(hint, there.TakeBackReminder);
+        Assert.Equal(new UiText(TextKeys.SetupTryDoneHint, hint), there.TakeBackWorked);
+        // Off: the words as before.
+        var off = Sample.Model(active: "mac", hotkeys: Shortcut.Defaults);
+        Assert.Equal(new UiText(TextKeys.HudTakeBackHint, "Ctrl + Alt + Shift + Esc"), off.TakeBackReminder);
+        Assert.Equal(new UiText(TextKeys.SetupTryDone, "Ctrl + Alt + Shift + Esc"), off.TakeBackWorked);
+    }
+
+    /// <summary>
+    /// In relative mouse the service ignores the double press (games often
+    /// use Ctrl), so nothing that tells how to take control back names it,
+    /// even with it on.
+    /// </summary>
+    [Fact]
+    public void RelativeMouseHintsLeaveOutTheDoublePress()
+    {
+        var watch = new HudWatch();
+        int hints = 0;
+        var noRelative = ShortcutText.With(ShortcutText.WithDoublePress(Shortcut.Defaults, true), ShortcutRow.Relative, "");
+        watch.Update(Sample.Model(hotkeys: noRelative), ref hints);
+        var relative = Sample.Model(active: "mac", relative: "mac", hotkeys: noRelative);
+        Assert.True(relative.DoublePressOn);
+        // Relative mouse as the cursor first crosses, without its own
+        // shortcut: the reminder and the relative notice.
+        Assert.Equal(
+            new UiText(
+                TextKeys.HudTwoLines,
+                new UiText(TextKeys.HudTakeBackHint, "Ctrl + Alt + Shift + Esc"),
+                new UiText(TextKeys.HudRelativeEnteredTakeBack, "MacBook Pro", "Ctrl + Alt + Shift + Esc")),
+            watch.Update(relative, ref hints));
+        Assert.Equal(new UiText(TextKeys.SubtitleControlling, "Ctrl + Alt + Shift + Esc"), PanelText.Subtitle(relative));
+        Assert.Equal(new UiText(TextKeys.HudTakeBackHint, "Ctrl + Alt + Shift + Esc"), relative.TakeBackReminder);
+        Assert.Equal(new UiText(TextKeys.SetupTryDone, "Ctrl + Alt + Shift + Esc"), relative.TakeBackWorked);
     }
 
     [Fact]

@@ -76,14 +76,14 @@ pub fn subtitle(model: &Snapshot) -> Option<UiText> {
     if status.sharing && !status.relative_mouse.is_empty() {
         return Some(match model.relative_shortcut() {
             Some(shortcut) => ui!(keys::SUBTITLE_RELATIVE, shortcut),
-            None => ui!(keys::SUBTITLE_CONTROLLING, model.take_back_shortcut()),
+            None => model.take_back_hint(),
         });
     }
     if status.sharing && status.locked {
         return Some(ui!(keys::SUBTITLE_LOCKED, model.lock_shortcut()));
     }
     if status.sharing && model.controlling_other() {
-        return Some(ui!(keys::SUBTITLE_CONTROLLING, model.take_back_shortcut()));
+        return Some(model.take_back_hint());
     }
     if status.sharing && !status.this_device_name.is_empty() {
         return Some(ui!(
@@ -303,6 +303,32 @@ mod tests {
             subtitle(&m).unwrap().to_string(),
             "Press Ctrl+Alt+Shift+Esc to take back control."
         );
+        // With the double press on, it says so too; a single key reads as
+        // itself.
+        let mut double = m.clone();
+        double.status.hotkeys = Some(crate::shortcut::with_double_press(
+            &crate::shortcut::defaults(),
+            true,
+        ));
+        assert!(double.double_press_on());
+        assert_eq!(
+            subtitle(&double).unwrap().to_string(),
+            "Press Ctrl+Alt+Shift+Esc or double-press Ctrl to take back control."
+        );
+        double.status.hotkeys.as_mut().unwrap().take_back = "F13".into();
+        assert_eq!(
+            subtitle(&double).unwrap().to_string(),
+            "Press F13 or double-press Ctrl to take back control."
+        );
+        // Off, or from a service that does not know it: the shortcut alone.
+        double.status.hotkeys = Some(crate::shortcut::defaults());
+        assert!(double.double_press_supported() && !double.double_press_on());
+        assert_eq!(
+            subtitle(&double).unwrap().to_string(),
+            "Press Ctrl+Alt+Shift+Esc to take back control."
+        );
+        double.status.hotkeys.as_mut().unwrap().take_back_double = None;
+        assert!(!double.double_press_supported());
         m.status.locked = true;
         assert_eq!(title(&m, service, now()).to_string(), "Locked to Mac mini");
         assert_eq!(

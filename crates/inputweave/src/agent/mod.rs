@@ -71,7 +71,7 @@ pub(crate) use diagnostics::utc;
 pub use digest::executable_digest;
 pub use directory::DeviceError;
 pub use drag::{ArrivedDrag, DragEnd, DragEvent, DraggedItem, Dragging, EndedDrag};
-pub use engine::{DragError, JumpError, RearrangeError, RelativeError};
+pub use engine::{DragError, HotkeysError, JumpError, RearrangeError, RelativeError};
 pub use files::{
     BatchInfo, Direction, FailedEntry, FileSettings, FolderProgress, RemoveError, SendError,
     TransferState, TransferStatus,
@@ -86,13 +86,14 @@ pub use pairing::{Failure, NotWaiting, PairingPeer, PairingStatus};
 pub use previews::{Pictures, Preview};
 pub use status::{
     ArrangedDevice, Arrangement, CursorCrossed, DeviceState, RelativeEnded, RelativeMode, Status,
+    hotkeys_to_proto,
 };
 
 use crate::config::{Config, ConfigError};
 use crate::convert;
 use crate::store::DevicesFile;
 use directory::Directory;
-use engine::{Engine, EngineEvent, EngineParts, PlatformState};
+use engine::{Engine, EngineEvent, EngineParts, HotkeysChange, PlatformState};
 use files::Files;
 use pairing::{Pairing, PairingContext};
 use peers::PeerContext;
@@ -111,6 +112,9 @@ pub struct Backends {
 
 /// How often permissions, secure input and displays are checked.
 const PLATFORM_POLL: Duration = Duration::from_secs(1);
+
+/// How long a request waits for the engine to apply a change.
+const APPLY_TIMEOUT: Duration = Duration::from_secs(2);
 
 /// How often the desktop pictures are checked, besides whenever the
 /// displays change. The platform does not tell when the user picks
@@ -920,17 +924,43 @@ fn set_switch_modifier(
     let _ = engine.send(EngineEvent::SetSwitchModifier(modifier));
 }
 
-/// Puts `hotkeys` in effect, and remembers them, unless they cannot be
-/// used together.
-fn set_hotkeys(
-    directory: &Directory,
-    engine: &mpsc::UnboundedSender<EngineEvent>,
-    hotkeys: Hotkeys,
-) -> Result<(), HotkeyError> {
+/// Hotkeys as they come in, from clients and from the devices file,
+/// checked: against each other (`Hotkeys::check`), and against this
+/// computer's keyboard, refusing a hotkey on a key it never reports and so
+/// could never press (`Hotkeys::check_keyboard`), as Scroll Lock and Pause
+/// on a Mac.
+pub(crate) fn checked_here(hotkeys: Hotkeys) -> Result<Hotkeys, HotkeyError> {
     hotkeys.check()?;
-    directory.set_hotkeys(&hotkeys);
-    let _ = engine.send(EngineEvent::SetHotkeys(hotkeys));
-    Ok(())
+    hotkeys.check_keyboard(iw_platform::keyboard_reports)?;
+    Ok(hotkeys)
+}
+
+/// Puts the hotkeys `change` makes of those in effect in effect, and
+/// remembers them, unless they cannot be used; once this returns the
+/// status shows them and they are in the devices file. Waits for that
+/// [`APPLY_TIMEOUT`] at most; the engine puts them in effect and writes the
+/// file whether or not this is waited for to the end.
+async fn set_hotkeys(
+    engine: &mpsc::UnboundedSender<EngineEvent>,
+    change: HotkeysChange,
+) -> Result<(), HotkeysError> {
+    let (reply, rx) = oneshot::channel();
+    engine
+        .send(EngineEvent::SetHotkeys { change, reply })
+        .map_err(|_| HotkeysError::Stopping)?;
+    let applied = async {
+        let Some(saved) = rx.await.map_err(|_| HotkeysError::Stopping)?? else {
+            return Ok(());
+        };
+        match saved.await {
+            Ok(Ok(())) => Ok(()),
+            Ok(Err(e)) => Err(HotkeysError::NotSaved(e.to_string())),
+            Err(_) => Err(HotkeysError::Stopping),
+        }
+    };
+    tokio::time::timeout(APPLY_TIMEOUT, applied)
+        .await
+        .unwrap_or(Err(HotkeysError::Timeout))
 }
 
 /// Turns relative mode on or off for the device the cursor is on.
@@ -1384,10 +1414,11 @@ impl AgentHandle {
         set_switch_modifier(&self.directory, &self.engine_tx, modifier);
     }
 
-    /// Puts new hotkeys in effect, and remembers them, unless two are the
-    /// same keys or one has no modifier.
-    pub fn set_hotkeys(&self, hotkeys: Hotkeys) -> Result<(), HotkeyError> {
-        set_hotkeys(&self.directory, &self.engine_tx, hotkeys)
+    /// Puts new hotkeys in effect, and remembers them, unless they cannot
+    /// be used (`Hotkeys::check`).
+    pub async fn set_hotkeys(&self, hotkeys: Hotkeys) -> Result<(), HotkeysError> {
+        let change: HotkeysChange = Box::new(move |_| checked_here(hotkeys));
+        set_hotkeys(&self.engine_tx, change).await
     }
 
     /// Turns relative mode on or off for the other device the cursor is
@@ -1720,5 +1751,69 @@ mod tests {
         assert!(!schedule.due(&[], 0, start + TICK));
         assert!(!schedule.due(&[], 0, start + 2 * PICTURE_POLL));
         assert!(!schedule.due(&one, 0, start + 2 * TICK));
+    }
+
+    /// Answers the next change of the hotkeys as the engine does, putting
+    /// it in effect, with `saved` to say once the devices file is written.
+    async fn answer(events: &mut mpsc::UnboundedReceiver<EngineEvent>, saved: engine::Saved) {
+        match events.recv().await {
+            Some(EngineEvent::SetHotkeys { change, reply }) => {
+                let result = change(&Hotkeys::default()).map(|_| Some(saved));
+                let _ = reply.send(result);
+            }
+            _ => panic!("not a change of the hotkeys"),
+        }
+    }
+
+    /// The answer to a change of the hotkeys waits for the devices file,
+    /// but not for ever, and says when the file could not be written.
+    #[tokio::test]
+    async fn a_change_of_the_hotkeys_is_answered_once_saved_or_not_or_too_late() {
+        let (engine, mut events) = mpsc::unbounded_channel();
+        let change = || -> HotkeysChange {
+            Box::new(|current| {
+                Ok(Hotkeys {
+                    take_back_double: true,
+                    ..*current
+                })
+            })
+        };
+        // Written.
+        let (done, saved) = oneshot::channel();
+        let (result, ()) = tokio::join!(set_hotkeys(&engine, change()), async {
+            answer(&mut events, saved).await;
+            let _ = done.send(Ok(()));
+        });
+        assert_eq!(result, Ok(()));
+        // In effect, but not written.
+        let (done, saved) = oneshot::channel();
+        let (result, ()) = tokio::join!(set_hotkeys(&engine, change()), async {
+            answer(&mut events, saved).await;
+            let _ = done.send(Err(std::io::Error::other("no space left")));
+        });
+        let error = result.unwrap_err();
+        assert_eq!(error.code(), "not_saved");
+        assert!(error.to_string().contains("in effect"), "{error}");
+        assert!(error.to_string().contains("no space left"), "{error}");
+        // Still being written after the bound: the answer goes, the write
+        // goes on.
+        let (done, saved) = oneshot::channel();
+        let started = Instant::now();
+        let (result, ()) = tokio::join!(set_hotkeys(&engine, change()), answer(&mut events, saved));
+        assert_eq!(result, Err(HotkeysError::Timeout));
+        assert_eq!(HotkeysError::Timeout.code(), "timeout");
+        assert!(started.elapsed() >= APPLY_TIMEOUT);
+        drop(done);
+        // And an engine that does not get to it in time.
+        let result = set_hotkeys(&engine, change()).await;
+        assert_eq!(result, Err(HotkeysError::Timeout));
+        assert!(events.try_recv().is_ok());
+        // Refused: nothing to wait for.
+        let refused: HotkeysChange = Box::new(|_| Err(HotkeyError::NeedsModifier("K".into())));
+        let (result, ()) = tokio::join!(set_hotkeys(&engine, refused), async {
+            let (_done, saved) = oneshot::channel();
+            answer(&mut events, saved).await;
+        });
+        assert_eq!(result.unwrap_err().code(), "needs_modifier");
     }
 }

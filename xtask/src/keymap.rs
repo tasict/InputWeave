@@ -75,6 +75,10 @@ pub fn generate_csharp(source: &str) -> Result<String, String> {
         let (code, extended) = windows_scan_code(e)?;
         named.push(((extended, code), name));
     }
+    named.extend(
+        windows_read_also(&entries)
+            .filter_map(|(code, extended, e)| Some(((extended, code), e.name.as_deref()?))),
+    );
     let by_code = unique("Windows names", &named)?;
     let mut out = String::new();
     heading(&mut out);
@@ -138,6 +142,22 @@ struct Entry {
     name: Option<String>,
 }
 
+/// Windows scan codes the source table leaves out that a key is read by,
+/// never sent with: Break (`0xE0 0x46`), which Pause sends while Control is
+/// held. Many keyboards send it for Control with Scroll Lock as well, which
+/// cannot be told apart, so that reads as Control with Pause too.
+const WINDOWS_READ_ALSO: [(u8, bool, u16); 1] = [(0x46, true, 0x48)];
+
+/// `WINDOWS_READ_ALSO` for the keys in `entries`: scan code, extended,
+/// and the entry it reads as.
+fn windows_read_also(entries: &[Entry]) -> impl Iterator<Item = (u8, bool, &Entry)> {
+    WINDOWS_READ_ALSO
+        .iter()
+        .filter_map(|&(code, extended, usage)| {
+            Some((code, extended, entries.iter().find(|e| e.usage == usage)?))
+        })
+}
+
 /// "No code" in each column of the source table.
 const NO_MAC: u16 = 0xffff;
 const NO_CODE: u16 = 0;
@@ -175,12 +195,14 @@ pub fn generate(source: &str) -> Result<String, String> {
         &win_forward,
         |(c, x)| format!("({c:#04x}, {x})"),
     );
+    let mut win_reverse = win_forward.clone();
+    win_reverse.extend(windows_read_also(&entries).map(|(c, x, e)| (e.usage, (c, x))));
     reverse(
         &mut out,
         "from_windows",
         "code: u8, extended: bool",
         "(code, extended)",
-        &win_forward,
+        &win_reverse,
         |(c, x)| format!("({c:#04x}, {x})"),
     )?;
     forward(&mut out, "to_evdev", "u16", &evdev, |c| format!("{c:#06x}"));
@@ -356,6 +378,33 @@ mod tests {
             "{csharp}"
         );
         assert!(csharp.contains("#nullable enable"), "{csharp}");
+    }
+
+    /// Break reads as Pause on Windows, and Pause is still sent as itself.
+    #[test]
+    fn break_reads_as_pause_on_windows() {
+        let pause = format!(
+            "{SAMPLE}\n  DOM_CODE(0x070048, 0x0077, 0x007f, 0x0045, 0xffff, \"Pause\", PAUSE),\n"
+        );
+        let rust = generate(&pause).unwrap();
+        let from = rust.split("pub(crate) fn from_windows").nth(1).unwrap();
+        let from = from.split("pub(crate) fn").next().unwrap();
+        assert!(from.contains("        (0x46, true) => 0x0048,\n"), "{from}");
+        assert!(
+            from.contains("        (0x45, false) => 0x0048,\n"),
+            "{from}"
+        );
+        let to = rust.split("pub(crate) fn to_windows").nth(1).unwrap();
+        let to = to.split("pub(crate) fn").next().unwrap();
+        assert!(to.contains("        0x0048 => (0x45, false),\n"), "{to}");
+        assert!(!to.contains("0x46"), "{to}");
+        let csharp = generate_csharp(&pause).unwrap();
+        assert!(
+            csharp.contains("        (0x46u, true) => \"Pause\",\n"),
+            "{csharp}"
+        );
+        // Without Pause in the table, nothing is added.
+        assert!(!generate(SAMPLE).unwrap().contains("(0x46, true)"));
     }
 
     /// The committed file is exactly what the committed source generates.

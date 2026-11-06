@@ -21,7 +21,9 @@
 //!
 //! Hotkeys (`Hotkeys`) take control back, lock the cursor to the device it
 //! is on, or ask for the cursor on the device with a number
-//! (`Action::Jump`); their keys are never forwarded. With a switch
+//! (`Action::Jump`); their keys are never forwarded. Control pressed twice
+//! quickly takes control back too, when that is on
+//! (`Hotkeys::take_back_double`); those presses are forwarded. With a switch
 //! modifier set (`EdgePolicy::switch_modifier`), the cursor crosses edges
 //! only while that modifier is held.
 //!
@@ -44,9 +46,10 @@
 //!
 //! The caller passes the current time with every event; the router only
 //! needs it to tell how long the cursor has been pushing against an edge,
-//! and how quickly the mouse turns back and forth.
+//! how quickly the mouse turns back and forth, and how quickly Control was
+//! pressed twice.
 
-use std::collections::{BTreeSet, HashMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::time::{Duration, Instant};
 
 use iw_keymap::ModifierRemap;
@@ -54,7 +57,7 @@ use iw_keymap::ModifierRemap;
 use crate::HidUsage;
 use crate::geometry::Point;
 pub use crate::hotkey::Hotkey;
-use crate::hotkey::{Hotkeys, Modifier};
+use crate::hotkey::{DoublePressWatch, HeldHotkeys, Hotkeys, Modifier};
 use crate::input::{Button, InputEvent};
 use crate::layout::{Crossing, DeviceId, EdgePolicy, Exit, Layout};
 use crate::shake::ShakeDetector;
@@ -66,10 +69,13 @@ pub struct RouterConfig {
     /// Taking control back, locking the cursor and jumping to a device by
     /// its number; none of them is ever forwarded to a remote device.
     pub hotkeys: Hotkeys,
-    /// Capture keeps the keys of the reserved hotkeys (`Hotkeys::reserved`)
-    /// from local apps even while input is not grabbed, so a key that is
-    /// still down when input is grabbed needs no release on this machine.
-    pub hotkeys_held_back: bool,
+    /// The reserved hotkeys (`Hotkeys::reserved`) whose keys capture keeps
+    /// from local apps even while input is not grabbed, so such a key still
+    /// down when input is grabbed needs no release on this machine; the
+    /// others reach local apps, which must see them released. Capture
+    /// tells it again as it changes (`InputEvent::HotkeysHeldBack`); a set
+    /// told before the one in place is ignored (`HeldHotkeys::take`).
+    pub hotkeys_held_back: HeldHotkeys,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -140,6 +146,8 @@ pub enum Event {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ReturnReason {
+    /// The take-back hotkey, or Control pressed twice
+    /// (`Hotkeys::take_back_double`).
     Hotkey,
     PeerLost(DeviceId),
     RemoteActivity(DeviceId),
@@ -446,9 +454,13 @@ pub struct Router {
     held_buttons: BTreeSet<Button>,
     /// Keys that were already down when input was grabbed.
     carried: BTreeSet<HidUsage>,
-    /// Keys whose press triggered the lock or a jump hotkey; their repeats
-    /// and release are not forwarded either.
-    consumed: BTreeSet<HidUsage>,
+    /// Keys whose press triggered the lock, a jump or the relative mode
+    /// hotkey; their repeats and release are not forwarded either. With
+    /// whether local apps saw the key go down: not while input was grabbed,
+    /// nor for a hotkey capture held back then.
+    consumed: BTreeMap<HidUsage, bool>,
+    /// Control pressed toward the double press that takes control back.
+    double: DoublePressWatch,
     /// Set while the cursor waits at an edge for the dwell time.
     push: Option<Push>,
     /// Last local cursor position, in this machine's desktop coordinates.
@@ -496,7 +508,8 @@ impl Router {
             held_keys: BTreeSet::new(),
             held_buttons: BTreeSet::new(),
             carried: BTreeSet::new(),
-            consumed: BTreeSet::new(),
+            consumed: BTreeMap::new(),
+            double: DoublePressWatch::default(),
             push: None,
             last_local,
             shake: ShakeDetector::new(),
@@ -570,6 +583,8 @@ impl Router {
         self.relative = Some(cause);
         self.push = None;
         self.resync = None;
+        // Presses before it count toward no double press after it.
+        self.double.interrupt();
         vec![Action::RelativeStarted {
             device: device.clone(),
             cause,
@@ -581,6 +596,10 @@ impl Router {
     /// pointer went.
     fn end_relative(&mut self, reason: RelativeEnd) -> Vec<Action> {
         let on = self.relative.take().is_some();
+        if on {
+            // Nor do presses in it count toward one after it.
+            self.double.interrupt();
+        }
         match &self.state {
             State::Remote { device, .. } if on => {
                 if reason.stays() {
@@ -725,13 +744,14 @@ impl Router {
         self.push = None;
     }
 
-    /// Changes the hotkeys from now on, and whether capture holds their
-    /// keys back. A key that triggered a hotkey and is still down stays
-    /// that hotkey's until it is released, so its repeats and release go
-    /// nowhere, as capture keeps it from local apps until then too.
-    pub fn set_hotkeys(&mut self, hotkeys: Hotkeys, held_back: bool) {
+    /// Changes the hotkeys from now on, and which of them capture holds
+    /// back (`RouterConfig::hotkeys_held_back`). A key that triggered a
+    /// hotkey and is still down stays that hotkey's until it is released,
+    /// so its repeats and release go nowhere, as capture keeps it from
+    /// local apps until then too, if it did as it went down.
+    pub fn set_hotkeys(&mut self, hotkeys: Hotkeys, held_back: HeldHotkeys) {
         self.config.hotkeys = hotkeys;
-        self.config.hotkeys_held_back = held_back;
+        self.config.hotkeys_held_back.take(held_back);
     }
 
     /// Replaces the arrangement. If the device under the cursor disappeared
@@ -1010,6 +1030,8 @@ impl Router {
         match input {
             InputEvent::PointerMotion { position, delta } => self.motion(position, delta, now),
             InputEvent::Button { button, pressed } => {
+                // As any key between the two presses would.
+                self.double.interrupt();
                 if pressed {
                     self.held_buttons.insert(button);
                 } else {
@@ -1038,20 +1060,37 @@ impl Router {
                 }
                 actions
             }
-            InputEvent::Key { usage, pressed } => self.key(usage, pressed),
-            InputEvent::Scroll { dx, dy } => match &self.state {
-                State::Local => Vec::new(),
-                State::Remote { device, .. } => vec![Action::Scroll {
-                    device: device.clone(),
-                    dx,
-                    dy,
-                }],
-            },
+            InputEvent::Key { usage, pressed } => self.key(usage, pressed, now),
+            InputEvent::Scroll { dx, dy } => {
+                // Control held to zoom, say, is no press toward the double.
+                self.double.interrupt();
+                match &self.state {
+                    State::Local => Vec::new(),
+                    State::Remote { device, .. } => vec![Action::Scroll {
+                        device: device.clone(),
+                        dx,
+                        dy,
+                    }],
+                }
+            }
+            InputEvent::DoublePressed => {
+                self.double.interrupt();
+                if self.double_press_counts() {
+                    self.return_control(ReturnReason::Hotkey, true)
+                } else {
+                    Vec::new()
+                }
+            }
             InputEvent::CaptureEnded => {
                 // What the cursor does next goes unseen: a push against an
                 // edge, waiting to cross, starts over.
                 self.push = None;
                 self.return_control(ReturnReason::CaptureEnded, true)
+            }
+            // No input: what a key going down from now on counts as.
+            InputEvent::HotkeysHeldBack(held) => {
+                self.config.hotkeys_held_back.take(held);
+                Vec::new()
             }
         }
     }
@@ -1262,16 +1301,26 @@ impl Router {
     }
 
     /// Remembers the keys down as input is grabbed, which the local session
-    /// saw go down and must see released. A hotkey key that capture held
-    /// back never reached it.
+    /// saw go down and must see released. A hotkey's key that it never saw
+    /// (`consumed`) is left out.
     fn carry_held_keys(&mut self) {
-        let held_back = |k: &HidUsage| self.config.hotkeys_held_back && self.consumed.contains(k);
         self.carried = self
             .held_keys
             .iter()
-            .filter(|k| !held_back(k))
+            .filter(|k| self.consumed.get(k) != Some(&false))
             .copied()
             .collect();
+    }
+
+    /// `usage` went down for `hotkey`: its repeats and release go nowhere.
+    /// The local session saw it go down unless capture holds that hotkey
+    /// back, as it says it did then, whether or not input was grabbed (X11
+    /// holds none back while another app's grab takes every key): a key
+    /// held as a hotkey's stays held so until it is released, whatever
+    /// becomes of the hotkey meanwhile.
+    fn consume(&mut self, usage: HidUsage, hotkey: Option<Hotkey>) {
+        let held_back = hotkey.is_some_and(|h| self.config.hotkeys_held_back.contains(&h));
+        self.consumed.insert(usage, !held_back);
     }
 
     /// A drag leaving this machine lets go of its buttons here, where the
@@ -1320,6 +1369,8 @@ impl Router {
             device: device.clone(),
             cursor,
         };
+        // Presses toward the double count on one device at a time.
+        self.double.interrupt();
         Action::Enter {
             device,
             position,
@@ -1328,8 +1379,9 @@ impl Router {
         }
     }
 
-    fn key(&mut self, usage: HidUsage, pressed: bool) -> Vec<Action> {
-        if self.consumed.contains(&usage) {
+    fn key(&mut self, usage: HidUsage, pressed: bool, now: Instant) -> Vec<Action> {
+        let double = self.double_pressed(usage, pressed, now);
+        if self.consumed.contains_key(&usage) {
             self.track_key(usage, pressed);
             if pressed {
                 return Vec::new();
@@ -1356,7 +1408,7 @@ impl Router {
                 .matches(usage, |k| self.held_keys.contains(&k))
         {
             self.track_key(usage, pressed);
-            self.consumed.insert(usage);
+            self.consume(usage, Some(self.config.hotkeys.lock));
             return self.set_locked(!self.locked);
         }
         if pressed
@@ -1367,7 +1419,7 @@ impl Router {
                 .jump_slot(usage, |k| self.held_keys.contains(&k))
         {
             self.track_key(usage, pressed);
-            self.consumed.insert(usage);
+            self.consume(usage, self.config.hotkeys.jump_hotkey(slot));
             return vec![Action::Jump { slot }];
         }
         let State::Remote { device, .. } = self.state.clone() else {
@@ -1395,7 +1447,7 @@ impl Router {
         {
             if self.relative.is_some() || self.relative_capable.contains(&device) {
                 self.track_key(usage, pressed);
-                self.consumed.insert(usage);
+                self.consume(usage, self.config.hotkeys.relative);
                 return if self.relative.is_some() {
                     self.end_relative(RelativeEnd::TurnedOff)
                 } else {
@@ -1408,7 +1460,39 @@ impl Router {
             });
         }
         actions.extend(self.forward_key(device, usage, pressed));
+        // After the release went, so the device sees Control go up before
+        // the cursor leaves it.
+        if double {
+            actions.extend(self.return_control(ReturnReason::Hotkey, true));
+        }
         actions
+    }
+
+    /// Whether `usage` going down or up at `now`, before it is tracked,
+    /// completes the double press that takes control back
+    /// (`Hotkeys::take_back_double`, `DoublePressWatch`).
+    fn double_pressed(&mut self, usage: HidUsage, pressed: bool, now: Instant) -> bool {
+        if !self.double_press_counts() {
+            self.double.interrupt();
+            return false;
+        }
+        let buttons_held = !self.held_buttons.is_empty();
+        self.double.key(
+            usage,
+            pressed,
+            self.held_keys.iter().copied(),
+            buttons_held,
+            now,
+        )
+    }
+
+    /// Whether Control pressed twice takes control back now: while it is
+    /// on and this machine controls a remote device, but not in relative
+    /// mode, where games often take Control for themselves (to crouch, say).
+    fn double_press_counts(&self) -> bool {
+        self.config.hotkeys.take_back_double
+            && matches!(self.state, State::Remote { .. })
+            && self.relative.is_none()
     }
 
     /// Sends a key to remote `device`, the one the cursor is on.
@@ -2608,7 +2692,7 @@ mod tests {
     fn a_held_back_lock_hotkey_key_is_not_released_locally() {
         // As on macOS, where capture keeps the hotkey's key from local apps.
         let mut r = router_with(RouterConfig {
-            hotkeys_held_back: true,
+            hotkeys_held_back: Hotkeys::default().reserved().into_iter().collect(),
             ..RouterConfig::default()
         });
         handle(&mut r, Event::SetLocked(true));
@@ -2639,7 +2723,7 @@ mod tests {
 
         // Crossing an edge with the chord held is the same.
         let mut r = router_with(RouterConfig {
-            hotkeys_held_back: true,
+            hotkeys_held_back: Hotkeys::default().reserved().into_iter().collect(),
             ..RouterConfig::default()
         });
         assert_eq!(chord(&mut r, usage::L).1, vec![Action::LockChanged(true)]);
@@ -2862,7 +2946,7 @@ mod tests {
         );
         // Where capture holds it back, it never did.
         let mut r = router_with(RouterConfig {
-            hotkeys_held_back: true,
+            hotkeys_held_back: Hotkeys::default().reserved().into_iter().collect(),
             ..RouterConfig::default()
         });
         chord(&mut r, digit(2));
@@ -2871,11 +2955,128 @@ mod tests {
     }
 
     #[test]
+    fn a_hotkey_counts_as_held_back_as_capture_last_said_before_its_key() {
+        // Capture tells the change in order with the keys: the press right
+        // after it goes by it.
+        let all: HeldHotkeys = Hotkeys::default().reserved().into_iter().collect();
+        let but_2: HeldHotkeys = all.iter().filter(|h| h.key != digit(2)).collect();
+        assert_eq!((all.len(), but_2.len()), (10, 9));
+        let said = |held| Event::Input(InputEvent::HotkeysHeldBack(held));
+        // Another app grabbed the jump to 2: it reaches local apps.
+        let mut r = router_with(RouterConfig {
+            hotkeys_held_back: all,
+            ..RouterConfig::default()
+        });
+        assert!(handle(&mut r, said(but_2)).is_empty());
+        assert_eq!(chord(&mut r, digit(2)).1, vec![Action::Jump { slot: 2 }]);
+        r.jump_to(&id("win")).unwrap();
+        assert_eq!(
+            key(&mut r, digit(2), false),
+            vec![Action::LocalKey {
+                usage: digit(2),
+                pressed: false,
+            }]
+        );
+        // And let go of it: held back again.
+        let mut r = router_with(RouterConfig {
+            hotkeys_held_back: but_2,
+            ..RouterConfig::default()
+        });
+        assert!(handle(&mut r, said(all)).is_empty());
+        assert_eq!(chord(&mut r, digit(2)).1, vec![Action::Jump { slot: 2 }]);
+        r.jump_to(&id("win")).unwrap();
+        assert!(key(&mut r, digit(2), false).is_empty());
+
+        // One told before the set in place, read after it, is ignored:
+        // all held back as of the fifth change, not the fourth's.
+        let mut r = router_with(RouterConfig {
+            hotkeys_held_back: all.as_change(5),
+            ..RouterConfig::default()
+        });
+        assert!(handle(&mut r, said(but_2.as_change(4))).is_empty());
+        chord(&mut r, digit(2));
+        r.jump_to(&id("win")).unwrap();
+        assert!(key(&mut r, digit(2), false).is_empty());
+        r.jump_to(&id("mac")).unwrap();
+        // The sixth replaces it.
+        handle(&mut r, said(but_2.as_change(6)));
+        r.set_hotkeys(Hotkeys::default(), all.as_change(5));
+        chord(&mut r, digit(2));
+        r.jump_to(&id("win")).unwrap();
+        assert_eq!(
+            key(&mut r, digit(2), false),
+            vec![Action::LocalKey {
+                usage: digit(2),
+                pressed: false,
+            }]
+        );
+    }
+
+    #[test]
+    fn only_the_hotkeys_capture_holds_back_are_not_released_locally() {
+        // As on X11 with another app holding the jump to 2: the lock and
+        // the other jumps are held back, that one reaches local apps.
+        let held: HeldHotkeys = Hotkeys::default()
+            .reserved()
+            .into_iter()
+            .filter(|h| h.key != digit(2))
+            .collect();
+        let config = RouterConfig {
+            hotkeys_held_back: held,
+            ..RouterConfig::default()
+        };
+        let mut r = router_with(config);
+        assert_eq!(chord(&mut r, digit(2)).1, vec![Action::Jump { slot: 2 }]);
+        r.jump_to(&id("win")).unwrap();
+        assert_eq!(
+            key(&mut r, digit(2), false),
+            vec![Action::LocalKey {
+                usage: digit(2),
+                pressed: false,
+            }]
+        );
+        let mut r = router_with(config);
+        assert_eq!(chord(&mut r, digit(3)).1, vec![Action::Jump { slot: 3 }]);
+        r.jump_to(&id("win")).unwrap();
+        assert!(key(&mut r, digit(3), false).is_empty());
+        let mut r = router_with(config);
+        assert_eq!(chord(&mut r, usage::L).1, vec![Action::LockChanged(true)]);
+        handle(&mut r, Event::SetLocked(false));
+        assert_eq!(enter_win(&mut r)[0], Action::Grab);
+        assert!(key(&mut r, usage::L, false).is_empty());
+
+        // Pressed while controlling the PC, held through coming back and
+        // going over again, it goes by what capture said too: as on X11
+        // while another app's grab took the keys, holding none back, it is
+        // let go of here; held back (macOS), it is not.
+        for (held_back, released) in [
+            (HeldHotkeys::default(), true),
+            (config.hotkeys_held_back, false),
+        ] {
+            let mut r = router_with(RouterConfig {
+                hotkeys_held_back: held_back,
+                ..RouterConfig::default()
+            });
+            enter_win(&mut r);
+            assert_eq!(chord(&mut r, usage::L).1, vec![Action::LockChanged(true)]);
+            handle(&mut r, Event::SetLocked(false));
+            r.jump_to(&id("mac")).unwrap();
+            assert_eq!(enter_win(&mut r)[0], Action::Grab);
+            let local = vec![Action::LocalKey {
+                usage: usage::L,
+                pressed: false,
+            }];
+            assert_eq!(key(&mut r, usage::L, false) == local, released);
+        }
+    }
+
+    #[test]
     fn changed_hotkeys_apply_at_once_and_a_held_one_ends_as_it_began() {
         let mut r = router();
         let control_alt = Modifiers::NONE.with(Modifier::Control).with(Modifier::Alt);
         let hotkeys = Hotkeys {
             take_back: Hotkey::new(control_alt, usage::ESCAPE),
+            take_back_double: false,
             lock: Hotkey::new(control_alt, usage::C),
             jump: None,
             relative: Some(Hotkeys::DEFAULT_RELATIVE),
@@ -2884,7 +3085,7 @@ mod tests {
         // Control-Option-Shift-L locks, and L is still down as the hotkeys
         // change.
         assert_eq!(chord(&mut r, usage::L).1, vec![Action::LockChanged(true)]);
-        r.set_hotkeys(hotkeys, false);
+        r.set_hotkeys(hotkeys, HeldHotkeys::default());
         // L goes on being the old lock's: its repeat and release go nowhere.
         assert!(key(&mut r, usage::L, true).is_empty());
         assert!(key(&mut r, usage::L, false).is_empty());
@@ -4079,5 +4280,452 @@ mod tests {
                 .all(|a| matches!(a, Action::RelativeMotion { .. })),
             "{actions:?}"
         );
+    }
+
+    fn double_press_router() -> Router {
+        router_with(RouterConfig {
+            hotkeys: Hotkeys {
+                take_back_double: true,
+                ..Hotkeys::default()
+            },
+            ..RouterConfig::default()
+        })
+    }
+
+    /// A router on the Windows PC with the double press on, and a moment
+    /// to count from.
+    fn fresh() -> (Router, Instant) {
+        let mut r = double_press_router();
+        let start = on_win(&mut r);
+        (r, start)
+    }
+
+    /// The router in the Windows PC, and a moment to count from.
+    fn on_win(r: &mut Router) -> Instant {
+        enter_win(r);
+        Instant::now()
+    }
+
+    fn key_at(r: &mut Router, usage: HidUsage, pressed: bool, at: Instant) -> Vec<Action> {
+        but_crossings(r.handle(Event::Input(InputEvent::Key { usage, pressed }), at))
+    }
+
+    /// Presses and lets go of `usage` from `down` to `up` milliseconds
+    /// after `start`: what the router did for the release.
+    fn tap(r: &mut Router, usage: HidUsage, start: Instant, down: u64, up: u64) -> Vec<Action> {
+        let ms = Duration::from_millis;
+        key_at(r, usage, true, start + ms(down));
+        key_at(r, usage, false, start + ms(up))
+    }
+
+    fn sent(usage: HidUsage, pressed: bool) -> Action {
+        Action::Key {
+            device: id("win"),
+            usage,
+            pressed,
+        }
+    }
+
+    fn took_back(actions: &[Action]) -> bool {
+        actions.contains(&Action::ControlReturned(ReturnReason::Hotkey))
+    }
+
+    #[test]
+    fn control_pressed_twice_quickly_takes_control_back_once_let_go_of() {
+        let mut r = double_press_router();
+        motion(&mut r, (1200.0, 300.0), (0.0, 0.0));
+        let start = on_win(&mut r);
+        let ms = Duration::from_millis;
+        // Each press and release goes to the PC as usual.
+        assert_eq!(
+            key_at(&mut r, usage::LEFT_CONTROL, true, start),
+            vec![sent(usage::LEFT_CONTROL, true)]
+        );
+        assert_eq!(
+            key_at(&mut r, usage::LEFT_CONTROL, false, start + ms(80)),
+            vec![sent(usage::LEFT_CONTROL, false)]
+        );
+        assert_eq!(
+            key_at(&mut r, usage::LEFT_CONTROL, true, start + ms(160)),
+            vec![sent(usage::LEFT_CONTROL, true)]
+        );
+        // The second release goes too, before the cursor leaves.
+        assert_eq!(
+            key_at(&mut r, usage::LEFT_CONTROL, false, start + ms(240)),
+            vec![
+                sent(usage::LEFT_CONTROL, false),
+                Action::Leave { device: id("win") },
+                Action::Ungrab {
+                    warp_to: Point::new(1511.0, 500.0),
+                },
+                Action::ControlReturned(ReturnReason::Hotkey),
+            ]
+        );
+        assert_eq!(*r.state(), State::Local);
+
+        // Either Control key, the same one both times; 400 ms at most from
+        // the first press to the second release.
+        let start = on_win(&mut r);
+        assert!(!took_back(&tap(
+            &mut r,
+            usage::RIGHT_CONTROL,
+            start,
+            0,
+            100
+        )));
+        assert!(took_back(&tap(
+            &mut r,
+            usage::RIGHT_CONTROL,
+            start,
+            300,
+            400
+        )));
+        let start = on_win(&mut r);
+        tap(&mut r, usage::LEFT_CONTROL, start, 0, 100);
+        assert!(!took_back(&tap(
+            &mut r,
+            usage::LEFT_CONTROL,
+            start,
+            300,
+            401
+        )));
+        assert!(matches!(r.state(), State::Remote { device, .. } if *device == id("win")));
+    }
+
+    #[test]
+    fn control_twice_counts_only_alone_and_quick() {
+        let ms = Duration::from_millis;
+
+        // Another key between.
+        let (mut r, start) = fresh();
+        tap(&mut r, usage::LEFT_CONTROL, start, 0, 50);
+        tap(&mut r, usage::A, start, 80, 100);
+        assert!(!took_back(&tap(
+            &mut r,
+            usage::LEFT_CONTROL,
+            start,
+            120,
+            160
+        )));
+        // Held for a while: too slow to make two with the next.
+        let (mut r, start) = fresh();
+        tap(&mut r, usage::LEFT_CONTROL, start, 0, 300);
+        assert!(!took_back(&tap(
+            &mut r,
+            usage::LEFT_CONTROL,
+            start,
+            350,
+            450
+        )));
+        // The second press can be the first of the next two.
+        assert!(took_back(&tap(
+            &mut r,
+            usage::LEFT_CONTROL,
+            start,
+            500,
+            600
+        )));
+
+        // With another modifier held, or Control as part of a combination.
+        let (mut r, start) = fresh();
+        key_at(&mut r, usage::LEFT_SHIFT, true, start);
+        tap(&mut r, usage::LEFT_CONTROL, start, 10, 50);
+        assert!(!took_back(&tap(
+            &mut r,
+            usage::LEFT_CONTROL,
+            start,
+            80,
+            120
+        )));
+        key_at(&mut r, usage::LEFT_SHIFT, false, start + ms(130));
+        tap(&mut r, usage::LEFT_CONTROL, start, 140, 180);
+        key_at(&mut r, usage::LEFT_CONTROL, true, start + ms(200));
+        tap(&mut r, usage::C, start, 210, 220);
+        assert!(!took_back(&key_at(
+            &mut r,
+            usage::LEFT_CONTROL,
+            false,
+            start + ms(240)
+        )));
+        // The other Control key: not the same one twice.
+        let (mut r, start) = fresh();
+        tap(&mut r, usage::LEFT_CONTROL, start, 0, 50);
+        assert!(!took_back(&tap(
+            &mut r,
+            usage::RIGHT_CONTROL,
+            start,
+            80,
+            120
+        )));
+        // Both down at once.
+        let (mut r, start) = fresh();
+        tap(&mut r, usage::LEFT_CONTROL, start, 0, 50);
+        key_at(&mut r, usage::LEFT_CONTROL, true, start + ms(80));
+        key_at(&mut r, usage::RIGHT_CONTROL, true, start + ms(90));
+        key_at(&mut r, usage::RIGHT_CONTROL, false, start + ms(100));
+        assert!(!took_back(&key_at(
+            &mut r,
+            usage::LEFT_CONTROL,
+            false,
+            start + ms(120)
+        )));
+        // Another modifier pressed twice.
+        let (mut r, start) = fresh();
+        tap(&mut r, usage::LEFT_ALT, start, 0, 50);
+        assert!(!took_back(&tap(&mut r, usage::LEFT_ALT, start, 80, 120)));
+        // A click, or scrolling (Control held to zoom), between.
+        let click = |pressed| InputEvent::Button {
+            button: Button::Left,
+            pressed,
+        };
+        for between in [
+            vec![click(true), click(false)],
+            vec![InputEvent::Scroll { dx: 0.0, dy: 1.0 }],
+        ] {
+            let (mut r, start) = fresh();
+            tap(&mut r, usage::LEFT_CONTROL, start, 0, 50);
+            for event in between {
+                handle(&mut r, Event::Input(event));
+            }
+            assert!(!took_back(&tap(
+                &mut r,
+                usage::LEFT_CONTROL,
+                start,
+                80,
+                120
+            )));
+        }
+        // Moving the mouse is no key.
+        let (mut r, start) = fresh();
+        tap(&mut r, usage::LEFT_CONTROL, start, 0, 50);
+        motion(&mut r, (0.0, 0.0), (3.0, 1.0));
+        assert!(took_back(&tap(&mut r, usage::LEFT_CONTROL, start, 80, 120)));
+
+        // Auto-repeat while held is the same press.
+        let (mut r, start) = fresh();
+        key_at(&mut r, usage::LEFT_CONTROL, true, start);
+        assert_eq!(
+            key_at(&mut r, usage::LEFT_CONTROL, true, start + ms(40)),
+            vec![sent(usage::LEFT_CONTROL, true)]
+        );
+        key_at(&mut r, usage::LEFT_CONTROL, false, start + ms(60));
+        assert!(took_back(&tap(
+            &mut r,
+            usage::LEFT_CONTROL,
+            start,
+            100,
+            150
+        )));
+    }
+
+    #[test]
+    fn control_twice_does_nothing_here_or_when_off() {
+        let ms = Duration::from_millis;
+        // On this machine: Control is this machine's.
+        let mut r = double_press_router();
+        let start = Instant::now();
+        for (down, up) in [(0, 50), (80, 120), (150, 190)] {
+            assert!(tap(&mut r, usage::LEFT_CONTROL, start, down, up).is_empty());
+        }
+        // Off, the default: forwarded and nothing else.
+        let mut r = router();
+        let start = on_win(&mut r);
+        tap(&mut r, usage::LEFT_CONTROL, start, 0, 50);
+        assert_eq!(
+            tap(&mut r, usage::LEFT_CONTROL, start, 80, 120),
+            vec![sent(usage::LEFT_CONTROL, false)]
+        );
+        // Turned on, it counts from the next press.
+        r.set_hotkeys(
+            Hotkeys {
+                take_back_double: true,
+                ..Hotkeys::default()
+            },
+            HeldHotkeys::default(),
+        );
+        tap(&mut r, usage::LEFT_CONTROL, start, 150, 190);
+        assert!(took_back(&tap(
+            &mut r,
+            usage::LEFT_CONTROL,
+            start,
+            220,
+            260
+        )));
+
+        // A third press after the two is this machine's, and counts toward
+        // nothing once the cursor is back on the PC.
+        let mut r = double_press_router();
+        let start = on_win(&mut r);
+        tap(&mut r, usage::LEFT_CONTROL, start, 0, 50);
+        assert!(took_back(&tap(&mut r, usage::LEFT_CONTROL, start, 80, 120)));
+        assert!(tap(&mut r, usage::LEFT_CONTROL, start, 150, 190).is_empty());
+        enter_win(&mut r);
+        assert!(!took_back(&tap(
+            &mut r,
+            usage::LEFT_CONTROL,
+            start,
+            220,
+            260
+        )));
+        // Nor do presses on one device count with those on another.
+        let mut r = double_press_router();
+        let start = on_win(&mut r);
+        tap(&mut r, usage::LEFT_CONTROL, start, 0, 50);
+        r.jump_to(&id("mini")).unwrap();
+        assert!(!took_back(&tap(
+            &mut r,
+            usage::LEFT_CONTROL,
+            start,
+            80,
+            120
+        )));
+        // A Control held as the cursor crossed is let go of there, but its
+        // press was this machine's: no first press.
+        let mut r = double_press_router();
+        let start = Instant::now();
+        key_at(&mut r, usage::LEFT_CONTROL, true, start);
+        enter_win(&mut r);
+        key_at(&mut r, usage::LEFT_CONTROL, false, start + ms(40));
+        assert!(!took_back(&tap(
+            &mut r,
+            usage::LEFT_CONTROL,
+            start,
+            80,
+            120
+        )));
+        assert!(took_back(&tap(
+            &mut r,
+            usage::LEFT_CONTROL,
+            start,
+            150,
+            190
+        )));
+    }
+
+    /// In relative mode games often take Control (to crouch, say): the
+    /// double press goes to the game and nothing comes back, and presses
+    /// in it, or before it, count toward none after it.
+    #[test]
+    fn control_twice_is_the_games_in_relative_mode() {
+        let (mut r, start) = fresh();
+        let ms = Duration::from_millis;
+        r.set_relative_capable(id("win"), true);
+        r.set_relative(true).unwrap();
+        tap(&mut r, usage::LEFT_CONTROL, start, 0, 50);
+        assert_eq!(
+            tap(&mut r, usage::LEFT_CONTROL, start, 80, 120),
+            vec![sent(usage::LEFT_CONTROL, false)]
+        );
+        assert!(handle(&mut r, Event::Input(InputEvent::DoublePressed)).is_empty());
+        // A press in it, let go of after it: no first press.
+        key_at(&mut r, usage::LEFT_CONTROL, true, start + ms(150));
+        r.set_relative(false).unwrap();
+        key_at(&mut r, usage::LEFT_CONTROL, false, start + ms(190));
+        assert!(!took_back(&tap(
+            &mut r,
+            usage::LEFT_CONTROL,
+            start,
+            220,
+            260
+        )));
+        // A tap just before it neither.
+        let (mut r, start) = fresh();
+        r.set_relative_capable(id("win"), true);
+        tap(&mut r, usage::LEFT_CONTROL, start, 0, 40);
+        r.set_relative(true).unwrap();
+        r.set_relative(false).unwrap();
+        assert!(!took_back(&tap(
+            &mut r,
+            usage::LEFT_CONTROL,
+            start,
+            60,
+            100
+        )));
+        // Out of it, the double press takes control back again.
+        assert!(took_back(&tap(
+            &mut r,
+            usage::LEFT_CONTROL,
+            start,
+            120,
+            160
+        )));
+    }
+
+    /// Capture that told the double press as such, its keys gone to a
+    /// local app: control comes back, and nothing goes to the PC.
+    #[test]
+    fn a_double_press_told_by_capture_takes_control_back_and_sends_nothing() {
+        let (mut r, _) = fresh();
+        assert_eq!(
+            handle(&mut r, Event::Input(InputEvent::DoublePressed)),
+            vec![
+                Action::Leave { device: id("win") },
+                Action::Ungrab {
+                    warp_to: Point::new(1511.0, 500.0),
+                },
+                Action::ControlReturned(ReturnReason::Hotkey),
+            ]
+        );
+        // Here, or with the double press off: nothing.
+        assert!(handle(&mut r, Event::Input(InputEvent::DoublePressed)).is_empty());
+        let mut off = router();
+        enter_win(&mut off);
+        assert!(handle(&mut off, Event::Input(InputEvent::DoublePressed)).is_empty());
+        assert!(matches!(off.state(), State::Remote { .. }));
+    }
+
+    /// The PC sees Control go down and up twice, then the cursor leave:
+    /// nothing stays pressed there.
+    #[test]
+    fn control_twice_leaves_nothing_pressed_on_the_device() {
+        use crate::receiver::{Injection, Receiver, RemoteEvent};
+
+        let mut r = double_press_router();
+        let mut pc = Receiver::default();
+        let mut down = BTreeSet::new();
+        let mut deliver = |actions: Vec<Action>| {
+            for action in actions {
+                let event = match action {
+                    Action::Enter {
+                        position,
+                        modifiers,
+                        buttons,
+                        ..
+                    } => RemoteEvent::Enter {
+                        from: id("mac"),
+                        position,
+                        modifiers,
+                        buttons,
+                    },
+                    Action::Key { usage, pressed, .. } => RemoteEvent::Key {
+                        from: id("mac"),
+                        usage,
+                        pressed,
+                    },
+                    Action::Leave { .. } => RemoteEvent::Leave { from: id("mac") },
+                    _ => continue,
+                };
+                for injection in pc.handle(event) {
+                    if let Injection::Key { usage, pressed } = injection {
+                        if pressed {
+                            down.insert(usage);
+                        } else {
+                            down.remove(&usage);
+                        }
+                    }
+                }
+            }
+        };
+        deliver(enter_win(&mut r));
+        let start = Instant::now();
+        let ms = Duration::from_millis;
+        for (at, pressed) in [(0, true), (60, false), (120, true)] {
+            deliver(key_at(&mut r, usage::LEFT_CONTROL, pressed, start + ms(at)));
+        }
+        let last = key_at(&mut r, usage::LEFT_CONTROL, false, start + ms(180));
+        assert!(took_back(&last));
+        deliver(last);
+        assert!(down.is_empty(), "{down:?}");
+        assert_eq!(pc.controller(), None);
     }
 }

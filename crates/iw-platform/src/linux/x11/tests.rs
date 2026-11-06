@@ -8,7 +8,7 @@ use std::time::{Duration, Instant};
 
 use iw_core::HidUsage;
 use iw_core::geometry::{Point, Rect};
-use iw_core::hotkey::Modifiers;
+use iw_core::hotkey::{HeldHotkeys, Modifiers};
 use iw_core::input::{Button, InputEvent};
 use iw_core::router::Hotkey;
 use iw_keymap::usage;
@@ -116,6 +116,10 @@ fn reported(events: &Receiver<InputEvent>, within: Duration) -> Vec<InputEvent> 
         }
     }
     out
+}
+
+fn held(hotkeys: &[Hotkey]) -> HeldHotkeys {
+    hotkeys.iter().copied().collect()
 }
 
 fn keys(events: &[InputEvent]) -> Vec<(HidUsage, bool)> {
@@ -412,7 +416,7 @@ fn reserved_hotkeys_are_kept_from_other_clients() {
     let mut capture = X11Capture::connect().unwrap().reporting_injected();
     capture.start(tx).unwrap();
     let lock = Hotkey::new(Modifiers::CONTROL_ALT_SHIFT, usage::L);
-    assert!(capture.reserve_hotkeys(&[lock]));
+    assert_eq!(capture.reserve_hotkeys(&[lock]), held(&[lock]));
 
     let press = |e: &mut X11Emulation| {
         for k in [usage::LEFT_CONTROL, usage::LEFT_ALT, usage::LEFT_SHIFT] {
@@ -445,10 +449,47 @@ fn reserved_hotkeys_are_kept_from_other_clients() {
     assert!(!keys_heard.contains(&46), "{keys_heard:?}");
 
     // Let go of: the apps have it again.
-    assert!(capture.reserve_hotkeys(&[]));
+    assert!(capture.reserve_hotkeys(&[]).is_empty());
     press(&mut emulation);
     let (keys_heard, _) = probe.heard(QUIET);
     assert!(keys_heard.contains(&46), "{keys_heard:?}");
+}
+
+/// A lock on a key alone is grabbed in every modifier state: other
+/// clients see neither F13 nor Control+F13, and still see F12.
+#[test]
+#[ignore = "needs an X server: scripts/linux-x11-tests.sh"]
+fn a_hotkey_on_a_key_alone_is_kept_from_other_clients_with_any_modifiers() {
+    let probe = Probe::new();
+    let mut emulation = X11Emulation::connect().unwrap();
+    let (tx, events) = mpsc::channel();
+    let mut capture = X11Capture::connect().unwrap().reporting_injected();
+    capture.start(tx).unwrap();
+    let lock = Hotkey::new(Modifiers::NONE, usage::F13);
+    assert_eq!(capture.reserve_hotkeys(&[lock]), held(&[lock]));
+    let f12 = HidUsage::from_name("F12").unwrap();
+
+    let _ = reported(&events, QUIET);
+    tap(&mut emulation, usage::F13);
+    emulation.key(usage::LEFT_CONTROL, true).unwrap();
+    tap(&mut emulation, usage::F13);
+    emulation.key(usage::LEFT_CONTROL, false).unwrap();
+    tap(&mut emulation, usage::CAPS_LOCK);
+    tap(&mut emulation, usage::F13);
+    tap(&mut emulation, usage::CAPS_LOCK);
+    tap(&mut emulation, f12);
+    let (keys_heard, _) = probe.heard(QUIET);
+    // Control, Caps Lock twice and F12: evdev codes plus 8.
+    assert_eq!(keys_heard, vec![29 + 8, 58 + 8, 58 + 8, 88 + 8]);
+    // Capture hears F13 each time.
+    let got = keys(&reported(&events, QUIET));
+    let f13_down = got.iter().filter(|k| **k == (usage::F13, true)).count();
+    assert_eq!(f13_down, 3, "{got:?}");
+
+    assert!(capture.reserve_hotkeys(&[]).is_empty());
+    tap(&mut emulation, usage::F13);
+    let (keys_heard, _) = probe.heard(QUIET);
+    assert_eq!(keys_heard, vec![183 + 8]);
 }
 
 /// Whether X key code `code` is down, as another client sees it.
@@ -563,7 +604,7 @@ fn a_held_key_repeats_for_the_device_in_control_only() {
 
 #[test]
 #[ignore = "needs an X server: scripts/linux-x11-tests.sh"]
-fn hotkeys_are_all_left_to_apps_when_another_holds_one() {
+fn a_hotkey_another_app_holds_is_left_to_it_and_the_others_held_back() {
     let probe = Probe::new();
     // Another app's shortcut: Control+Alt+Shift+1, Alt being Mod1.
     let one = 10;
@@ -582,23 +623,54 @@ fn hotkeys_are_all_left_to_apps_when_another_holds_one() {
         .check()
         .unwrap();
     let mut emulation = X11Emulation::connect().unwrap();
-    let mut capture = X11Capture::connect().unwrap();
+    let (tx, events) = mpsc::channel();
+    let mut capture = X11Capture::connect().unwrap().reporting_injected();
+    capture.start(tx).unwrap();
     let lock = Hotkey::new(Modifiers::CONTROL_ALT_SHIFT, usage::L);
     let jump = Hotkey::new(Modifiers::CONTROL_ALT_SHIFT, usage::DIGIT1);
-    assert!(!capture.reserve_hotkeys(&[lock, jump]));
-    assert_eq!(capture.hotkeys_held_back(), Some(false));
-    // Not even the lock is held back.
-    for k in [usage::LEFT_CONTROL, usage::LEFT_ALT, usage::LEFT_SHIFT] {
-        emulation.key(k, true).unwrap();
-    }
-    tap(&mut emulation, usage::L);
-    for k in [usage::LEFT_SHIFT, usage::LEFT_ALT, usage::LEFT_CONTROL] {
-        emulation.key(k, false).unwrap();
-    }
+    // The lock is held back, the jump is not.
+    assert_eq!(capture.reserve_hotkeys(&[lock, jump]), held(&[lock]));
+    assert_eq!(capture.hotkeys_held_back(), held(&[lock]));
+    let _ = reported(&events, QUIET);
+    let press = |e: &mut X11Emulation, key| {
+        for k in [usage::LEFT_CONTROL, usage::LEFT_ALT, usage::LEFT_SHIFT] {
+            e.key(k, true).unwrap();
+        }
+        tap(e, key);
+        for k in [usage::LEFT_SHIFT, usage::LEFT_ALT, usage::LEFT_CONTROL] {
+            e.key(k, false).unwrap();
+        }
+    };
+    // The lock is held back; the other app has its shortcut.
+    press(&mut emulation, usage::L);
+    press(&mut emulation, usage::DIGIT1);
     let (keys_heard, _) = probe.heard(QUIET);
-    assert!(keys_heard.contains(&46), "{keys_heard:?}");
+    assert!(!keys_heard.contains(&46), "{keys_heard:?}");
+    assert!(keys_heard.contains(&one), "{keys_heard:?}");
+    // Both still reach capture, for the router to act on.
+    let got = keys(&reported(&events, QUIET));
+    assert!(
+        got.contains(&(usage::L, true)) && got.contains(&(usage::DIGIT1, true)),
+        "{got:?}"
+    );
+    // Let go of by the other app, capture grabs it within its retries, and
+    // says so among the events.
     probe.conn.ungrab_key(one, probe.root, state).unwrap();
     probe.conn.flush().unwrap();
+    let deadline = Instant::now() + Duration::from_secs(6);
+    let mut told = Vec::new();
+    while capture.hotkeys_held_back() != held(&[lock, jump]) {
+        assert!(Instant::now() < deadline, "not grabbed again");
+        told.extend(reported(&events, Duration::from_millis(100)));
+    }
+    told.extend(reported(&events, QUIET));
+    assert!(
+        told.contains(&InputEvent::HotkeysHeldBack(held(&[lock, jump]))),
+        "{told:?}"
+    );
+    press(&mut emulation, usage::DIGIT1);
+    let (keys_heard, _) = probe.heard(QUIET);
+    assert!(!keys_heard.contains(&one), "{keys_heard:?}");
 }
 
 #[test]
@@ -631,7 +703,7 @@ fn hotkeys_follow_a_changed_modifier_mapping() {
     let mut capture = X11Capture::connect().unwrap();
     capture.start(tx).unwrap();
     let lock = Hotkey::new(Modifiers::CONTROL_ALT_SHIFT, usage::L);
-    assert!(capture.reserve_hotkeys(&[lock]));
+    assert_eq!(capture.reserve_hotkeys(&[lock]), held(&[lock]));
     let press = |e: &mut X11Emulation| {
         for k in [usage::LEFT_CONTROL, usage::LEFT_ALT, usage::LEFT_SHIFT] {
             e.key(k, true).unwrap();
@@ -823,15 +895,15 @@ fn capture_and_injection_come_back_after_the_server_restarts() {
     let mut capture = X11Capture::connect().unwrap().reporting_injected();
     capture.start(tx).unwrap();
     let lock = Hotkey::new(Modifiers::CONTROL_ALT_SHIFT, usage::L);
-    assert!(capture.reserve_hotkeys(&[lock]));
-    assert_eq!(capture.hotkeys_held_back(), Some(true));
+    assert_eq!(capture.reserve_hotkeys(&[lock]), held(&[lock]));
+    assert_eq!(capture.hotkeys_held_back(), held(&[lock]));
     emulation.key(usage::C, true).unwrap();
     assert_eq!(keys(&reported(&events, QUIET)), vec![(usage::C, true)]);
 
     server.stop();
     // What was down is let go of, wherever it went.
     assert_eq!(keys(&reported(&events, QUIET)), vec![(usage::C, false)]);
-    assert_eq!(capture.hotkeys_held_back(), Some(false));
+    assert_eq!(capture.hotkeys_held_back(), HeldHotkeys::default());
     // The display server starts over, as at a new login.
     server.start_again();
     // Capture tries again 0.5, 1.5, 3.5, 7.5, 15.5 and 25.5 s after it
@@ -848,7 +920,7 @@ fn capture_and_injection_come_back_after_the_server_restarts() {
         }
     }
     // The hotkey is held back on the new server too.
-    assert_eq!(capture.hotkeys_held_back(), Some(true));
+    assert_eq!(capture.hotkeys_held_back(), held(&[lock]));
     let probe = Probe::new();
     for k in [usage::LEFT_CONTROL, usage::LEFT_ALT, usage::LEFT_SHIFT] {
         emulation.key(k, true).unwrap();
@@ -917,6 +989,35 @@ fn nothing_goes_out_while_another_app_holds_the_keyboard() {
     expected.extend(modifiers.iter().map(|k| (*k, false)));
     assert_eq!(keys(&reported(&events, QUIET)), expected);
     let _ = probe.heard(QUIET);
+    // So does Control pressed twice, when that takes control back: told as
+    // such once the second release completes it, none of it as keys (the
+    // app holding the keyboard had them), and nothing otherwise.
+    capture.watch_double_press(true);
+    let control = usage::LEFT_CONTROL;
+    tap(&mut emulation, control);
+    tap(&mut emulation, usage::A);
+    tap(&mut emulation, control);
+    assert_eq!(reported(&events, QUIET), vec![]);
+    // A starts it over, so the two after it are the two that count.
+    tap(&mut emulation, usage::A);
+    tap(&mut emulation, control);
+    tap(&mut emulation, control);
+    assert_eq!(reported(&events, QUIET), vec![InputEvent::DoublePressed]);
+    let (keys_heard, _) = probe.heard(QUIET);
+    assert_eq!(keys_heard.iter().filter(|k| **k == 29 + 8).count(), 4);
+    // Control held while the wheel turns (zooming), then one tap: the wheel
+    // started it over, so no double press.
+    emulation.key(control, true).unwrap();
+    emulation.scroll(0.0, 1.0).unwrap();
+    emulation.key(control, false).unwrap();
+    tap(&mut emulation, control);
+    assert_eq!(reported(&events, QUIET), vec![]);
+    let _ = probe.heard(QUIET);
+    capture.watch_double_press(false);
+    tap(&mut emulation, control);
+    tap(&mut emulation, control);
+    assert_eq!(reported(&events, QUIET), vec![]);
+    let _ = probe.heard(QUIET);
 
     // It lets go: capture takes over within its retries.
     probe.conn.ungrab_keyboard(CURRENT_TIME).unwrap();
@@ -935,6 +1036,65 @@ fn nothing_goes_out_while_another_app_holds_the_keyboard() {
     capture.settle();
 }
 
+/// While another client's grab takes every key, no hotkey counts as held
+/// back, as their keys reach that client: told as that begins and ends,
+/// each set numbered after the one before.
+#[test]
+#[ignore = "needs an X server: scripts/linux-x11-tests.sh"]
+fn no_hotkey_is_held_back_while_another_app_holds_the_keyboard() {
+    let probe = Probe::new();
+    let (tx, events) = mpsc::channel();
+    let mut capture = X11Capture::connect().unwrap();
+    capture.start(tx).unwrap();
+    let lock = Hotkey::new(Modifiers::CONTROL_ALT_SHIFT, usage::L);
+    let reserved = capture.reserve_hotkeys(&[lock]);
+    assert_eq!(reserved, held(&[lock]));
+    let status = probe
+        .conn
+        .grab_keyboard(
+            false,
+            probe.window,
+            CURRENT_TIME,
+            GrabMode::ASYNC,
+            GrabMode::ASYNC,
+        )
+        .unwrap()
+        .reply()
+        .unwrap()
+        .status;
+    assert_eq!(status, GrabStatus::SUCCESS);
+    capture.set_grabbed(true).unwrap();
+    capture.settle();
+    let waiting = capture.hotkeys_held_back();
+    assert!(waiting.is_empty());
+    assert!(waiting.change() > reserved.change());
+    // It lets go: capture takes the keyboard, and the lock is held back.
+    probe.conn.ungrab_keyboard(CURRENT_TIME).unwrap();
+    probe.conn.flush().unwrap();
+    let deadline = Instant::now() + Duration::from_secs(3);
+    while capture.hotkeys_held_back().is_empty() {
+        assert!(Instant::now() < deadline, "not held back again");
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    let after = capture.hotkeys_held_back();
+    assert_eq!(after, held(&[lock]));
+    assert!(after.change() > waiting.change());
+    let told: Vec<HeldHotkeys> = reported(&events, QUIET)
+        .into_iter()
+        .filter_map(|e| match e {
+            InputEvent::HotkeysHeldBack(held) => Some(held),
+            _ => None,
+        })
+        .collect();
+    assert!(
+        told.ends_with(&[HeldHotkeys::default(), held(&[lock])]),
+        "{told:?}"
+    );
+    assert!(told.windows(2).all(|w| w[0].change() < w[1].change()));
+    capture.set_grabbed(false).unwrap();
+    capture.settle();
+}
+
 #[test]
 #[ignore = "needs an X server: scripts/linux-x11-tests.sh"]
 fn keys_from_other_devices_reach_the_app_even_when_they_are_hotkeys_here() {
@@ -943,7 +1103,7 @@ fn keys_from_other_devices_reach_the_app_even_when_they_are_hotkeys_here() {
     let mut capture = X11Capture::connect().unwrap();
     capture.start(tx).unwrap();
     let lock = Hotkey::new(Modifiers::CONTROL_ALT_SHIFT, usage::L);
-    assert!(capture.reserve_hotkeys(&[lock]));
+    assert_eq!(capture.reserve_hotkeys(&[lock]), held(&[lock]));
     let chord = |e: &mut X11Emulation| {
         for k in [usage::LEFT_CONTROL, usage::LEFT_ALT, usage::LEFT_SHIFT] {
             e.key(k, true).unwrap();
@@ -960,12 +1120,12 @@ fn keys_from_other_devices_reach_the_app_even_when_they_are_hotkeys_here() {
     chord(&mut injection);
     let (keys_heard, _) = probe.heard(QUIET);
     assert_eq!(keys_heard, vec![37, 64, 50, 46]);
-    assert_eq!(capture.hotkeys_held_back(), Some(false));
+    assert_eq!(capture.hotkeys_held_back(), HeldHotkeys::default());
 
     // Once injection held no key for a while, they are held back again.
     std::thread::sleep(Duration::from_millis(1500));
     capture.settle();
-    assert_eq!(capture.hotkeys_held_back(), Some(true));
+    assert_eq!(capture.hotkeys_held_back(), held(&[lock]));
     let mut other = X11Emulation::connect().unwrap();
     chord(&mut other);
     let (keys_heard, _) = probe.heard(QUIET);

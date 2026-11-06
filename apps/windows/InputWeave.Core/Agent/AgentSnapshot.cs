@@ -1,4 +1,5 @@
 using Inputweave.App.V1;
+using InputWeave.Panel;
 using InputWeave.Settings;
 using InputWeave.Support;
 
@@ -226,6 +227,35 @@ public sealed record AgentSnapshot
 
     /// <summary>Takes the keyboard and mouse back to this computer, such as "Ctrl + Alt + Shift + Esc".</summary>
     public string TakeBackShortcut => ShortcutText.Text(Hotkeys.TakeBack);
+
+    /// <summary>Whether the service knows the double press of Control that takes control back: it reports it, empty when off.</summary>
+    public bool DoublePressSupported => Status.Hotkeys?.HasTakeBackDouble == true;
+
+    /// <summary>Whether pressing Control twice takes control back too.</summary>
+    public bool DoublePressOn => DoublePressSupported && Hotkeys.TakeBackDouble.Length != 0;
+
+    /// <summary>
+    /// Whether what tells how to take control back names the double press:
+    /// it is on, and relative mouse is not, as the service ignores it then
+    /// (games often use Ctrl).
+    /// </summary>
+    private bool DoublePressHinted => DoublePressOn && Status.RelativeMouse.Length == 0;
+
+    /// <summary>
+    /// How to take control back from the computer this one controls, as the
+    /// panel says it: the shortcut, and the double press while it works.
+    /// Every other place that tells it says this while it works.
+    /// </summary>
+    public UiText TakeBackHint =>
+        new(DoublePressHinted ? TextKeys.SubtitleControllingDouble : TextKeys.SubtitleControlling, TakeBackShortcut);
+
+    /// <summary>How to take control back, as a notice says it: at any time; while the double press works, as the panel does.</summary>
+    public UiText TakeBackReminder =>
+        DoublePressHinted ? TakeBackHint : new(TextKeys.HudTakeBackHint, TakeBackShortcut);
+
+    /// <summary>What setup says once controlling another computer worked.</summary>
+    public UiText TakeBackWorked =>
+        DoublePressHinted ? new(TextKeys.SetupTryDoneHint, TakeBackHint) : new(TextKeys.SetupTryDone, TakeBackShortcut);
 
     /// <summary>Locks the cursor to the computer it is on, or unlocks it, such as "Ctrl + Alt + Shift + L".</summary>
     public string LockShortcut => ShortcutText.Text(Hotkeys.Lock);

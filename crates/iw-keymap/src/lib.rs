@@ -75,7 +75,9 @@ impl HidUsage {
 /// Pause is the exception the table cannot express: it arrives as scan code
 /// `0x45` without the extended flag, the same as NumLock's code with it, and
 /// cannot be injected by scan code at all; the Windows backend sends it by
-/// virtual key instead.
+/// virtual key instead. With Control held it arrives as Break, `0x46` with
+/// the flag, which `from_windows` reads as Pause too (Control with Scroll
+/// Lock sends the same on many keyboards).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct ScanCode {
     pub code: u8,
@@ -101,10 +103,15 @@ pub mod usage {
     pub const DIGIT1: HidUsage = HidUsage::new(0x1E);
     pub const ESCAPE: HidUsage = HidUsage::new(0x29);
     pub const CAPS_LOCK: HidUsage = HidUsage::new(0x39);
+    pub const SCROLL_LOCK: HidUsage = HidUsage::new(0x47);
     pub const PAUSE: HidUsage = HidUsage::new(0x48);
     /// Forward Delete (Del), not Backspace.
     pub const DELETE: HidUsage = HidUsage::new(0x4C);
     pub const NUM_LOCK: HidUsage = HidUsage::new(0x53);
+    /// F13 to F24 follow one another from here. F14 is where Apple's
+    /// extended keyboard has Scroll Lock.
+    pub const F13: HidUsage = HidUsage::new(0x68);
+    pub const F19: HidUsage = HidUsage::new(0x6E);
 
     pub const LEFT_CONTROL: HidUsage = HidUsage::new(0xE0);
     pub const LEFT_SHIFT: HidUsage = HidUsage::new(0xE1);
@@ -235,6 +242,23 @@ mod tests {
             let key = HidUsage::new(modifier);
             assert!(key.to_mac().is_some() && key.to_windows().is_some());
         }
+    }
+
+    /// Break, what Pause sends with Control held, reads as Pause; Pause is
+    /// sent as itself.
+    #[test]
+    fn break_reads_as_pause_on_windows() {
+        let scan = |code, extended| ScanCode { code, extended };
+        assert_eq!(HidUsage::from_windows(scan(0x46, true)), Some(usage::PAUSE));
+        assert_eq!(
+            HidUsage::from_windows(scan(0x45, false)),
+            Some(usage::PAUSE)
+        );
+        assert_eq!(usage::PAUSE.to_windows(), Some(scan(0x45, false)));
+        assert_eq!(
+            HidUsage::from_windows(scan(0x46, false)),
+            Some(usage::SCROLL_LOCK)
+        );
     }
 
     #[test]

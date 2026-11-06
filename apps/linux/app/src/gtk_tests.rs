@@ -18,7 +18,7 @@ use inputweave_app_core::snapshot::{Link, Snapshot};
 use crate::canvas::ArrangementCanvas;
 use crate::pages::EntrySync;
 use crate::pages::inspector::Inspector;
-use crate::pages::shortcuts::Shortcuts;
+use crate::pages::shortcuts::{Shortcuts, Spot};
 use crate::pairing::AddDevice;
 use crate::ui::Ui;
 use inputweave_app_core::proto::{SetArrangement, SetHotkeys, client_message::Command};
@@ -57,6 +57,7 @@ fn gtk_behaviour() {
     a_closed_code_window_comes_back(&ui);
     computers_move_snap_and_spring_back(&ui);
     shortcuts_are_recorded_and_refusals_said(&ui);
+    the_double_press_switch_follows_the_agent(&ui);
     the_cursor_speed_row_sends_and_follows_the_agent(&ui);
     synced_is_said_only_for_changes_while_shown(&ui);
     rows_show_ampersands_and_angle_brackets_as_they_are(&ui);
@@ -556,6 +557,8 @@ fn computers_move_snap_and_spring_back(ui: &Rc<Ui>) {
 }
 
 fn shortcuts_are_recorded_and_refusals_said(ui: &Rc<Ui>) {
+    use inputweave_app_core::text::keys;
+
     ui.agent.record_fixed();
     let shortcuts = Shortcuts::new(ui);
     let window = window_with(shortcuts.widget());
@@ -617,18 +620,140 @@ fn shortcuts_are_recorded_and_refusals_said(ui: &Rc<Ui>) {
     settle();
     assert_eq!(shortcuts.recording(), None);
 
-    // Refused as a duplicate of taking back control: said so.
+    // Refused as a duplicate of taking back control: said so, in red
+    // under the lock's row.
     ui.agent.refuse_next("duplicate");
     shortcuts.record_row(Row::Lock);
     shortcuts.press_for_tests(Row::Lock, escape, control | alt | shift);
     settle();
-    let error = shortcuts.error_shown().expect("a refusal is said");
+    let (spot, error) = shortcuts.error_shown().expect("a refusal is said");
+    assert_eq!(spot, Spot::Row(Row::Lock));
     assert!(
-        error.contains(&crate::strings::t(
-            inputweave_app_core::text::keys::SHORTCUT_TAKE_BACK
-        )),
+        error.contains(&crate::strings::t(keys::SHORTCUT_TAKE_BACK)),
         "{error}"
     );
+    assert_eq!(shortcuts.subtitle_of(Row::Lock), error);
+    // It stays through updates, and recording again clears it.
+    shortcuts.update(&ui.snapshot());
+    assert_eq!(shortcuts.subtitle_of(Row::Lock), error);
+    shortcuts.record_row(Row::TakeBack);
+    assert_eq!(shortcuts.error_shown(), None);
+    assert_eq!(shortcuts.subtitle_of(Row::Lock), "");
+
+    // F13 alone goes for taking back control, as it is.
+    let f13 = 183 + 8;
+    let before = ui.agent.sent().len();
+    shortcuts.press_for_tests(Row::TakeBack, f13, gtk::gdk::ModifierType::empty());
+    settle();
+    let sent = sent_hotkeys(before);
+    assert_eq!(sent.len(), 1);
+    assert_eq!(sent[0].take_back, "F13");
+    // K alone is refused: the row says which keys work alone.
+    ui.agent.refuse_next("needs_modifier");
+    shortcuts.record_row(Row::TakeBack);
+    shortcuts.press_for_tests(Row::TakeBack, key_k, gtk::gdk::ModifierType::empty());
+    settle();
+    assert_eq!(
+        shortcuts.error_shown(),
+        Some((
+            Spot::Row(Row::TakeBack),
+            crate::strings::t(keys::SHORTCUT_SINGLE_KEYS)
+        ))
+    );
+    // For relative mouse, a modifier is what it needs.
+    ui.agent.refuse_next("needs_modifier");
+    shortcuts.record_row(Row::Relative);
+    shortcuts.press_for_tests(Row::Relative, f13, gtk::gdk::ModifierType::empty());
+    settle();
+    assert_eq!(
+        shortcuts.error_shown(),
+        Some((
+            Spot::Row(Row::Relative),
+            crate::strings::t(keys::SHORTCUT_NEEDS_MODIFIER)
+        ))
+    );
+    assert_eq!(shortcuts.subtitle_of(Row::TakeBack), "");
+    window.destroy();
+}
+
+/// The double press switch: shown when the service knows it, sent with
+/// the whole set, its refusal said under it, and Reset Shortcuts turns it
+/// off.
+fn the_double_press_switch_follows_the_agent(ui: &Rc<Ui>) {
+    use inputweave_app_core::text::keys;
+
+    ui.agent.record_fixed();
+    let shortcuts = Shortcuts::new(ui);
+    let window = window_with(shortcuts.widget());
+    let sent_hotkeys = |before: usize| -> Vec<inputweave_app_core::proto::Hotkeys> {
+        ui.agent.sent()[before..]
+            .iter()
+            .filter_map(|c| match c {
+                Command::SetHotkeys(SetHotkeys { hotkeys }) => hotkeys.clone(),
+                _ => None,
+            })
+            .collect()
+    };
+    let mut model = (*ui.snapshot()).clone();
+    let switch = shortcuts.double_press_row();
+
+    // A service from before it: no switch, and Reset leaves it out.
+    let mut old = shortcut::defaults();
+    old.take_back_double = None;
+    model.status.hotkeys = Some(old);
+    shortcuts.update(&model);
+    assert!(!switch.is_visible());
+    assert!(!shortcuts.reset_button().is_sensitive());
+
+    // Off: shown, and turning it on sends the whole set with it.
+    model.status.hotkeys = Some(shortcut::defaults());
+    shortcuts.update(&model);
+    assert!(switch.is_visible() && !switch.is_active());
+    assert!(!shortcuts.reset_button().is_sensitive());
+    let before = ui.agent.sent().len();
+    switch.set_active(true);
+    settle();
+    let sent = sent_hotkeys(before);
+    assert_eq!(sent.len(), 1);
+    assert_eq!(sent[0].take_back_double.as_deref(), Some("double+control"));
+    assert_eq!(sent[0].lock, shortcut::DEFAULT_LOCK, "the whole set goes");
+    // The service still has it off: the switch goes back.
+    shortcuts.update(&model);
+    assert!(!switch.is_active());
+
+    // On, as the service says: Reset Shortcuts can turn it off.
+    model.status.hotkeys = Some(shortcut::with_double_press(&shortcut::defaults(), true));
+    shortcuts.update(&model);
+    assert!(switch.is_active());
+    assert!(shortcuts.reset_button().is_sensitive());
+    let before = ui.agent.sent().len();
+    shortcuts.reset_button().emit_clicked();
+    settle();
+    let sent = sent_hotkeys(before);
+    assert_eq!(sent.len(), 1);
+    assert_eq!(sent[0].take_back_double.as_deref(), Some(""), "turned off");
+    assert_eq!(sent[0].take_back, shortcut::DEFAULT_TAKE_BACK);
+
+    // Refused: said in red under it; changed but not saved, as such.
+    ui.agent.refuse_next("not_saved");
+    switch.set_active(false);
+    settle();
+    let (spot, error) = shortcuts.error_shown().expect("a refusal is said");
+    assert_eq!(spot, Spot::DoublePress);
+    assert_eq!(error, crate::strings::t(keys::SHORTCUT_NOT_SAVED));
+    assert_eq!(switch.subtitle().unwrap_or_default(), error);
+    assert!(switch.has_css_class("iw-failed"));
+    // Taken next time: its own words again.
+    shortcuts.update(&model);
+    assert!(switch.is_active());
+    switch.set_active(false);
+    settle();
+    assert_eq!(shortcuts.error_shown(), None);
+    assert_eq!(
+        switch.subtitle().unwrap_or_default(),
+        crate::strings::t(keys::SHORTCUT_DOUBLE_PRESS_HINT)
+    );
+    assert!(!switch.has_css_class("iw-failed"));
     window.destroy();
 }
 

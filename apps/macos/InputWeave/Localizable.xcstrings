@@ -1001,6 +1001,16 @@
         }
       }
     },
+    "Double-press ⌃ to take back control": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "連按兩下 ⌃ 切回這台"
+          }
+        }
+      }
+    },
     "Downloads": {
       "localizations": {
         "zh-Hant": {
@@ -1481,6 +1491,16 @@
         }
       }
     },
+    "It works. %@": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "成功了。%@"
+          }
+        }
+      }
+    },
     "It works. Press %@ to take back control at any time.": {
       "localizations": {
         "zh-Hant": {
@@ -1941,6 +1961,16 @@
         }
       }
     },
+    "Only F13–F19 work alone. Other keys need a modifier: ⌃, ⌥, ⇧ or ⌘.": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "單一按鍵只能用 F13–F19；其他按鍵要加上修飾鍵：⌃、⌥、⇧ 或 ⌘。"
+          }
+        }
+      }
+    },
     "Only this Mac stops; the other computer is not told.": {
       "localizations": {
         "zh-Hant": {
@@ -2161,6 +2191,16 @@
         }
       }
     },
+    "Press %@ or double-press ⌃ to take back control.": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "按 %@ 或連按兩下 ⌃，就會切回這台。"
+          }
+        }
+      }
+    },
     "Press %@ to end relative mouse.": {
       "localizations": {
         "zh-Hant": {
@@ -2197,6 +2237,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "按 %@ 解除鎖定。"
+          }
+        }
+      }
+    },
+    "Press a shortcut, or a single key such as F13…": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "請按組合鍵，或 F13–F19 這類單一按鍵…"
           }
         }
       }
@@ -3361,6 +3411,16 @@
         }
       }
     },
+    "The shortcut changed but couldn't be saved. It goes back to the earlier one when the background service restarts.": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "快速鍵已經變更，但無法儲存；背景服務重新啟動後會回到原本的設定。"
+          }
+        }
+      }
+    },
     "The shortcut could not be changed.": {
       "localizations": {
         "zh-Hant": {
@@ -3847,6 +3907,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "隱藏圖示後，要再顯示，從「應用程式」再開啟一次 InputWeave。"
+          }
+        }
+      }
+    },
+    "While controlling another computer, press Control twice quickly, with no other key between, to come back here. Control still reaches the other computer.": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "控制其他電腦時，快速按兩下 Control、中間不按其他鍵，就會切回這台。Control 照樣會送到那台。"
           }
         }
       }

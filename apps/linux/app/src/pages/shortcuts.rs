@@ -1,10 +1,12 @@
 //! General › Shortcuts: the four rows, each with
-//! Record, the jumps and relative mode with a switch, and Reset Shortcuts,
-//! as the other two apps have them. Recording listens in a focused box:
-//! GTK gives each key's hardware keycode (evdev + 8 on X11 and Wayland),
-//! named through `iw-keymap`, and the modifiers held; the decisions are
-//! `inputweave_app_core::shortcut`. The whole set goes to the service with
-//! SetHotkeys, which may refuse it and say why.
+//! Record, the jumps and relative mode with a switch, below taking control
+//! back the switch for pressing Ctrl twice to do it too, and Reset
+//! Shortcuts, as the other two apps have them. Recording listens in a
+//! focused box: GTK gives each key's hardware keycode (evdev + 8 on X11 and
+//! Wayland), named through `iw-keymap`, and the modifiers held; the
+//! decisions are `inputweave_app_core::shortcut`. The whole set goes to the
+//! service with SetHotkeys, which may refuse it and say why: in red under
+//! the row it is about, or under the group for Reset Shortcuts.
 
 use std::cell::{Cell, RefCell};
 use std::rc::{Rc, Weak};
@@ -30,15 +32,36 @@ struct RowWidgets {
     switch: Option<gtk::Switch>,
 }
 
+/// Where a refusal is said.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Spot {
+    /// Under the row it is about.
+    Row(Row),
+    /// Under the double press switch.
+    DoublePress,
+    /// Under the group: Reset Shortcuts.
+    Group,
+}
+
 pub struct Shortcuts {
     group: adw::PreferencesGroup,
     rows: Vec<(Row, RowWidgets)>,
+    /// Pressing Ctrl twice takes control back too; hidden while the service
+    /// does not know it.
+    double_press: adw::SwitchRow,
     reset: gtk::Button,
     error: gtk::Label,
+    /// The refusal said now, and where; it stays through updates until the
+    /// next change or recording.
+    problem: RefCell<Option<(Spot, String)>>,
     recording: Cell<Option<Row>>,
     /// The hotkeys as last shown, which a recording changes.
     hotkeys: RefCell<Hotkeys>,
     relative: Cell<bool>,
+    /// The service knows the double press.
+    double_supported: Cell<bool>,
+    /// The jumps do nothing where the cursor leaves only across edges.
+    edges_only: Cell<bool>,
     quiet: Quiet,
     ui: Weak<Ui>,
 }
@@ -48,6 +71,12 @@ impl Shortcuts {
         let group = adw::PreferencesGroup::builder()
             .title(t(keys::GENERAL_SHORTCUTS))
             .description(t(keys::SHORTCUTS_HINT))
+            .build();
+        let double_press = adw::SwitchRow::builder()
+            .use_markup(false)
+            .title(t(keys::SHORTCUT_DOUBLE_PRESS))
+            .subtitle(t(keys::SHORTCUT_DOUBLE_PRESS_HINT))
+            .visible(false)
             .build();
         let mut rows = Vec::new();
         for row in Row::ALL {
@@ -89,6 +118,9 @@ impl Shortcuts {
                 action.add_suffix(switch);
             }
             group.add(&action);
+            if row == Row::TakeBack {
+                group.add(&double_press);
+            }
             rows.push((
                 row,
                 RowWidgets {
@@ -117,11 +149,15 @@ impl Shortcuts {
         let shortcuts = Rc::new(Shortcuts {
             group,
             rows,
+            double_press,
             reset,
             error,
+            problem: RefCell::new(None),
             recording: Cell::new(None),
             hotkeys: RefCell::new(shortcut::defaults()),
             relative: Cell::new(false),
+            double_supported: Cell::new(false),
+            edges_only: Cell::new(false),
             quiet: Quiet::default(),
             ui: Rc::downgrade(ui),
         });
@@ -192,20 +228,34 @@ impl Shortcuts {
             }
         }
         let weak = Rc::downgrade(self);
+        self.double_press.connect_active_notify(move |switch| {
+            let Some(this) = weak.upgrade() else { return };
+            if this.quiet.is_set() {
+                return;
+            }
+            this.stop();
+            let changed = shortcut::with_double_press(&this.hotkeys.borrow(), switch.is_active());
+            this.send_all(Spot::DoublePress, None, changed);
+        });
+        let weak = Rc::downgrade(self);
         self.reset.connect_clicked(move |_| {
             if let Some(this) = weak.upgrade() {
+                this.stop();
                 let mut defaults = shortcut::defaults();
                 if !this.relative.get() {
                     defaults.relative = None;
                 }
-                this.send_all(None, defaults);
+                if !this.double_supported.get() {
+                    defaults.take_back_double = None;
+                }
+                this.send_all(Spot::Group, None, defaults);
             }
         });
     }
 
     fn start(&self, row: Row) {
         self.stop();
-        self.error.set_visible(false);
+        self.clear_error();
         self.recording.set(Some(row));
         let widgets = self.widgets(row);
         widgets.value.set_visible(false);
@@ -225,7 +275,7 @@ impl Shortcuts {
     }
 
     /// A key pressed while `row` records.
-    fn pressed(&self, row: Row, keycode: u32, state: gdk::ModifierType) {
+    fn pressed(self: &Rc<Self>, row: Row, keycode: u32, state: gdk::ModifierType) {
         if self.recording.get() != Some(row) {
             return;
         }
@@ -240,7 +290,7 @@ impl Shortcuts {
             Recorded::Cancel => self.stop(),
             Recorded::Unusable => {
                 self.stop();
-                self.show_error(&tr(&ui!(keys::SHORTCUT_UNKNOWN_KEY)));
+                self.show_error(Spot::Row(row), &tr(&ui!(keys::SHORTCUT_UNKNOWN_KEY)));
             }
             Recorded::Set(value) => {
                 self.stop();
@@ -249,20 +299,22 @@ impl Shortcuts {
         }
     }
 
-    fn send(&self, row: Option<Row>, value: &str) {
+    fn send(self: &Rc<Self>, row: Option<Row>, value: &str) {
         let before = self.hotkeys.borrow().clone();
         let changed = match row {
             Some(row) => shortcut::with(&before, row, value),
             None => before,
         };
-        self.send_all(row, changed);
+        let spot = row.map_or(Spot::Group, Spot::Row);
+        self.send_all(spot, row, changed);
     }
 
-    /// Sends the whole set, which the service takes or refuses as one.
-    fn send_all(&self, row: Option<Row>, hotkeys: Hotkeys) {
+    /// Sends the whole set, which the service takes or refuses as one; a
+    /// refusal of `row`'s change is said at `spot`.
+    fn send_all(self: &Rc<Self>, spot: Spot, row: Option<Row>, hotkeys: Hotkeys) {
         let Some(ui) = self.ui.upgrade() else { return };
         let before = self.hotkeys.borrow().clone();
-        let error = self.error.downgrade();
+        let this = Rc::downgrade(self);
         let tried = hotkeys.clone();
         let weak_ui = Rc::downgrade(&ui);
         ui.command_then(
@@ -270,15 +322,14 @@ impl Shortcuts {
                 hotkeys: Some(hotkeys),
             }),
             move |result| {
-                let Some(error) = error.upgrade() else {
+                let Some(this) = this.upgrade() else {
                     return true;
                 };
                 match result {
-                    Ok(_) => error.set_visible(false),
+                    Ok(_) => this.clear_error(),
                     Err(e) => {
                         let why = shortcut::refusal(e.code().unwrap_or(""), row, &tried, &before);
-                        error.set_label(&tr(&why));
-                        error.set_visible(true);
+                        this.show_error(spot, &tr(&why));
                     }
                 }
                 // Switches go back to what the service has.
@@ -295,18 +346,68 @@ impl Shortcuts {
         self.stop();
     }
 
-    pub fn show_error(&self, text: &str) {
-        self.error.set_label(text);
-        self.error.set_visible(true);
+    /// Says `text` in red at `spot`, in place of what was said before.
+    pub fn show_error(&self, spot: Spot, text: &str) {
+        self.problem.replace(Some((spot, text.to_owned())));
+        self.show_problem();
+    }
+
+    fn clear_error(&self) {
+        if self.problem.take().is_some() {
+            self.show_problem();
+        }
+    }
+
+    /// Shows the refusal said now where it belongs, and every other row's
+    /// own words.
+    fn show_problem(&self) {
+        let problem = self.problem.borrow();
+        let at = |spot: Spot| {
+            problem
+                .as_ref()
+                .filter(|(s, _)| *s == spot)
+                .map(|(_, text)| text.clone())
+        };
+        for (row, widgets) in &self.rows {
+            // The jumps do nothing where the cursor leaves only across
+            // edges; the row says why.
+            let own = if *row == Row::Jump && self.edges_only.get() {
+                t(keys::EDGES_ONLY)
+            } else {
+                String::new()
+            };
+            show_on(&widgets.row, at(Spot::Row(*row)), own);
+        }
+        show_on(
+            self.double_press.upcast_ref(),
+            at(Spot::DoublePress),
+            t(keys::SHORTCUT_DOUBLE_PRESS_HINT),
+        );
+        match at(Spot::Group) {
+            Some(text) => {
+                self.error.set_label(&text);
+                self.error.set_visible(true);
+            }
+            None => self.error.set_visible(false),
+        }
     }
 
     pub fn update(&self, model: &Snapshot) {
         let hotkeys = model.hotkeys();
         let relative = model.relative_supported();
         self.relative.set(relative);
+        let double_supported = model.double_press_supported();
+        self.double_supported.set(double_supported);
+        self.edges_only.set(model.edges_only());
         if !model.connected() {
             self.stop();
-            self.error.set_visible(false);
+            self.problem.replace(None);
+        }
+        self.double_press.set_visible(double_supported);
+        self.double_press.set_sensitive(model.connected());
+        let on = model.double_press_on();
+        if self.double_press.is_active() != on {
+            self.quiet.run(|| self.double_press.set_active(on));
         }
         for (row, widgets) in &self.rows {
             let visible = *row != Row::Relative || relative;
@@ -322,21 +423,10 @@ impl Shortcuts {
                 self.quiet.run(|| switch.set_active(on));
             }
             widgets.record.set_sensitive(on || !row.can_turn_off());
-            // The jumps do nothing where the cursor leaves only across
-            // edges; the row says why.
-            if *row == Row::Jump {
-                let why = if model.edges_only() {
-                    t(keys::EDGES_ONLY)
-                } else {
-                    String::new()
-                };
-                if widgets.row.subtitle().as_deref().unwrap_or("") != why {
-                    widgets.row.set_subtitle(&why);
-                }
-            }
         }
+        self.show_problem();
         self.reset
-            .set_sensitive(!shortcut::is_default(&hotkeys, relative));
+            .set_sensitive(!shortcut::is_default(&hotkeys, relative, double_supported));
         *self.hotkeys.borrow_mut() = hotkeys;
     }
 
@@ -346,15 +436,33 @@ impl Shortcuts {
     }
 
     #[cfg(test)]
-    pub fn press_for_tests(&self, row: Row, keycode: u32, state: gdk::ModifierType) {
+    pub fn press_for_tests(self: &Rc<Self>, row: Row, keycode: u32, state: gdk::ModifierType) {
         self.pressed(row, keycode, state);
     }
 
+    /// The refusal said, and where.
     #[cfg(test)]
-    pub fn error_shown(&self) -> Option<String> {
-        self.error
-            .is_visible()
-            .then(|| self.error.label().to_string())
+    pub fn error_shown(&self) -> Option<(Spot, String)> {
+        self.problem.borrow().clone()
+    }
+
+    #[cfg(test)]
+    pub fn double_press_row(&self) -> adw::SwitchRow {
+        self.double_press.clone()
+    }
+
+    #[cfg(test)]
+    pub fn reset_button(&self) -> gtk::Button {
+        self.reset.clone()
+    }
+
+    #[cfg(test)]
+    pub fn subtitle_of(&self, row: Row) -> String {
+        self.widgets(row)
+            .row
+            .subtitle()
+            .unwrap_or_default()
+            .to_string()
     }
 
     #[cfg(test)]
@@ -365,5 +473,19 @@ impl Shortcuts {
     #[cfg(test)]
     pub fn recording(&self) -> Option<Row> {
         self.recording.get()
+    }
+}
+
+/// Shows `problem` in red as `row`'s subtitle, or else its own words.
+fn show_on(row: &adw::ActionRow, problem: Option<String>, own: String) {
+    let failed = problem.is_some();
+    let text = problem.unwrap_or(own);
+    if row.subtitle().as_deref().unwrap_or("") != text {
+        row.set_subtitle(&text);
+    }
+    if failed {
+        row.add_css_class("iw-failed");
+    } else {
+        row.remove_css_class("iw-failed");
     }
 }

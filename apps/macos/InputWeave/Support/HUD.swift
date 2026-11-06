@@ -106,7 +106,7 @@ final class HUDController {
         let shown = defaults.integer(forKey: Preferences.takeBackHints)
         guard shown < Self.hintTimes else { return nil }
         defaults.set(shown + 1, forKey: Preferences.takeBackHints)
-        return String(localized: "Press \(model.takeBackShortcut) to take back control at any time.")
+        return model.takeBackReminder
     }
 
     private func lockMessage(_ status: AgentStatus, model: AgentModel) -> String {

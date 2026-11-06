@@ -71,8 +71,10 @@ struct SwitchingSection: View {
 }
 
 /// Settings › General › Shortcuts: each
-/// hotkey with a button that records new keys for it. The background
-/// service checks them and says what is wrong; this only shows its answer.
+/// hotkey with a button that records new keys for it, and below taking
+/// control back, the switch for pressing Control twice to do it too. The
+/// background service checks them and says what is wrong; this only shows
+/// its answer.
 struct ShortcutsSection: View {
     @Environment(AgentModel.self) private var model
     /// The row being recorded for, if any.
@@ -86,6 +88,19 @@ struct ShortcutsSection: View {
         let hotkeys = model.hotkeys
         Section("Shortcuts") {
             row(.takeBack, keys: ShortcutText.symbols(hotkeys.takeBack))
+            // A service from before the double press knows none.
+            if model.doublePressSupported {
+                Toggle("Double-press ⌃ to take back control", isOn: Binding(
+                    get: { model.doublePressOn },
+                    set: { on in
+                        stopRecording()
+                        setDoublePress(on)
+                    }))
+                    .disabled(model.link != .connected)
+                Text("While controlling another computer, press Control twice quickly, with no other key between, to come back here. Control still reaches the other computer.")
+                    .foregroundStyle(.secondary)
+                    .font(.callout)
+            }
             row(.lock, keys: ShortcutText.symbols(hotkeys.lock))
             row(.jump, keys: hotkeys.jumpModifiers.isEmpty
                 ? String(localized: "Off") : ShortcutText.jumpRange(modifiers: hotkeys.jumpModifiers))
@@ -105,7 +120,8 @@ struct ShortcutsSection: View {
                 }
                 .disabled(
                     model.link != .connected
-                        || ShortcutText.isDefault(hotkeys, relative: model.relativeSupported))
+                        || ShortcutText.isDefault(
+                            hotkeys, relative: model.relativeSupported, doublePress: model.doublePressSupported))
             }
         }
         .alert(problem ?? "", isPresented: Binding(
@@ -126,9 +142,9 @@ struct ShortcutsSection: View {
     private func row(_ row: Row, keys: String) -> some View {
         LabeledContent {
             HStack(spacing: 8) {
-                Text(recording == row ? prompt(row) : keys)
+                Text(recording == row ? row.prompt : keys)
                     .foregroundStyle(recording == row ? .secondary : .primary)
-                    .accessibilityLabel(recording == row ? Text(prompt(row)) : Text(verbatim: keys))
+                    .accessibilityLabel(recording == row ? Text(row.prompt) : Text(verbatim: keys))
                 Button(recording == row ? "Cancel" : "Record") {
                     if recording == row { stopRecording() } else { startRecording(row) }
                 }
@@ -150,12 +166,6 @@ struct ShortcutsSection: View {
         } label: {
             Text(row.title)
         }
-    }
-
-    private func prompt(_ row: Row) -> String {
-        row == .jump
-            ? String(localized: "Press the modifiers and a number…")
-            : String(localized: "Press the keys…")
     }
 
     private func startRecording(_ row: Row) {
@@ -207,6 +217,13 @@ struct ShortcutsSection: View {
         hotkeys[row] = value
         guard hotkeys != model.hotkeys else { return }
         apply(hotkeys, changing: row)
+    }
+
+    private func setDoublePress(_ on: Bool) {
+        var hotkeys = model.hotkeys
+        hotkeys.takeBackDouble = on ? ShortcutText.doubleControl : ""
+        guard hotkeys != model.hotkeys else { return }
+        apply(hotkeys)
     }
 
     private func apply(_ hotkeys: Hotkeys, changing row: Row? = nil) {

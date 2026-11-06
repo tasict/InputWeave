@@ -128,6 +128,15 @@ impl DeviceError {
     }
 }
 
+/// A change to the devices file made without writing it: the file as it
+/// was then, numbered among the changes (`Directory::save`).
+#[must_use = "the change is not in the file until it is saved"]
+pub(crate) struct Unsaved {
+    path: PathBuf,
+    file: DevicesFile,
+    number: u64,
+}
+
 pub(crate) struct Directory {
     this_device: String,
     file: Option<PathBuf>,
@@ -144,6 +153,9 @@ pub(crate) struct Directory {
     /// Saved hotkeys from before relative mode left its hotkey off; said
     /// once.
     relative_left_off_told: AtomicBool,
+    /// Saved hotkeys on a key this computer's keyboard never reports were
+    /// put back to their defaults; said once.
+    unreported_told: AtomicBool,
 }
 
 impl Directory {
@@ -180,6 +192,7 @@ impl Directory {
             peers: watch::Sender::new(TrustedDevices::default()),
             nearby: watch::Sender::new(Arc::new(Vec::new())),
             relative_left_off_told: AtomicBool::new(false),
+            unreported_told: AtomicBool::new(false),
         };
         directory.publish(&directory.stored.lock().unwrap());
         directory
@@ -585,10 +598,16 @@ impl Directory {
     }
 
     /// The hotkeys the user set, or the defaults. Ones the file holds that
-    /// cannot be used, as after editing it by hand, are the defaults. A
-    /// file from before relative mode has no hotkey for it: the default,
-    /// unless that is the same keys as a hotkey the user set, which keeps
-    /// them all and leaves relative mode's off.
+    /// cannot be used, as after editing it by hand, are the defaults; that
+    /// includes a double press other than `double+control`. One on a key
+    /// this computer's keyboard never reports, as set on another computer
+    /// with the file brought along, is replaced alone, every other kept, by
+    /// the first default that clashes with none (relative mode's off as a
+    /// last choice; `Hotkeys::reported_only`); the file keeps it until the
+    /// hotkeys next change. A file from before relative mode has no hotkey for it: the
+    /// default, unless that is the same keys as a hotkey the user set,
+    /// which keeps them all and leaves relative mode's off. One without the
+    /// double press has it off.
     pub(crate) fn hotkeys(&self) -> Hotkeys {
         let Some(file) = self.stored.lock().unwrap().hotkeys.clone() else {
             return Hotkeys::default();
@@ -602,7 +621,19 @@ impl Directory {
             &or_default(file.lock, defaults.lock),
             &or_default(file.jump_modifiers, defaults.jump_modifiers),
             file.relative.as_deref(),
+            file.take_back_double.as_deref().unwrap_or_default(),
         )
+        .map(|hotkeys| {
+            let (hotkeys, put_back) = hotkeys.reported_only(iw_platform::keyboard_reports);
+            if !put_back.is_empty() && !self.unreported_told.swap(true, Ordering::Relaxed) {
+                warn!(
+                    hotkeys = ?put_back,
+                    "this computer's keyboard never reports the keys of these hotkeys in the devices file; using defaults that clash with no other"
+                );
+            }
+            hotkeys
+        })
+        .and_then(super::checked_here)
         .unwrap_or_else(|e| {
             warn!(error = %e, "the hotkeys in the devices file cannot be used; using the defaults");
             Hotkeys::default()
@@ -619,14 +650,17 @@ impl Directory {
         hotkeys
     }
 
-    /// Remembers the hotkeys; the defaults leave nothing in the file.
-    pub(crate) fn set_hotkeys(&self, hotkeys: &Hotkeys) {
+    /// Remembers the hotkeys, the defaults leaving nothing in the file, but
+    /// leaves writing the file to the caller (`save`), so the engine, which
+    /// makes this change, need not wait for the disk: what to write, if what
+    /// the file holds is to change.
+    pub(crate) fn change_hotkeys(&self, hotkeys: &Hotkeys) -> Option<Unsaved> {
         let file = (*hotkeys != Hotkeys::default()).then(|| HotkeysFile::of(hotkeys));
-        self.update(|stored| {
+        self.change(|stored| {
             let changed = stored.hotkeys != file;
             stored.hotkeys = file;
             changed
-        });
+        })
     }
 
     /// The folder and policy for received files the user chose, if any.
@@ -814,32 +848,47 @@ impl Directory {
     /// lock, and one that a later one's save already wrote is not written
     /// again.
     fn update(&self, change: impl FnOnce(&mut DevicesFile) -> bool) {
-        let (path, saved, number) = {
-            let mut stored = self.stored.lock().unwrap();
-            if !change(&mut stored) {
-                return;
-            }
-            self.publish(&stored);
-            let Some(path) = &self.file else {
-                return;
-            };
-            let number = self.changes.fetch_add(1, Ordering::Relaxed) + 1;
-            (path, stored.clone(), number)
-        };
+        if let Some(unsaved) = self.change(change) {
+            // Said in the log; these changes are in effect all the same.
+            let _ = self.save(unsaved);
+        }
+    }
+
+    /// `update` without the save: what is left to write (`save`), if
+    /// anything changed and there is a file.
+    fn change(&self, change: impl FnOnce(&mut DevicesFile) -> bool) -> Option<Unsaved> {
+        let mut stored = self.stored.lock().unwrap();
+        if !change(&mut stored) {
+            return None;
+        }
+        self.publish(&stored);
+        let path = self.file.clone()?;
+        let number = self.changes.fetch_add(1, Ordering::Relaxed) + 1;
+        Some(Unsaved {
+            path,
+            file: stored.clone(),
+            number,
+        })
+    }
+
+    /// Writes a change made without saving it, unless the save of a later
+    /// one wrote it already. Waits for the disk, off the async threads.
+    /// The error, also logged, when the file could not be written.
+    pub(crate) fn save(&self, unsaved: Unsaved) -> std::io::Result<()> {
+        let Unsaved { path, file, number } = unsaved;
         off_async_threads(|| {
             let mut written = self.written.lock().unwrap();
             if *written >= number {
-                return;
+                return Ok(());
             }
             // One that failed leaves the earlier changes waiting to try
             // their own.
-            match saved.save(path) {
-                Ok(()) => *written = number,
-                Err(e) => {
+            file.save(&path)
+                .map(|()| *written = number)
+                .inspect_err(|e| {
                     warn!(path = %path.display(), error = %e, "cannot save the devices file");
-                }
-            }
-        });
+                })
+        })
     }
 
     fn publish(&self, stored: &DevicesFile) {
@@ -964,6 +1013,14 @@ pub(crate) fn off_async_threads<R>(f: impl FnOnce() -> R) -> R {
 mod tests {
     use super::*;
     use crate::config::{BackendConfig, DeviceConfig, NetworkConfig, PathsConfig, PeerConfig};
+
+    /// Remembers the hotkeys and writes them, as the engine and IPC do
+    /// between them.
+    fn set_hotkeys(directory: &Directory, hotkeys: &Hotkeys) {
+        if let Some(unsaved) = directory.change_hotkeys(hotkeys) {
+            directory.save(unsaved).unwrap();
+        }
+    }
 
     fn fp(byte: u8) -> Fingerprint {
         Fingerprint::from_bytes([byte; 32])
@@ -1115,9 +1172,10 @@ mod tests {
             "control+alt+KeyL",
             "",
             Some("control+alt+shift+KeyR"),
+            "",
         )
         .unwrap();
-        directory.set_hotkeys(&hotkeys);
+        set_hotkeys(&directory, &hotkeys);
         directory.set_switch_modifier(Some(Modifier::Gui));
         assert!(directory.relative_auto());
         directory.set_relative_auto(false);
@@ -1137,7 +1195,7 @@ mod tests {
         directory.set_relative_auto(true);
         assert!(!DevicesFile::load(&file).unwrap().relative_auto_off);
 
-        directory.set_hotkeys(&Hotkeys::default());
+        set_hotkeys(&directory, &Hotkeys::default());
         directory.set_switch_modifier(None);
         let saved = DevicesFile::load(&file).unwrap();
         assert_eq!((saved.hotkeys, saved.switch_modifier), (None, None));
@@ -1151,6 +1209,7 @@ mod tests {
                 lock: lock.map(str::to_owned),
                 jump_modifiers: None,
                 relative: None,
+                take_back_double: None,
             }),
             ..DevicesFile::default()
         };
@@ -1172,9 +1231,121 @@ mod tests {
                 }),
                 ..DevicesFile::default()
             },
+            // So is the double press.
+            DevicesFile {
+                hotkeys: Some(HotkeysFile {
+                    take_back: Some("F13".to_owned()),
+                    take_back_double: Some("double+shift".to_owned()),
+                    ..HotkeysFile::default()
+                }),
+                ..DevicesFile::default()
+            },
+            // A key alone where it does not work alone.
+            stored("control+KeyT", Some("KeyK")),
         ] {
             let directory = Directory::new(&config(), None, wrong);
             assert_eq!(directory.hotkeys(), Hotkeys::default());
+        }
+    }
+
+    /// A key alone and the double press are kept, and the double press is
+    /// written only while on, so versions from before it read the file
+    /// otherwise.
+    #[test]
+    fn a_key_alone_and_the_double_press_persist() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("devices.toml");
+        let directory = Directory::new(&config(), Some(file.clone()), DevicesFile::default());
+        let hotkeys = Hotkeys {
+            take_back: "F13".parse().unwrap(),
+            lock: "F15".parse().unwrap(),
+            take_back_double: true,
+            ..Hotkeys::default()
+        };
+        set_hotkeys(&directory, &hotkeys);
+        let text = std::fs::read_to_string(&file).unwrap();
+        assert!(text.contains("take_back = \"F13\""), "{text}");
+        assert!(text.contains("lock = \"F15\""), "{text}");
+        assert!(
+            text.contains("take_back_double = \"double+control\""),
+            "{text}"
+        );
+        let reloaded = Directory::new(&config(), None, DevicesFile::load(&file).unwrap());
+        assert_eq!(reloaded.hotkeys(), hotkeys);
+
+        let off = Hotkeys {
+            take_back_double: false,
+            ..hotkeys
+        };
+        set_hotkeys(&directory, &off);
+        let text = std::fs::read_to_string(&file).unwrap();
+        assert!(!text.contains("take_back_double"), "{text}");
+        assert_eq!(
+            Directory::new(&config(), None, DevicesFile::load(&file).unwrap()).hotkeys(),
+            off
+        );
+        // On alone, it is the only one written down besides the defaults.
+        let on = Hotkeys {
+            take_back_double: true,
+            ..Hotkeys::default()
+        };
+        set_hotkeys(&directory, &on);
+        assert_eq!(
+            DevicesFile::load(&file)
+                .unwrap()
+                .hotkeys
+                .and_then(|h| h.take_back_double),
+            Some("double+control".to_owned())
+        );
+    }
+
+    /// A hotkey on a key this computer's keyboard never reports, as Scroll
+    /// Lock or Pause on a Mac, is its default; the others stay, and
+    /// elsewhere it stays too.
+    #[test]
+    fn a_key_this_keyboard_never_reports_puts_back_only_its_hotkey() {
+        let stored = DevicesFile {
+            hotkeys: Some(HotkeysFile {
+                take_back: Some("ScrollLock".to_owned()),
+                lock: Some("control+KeyK".to_owned()),
+                jump_modifiers: Some("alt+gui".to_owned()),
+                relative: Some("control+alt+Pause".to_owned()),
+                take_back_double: Some("double+control".to_owned()),
+            }),
+            ..DevicesFile::default()
+        };
+        let directory = Directory::new(&config(), None, stored);
+        let hotkeys = directory.hotkeys();
+        assert_eq!(hotkeys.lock.to_string(), "control+KeyK");
+        assert_eq!(hotkeys.jump.unwrap().to_string(), "alt+gui");
+        assert!(hotkeys.take_back_double);
+        let scroll_lock = iw_core::HidUsage::from_name("ScrollLock").unwrap();
+        if iw_platform::keyboard_reports(scroll_lock) {
+            assert_eq!(hotkeys.take_back.to_string(), "ScrollLock");
+            assert_eq!(hotkeys.relative.unwrap().to_string(), "control+alt+Pause");
+        } else {
+            assert_eq!(hotkeys.take_back, Hotkeys::default().take_back);
+            assert_eq!(hotkeys.relative, Some(Hotkeys::DEFAULT_RELATIVE));
+        }
+        // The same each time it is read.
+        assert_eq!(directory.hotkeys(), hotkeys);
+
+        // Its default the keys of the lock kept: the next default instead,
+        // not the defaults for all.
+        let stored = DevicesFile {
+            hotkeys: Some(HotkeysFile {
+                take_back: Some("ScrollLock".to_owned()),
+                lock: Some("control+alt+shift+Escape".to_owned()),
+                ..HotkeysFile::default()
+            }),
+            ..DevicesFile::default()
+        };
+        let hotkeys = Directory::new(&config(), None, stored).hotkeys();
+        assert_eq!(hotkeys.lock.to_string(), "control+alt+shift+Escape");
+        if iw_platform::keyboard_reports(scroll_lock) {
+            assert_eq!(hotkeys.take_back.to_string(), "ScrollLock");
+        } else {
+            assert_eq!(hotkeys.take_back, Hotkeys::default().lock);
         }
     }
 
@@ -1195,7 +1366,7 @@ mod tests {
         assert_eq!(hotkeys.take_back, Hotkeys::default().take_back);
         assert_eq!(hotkeys.relative, None);
         // Written back so: off, from now on.
-        clashing.set_hotkeys(&hotkeys);
+        set_hotkeys(&clashing, &hotkeys);
         let saved = clashing.stored.lock().unwrap().hotkeys.clone().unwrap();
         assert_eq!(saved.relative.as_deref(), Some(""));
         assert_eq!(clashing.hotkeys(), hotkeys);

@@ -15,14 +15,19 @@ pub const DEFAULT_TAKE_BACK: &str = "control+alt+shift+Escape";
 pub const DEFAULT_LOCK: &str = "control+alt+shift+KeyL";
 pub const DEFAULT_JUMP_MODIFIERS: &str = "control+alt+shift";
 pub const DEFAULT_RELATIVE: &str = "control+alt+shift+KeyG";
+/// The double press of Control that takes control back, as the service
+/// writes it while it is on (`Hotkeys.take_back_double`); off is empty.
+pub const DOUBLE_CONTROL: &str = "double+control";
 
-/// The hotkeys of a service from before it reported them.
+/// The hotkeys of a service from before it reported them, and what Reset
+/// Shortcuts goes back to: the double press off.
 pub fn defaults() -> Hotkeys {
     Hotkeys {
         take_back: DEFAULT_TAKE_BACK.into(),
         lock: DEFAULT_LOCK.into(),
         jump_modifiers: DEFAULT_JUMP_MODIFIERS.into(),
         relative: Some(DEFAULT_RELATIVE.into()),
+        take_back_double: Some(String::new()),
     }
 }
 
@@ -132,12 +137,17 @@ impl Row {
         matches!(self, Row::Jump | Row::Relative)
     }
 
+    /// Whether the row's shortcut may be a single key, such as F13.
+    pub fn takes_single_keys(self) -> bool {
+        matches!(self, Row::TakeBack | Row::Lock)
+    }
+
     /// What the row says while it records.
     pub fn prompt(self) -> &'static str {
-        if self == Row::Jump {
-            keys::SHORTCUT_PRESS_JUMP
-        } else {
-            keys::SHORTCUT_PRESS_KEYS
+        match self {
+            Row::Jump => keys::SHORTCUT_PRESS_JUMP,
+            Row::TakeBack | Row::Lock => keys::SHORTCUT_PRESS_SINGLE,
+            Row::Relative => keys::SHORTCUT_PRESS_KEYS,
         }
     }
 }
@@ -267,17 +277,30 @@ pub fn with(hotkeys: &Hotkeys, row: Row, value: &str) -> Hotkeys {
     changed
 }
 
-/// Whether `hotkeys` are the defaults, so Reset Shortcuts has nothing to
-/// do. A service that knows no relative mode hotkey (`relative` false) is
+/// Whether `hotkeys` are the defaults, the double press off, so Reset
+/// Shortcuts has nothing to do. A service that knows no relative mode
+/// hotkey (`relative` false) or no double press (`double_press` false) is
 /// not asked about it.
-pub fn is_default(hotkeys: &Hotkeys, relative: bool) -> bool {
+pub fn is_default(hotkeys: &Hotkeys, relative: bool, double_press: bool) -> bool {
     let mut shown = hotkeys.clone();
     let mut defaults = defaults();
     if !relative {
         shown.relative = None;
         defaults.relative = None;
     }
+    if !double_press {
+        shown.take_back_double = None;
+        defaults.take_back_double = None;
+    }
     shown == defaults
+}
+
+/// A copy of `hotkeys` with the double press of Control on or off.
+pub fn with_double_press(hotkeys: &Hotkeys, on: bool) -> Hotkeys {
+    Hotkeys {
+        take_back_double: Some(if on { DOUBLE_CONTROL } else { "" }.to_owned()),
+        ..hotkeys.clone()
+    }
 }
 
 /// What a row shows: the hotkey, or the jumps together, or Off.
@@ -295,8 +318,14 @@ pub fn shown(hotkeys: &Hotkeys, row: Row) -> UiText {
 /// which shortcut uses it.
 pub fn refusal(code: &str, row: Option<Row>, hotkeys: &Hotkeys, before: &Hotkeys) -> UiText {
     match code {
+        "needs_modifier" if row.is_some_and(Row::takes_single_keys) => {
+            ui!(keys::SHORTCUT_SINGLE_KEYS)
+        }
         "needs_modifier" => ui!(keys::SHORTCUT_NEEDS_MODIFIER),
         "unknown_key" => ui!(keys::SHORTCUT_UNKNOWN_KEY),
+        // In effect all the same, as the status shows.
+        "not_saved" => ui!(keys::SHORTCUT_NOT_SAVED),
+        "timeout" => ui!(keys::TITLE_NOT_RESPONDING),
         "duplicate" | "duplicate_relative" => {
             if let Some(changed) = row
                 && let Some(other) = user(&get(hotkeys, changed), changed, before)
@@ -433,7 +462,8 @@ mod tests {
         let off = with(&hotkeys, Row::Jump, "");
         assert_eq!(shown(&off, Row::Jump), ui!(keys::SHORTCUT_OFF));
         assert_eq!(Row::Jump.prompt(), keys::SHORTCUT_PRESS_JUMP);
-        assert_eq!(Row::Lock.prompt(), keys::SHORTCUT_PRESS_KEYS);
+        assert_eq!(Row::Lock.prompt(), keys::SHORTCUT_PRESS_SINGLE);
+        assert_eq!(Row::TakeBack.prompt(), keys::SHORTCUT_PRESS_SINGLE);
         assert_eq!(Row::Jump.title(), keys::SHORTCUT_JUMP);
     }
 
@@ -566,15 +596,28 @@ mod tests {
                 &with(&before, Row::Lock, "KeyL"),
                 &before
             ),
-            ui!(keys::SHORTCUT_NEEDS_MODIFIER)
+            ui!(keys::SHORTCUT_SINGLE_KEYS)
         );
         assert_eq!(
             refusal("unknown_key", Some(Row::Lock), &before, &before),
             ui!(keys::SHORTCUT_UNKNOWN_KEY)
         );
         assert_eq!(
-            refusal("timeout", Some(Row::Lock), &before, &before),
+            refusal("other", Some(Row::Lock), &before, &before),
             ui!(keys::SHORTCUT_NOT_CHANGED)
+        );
+        // Changed but not saved, or no answer in time.
+        assert_eq!(
+            refusal("not_saved", Some(Row::Lock), &before, &before).to_string(),
+            "The shortcut changed but couldn't be saved. It goes back to the earlier one when the background service restarts."
+        );
+        assert_eq!(
+            refusal("timeout", None, &before, &before),
+            ui!(keys::TITLE_NOT_RESPONDING)
+        );
+        assert_eq!(
+            refusal("timeout", None, &before, &before).to_string(),
+            "The background service is not responding."
         );
         // The lock made the same as taking back control.
         assert_eq!(
@@ -652,18 +695,19 @@ mod tests {
             Recorded::Set("control+alt+KeyR".into())
         );
         // Reset Shortcuts asks about it only when the service knows it.
-        assert!(is_default(&before, true));
-        assert!(!is_default(&off, true));
-        assert!(is_default(&off, false));
+        assert!(is_default(&before, true, true));
+        assert!(!is_default(&off, true, true));
+        assert!(is_default(&off, false, true));
         let old = Hotkeys {
             relative: None,
             ..before.clone()
         };
-        assert!(is_default(&old, false));
-        assert!(!is_default(&old, true));
+        assert!(is_default(&old, false, true));
+        assert!(!is_default(&old, true, true));
         assert!(!is_default(
             &with(&before, Row::Lock, "control+KeyK"),
-            false
+            false,
+            true
         ));
     }
 
@@ -743,5 +787,97 @@ mod tests {
             refusal("duplicate_relative", None, &before, &before),
             ui!(keys::SHORTCUT_USED_FOR, ui!(keys::SHORTCUT_RELATIVE))
         );
+    }
+
+    /// Taking control back and the lock may be a single key such as F13;
+    /// the service says which keys, and the app tells why by row.
+    #[test]
+    fn takes_single_keys_for_taking_back_and_the_lock() {
+        assert_eq!(text("F13"), "F13");
+        assert_eq!(text("ScrollLock"), "ScrollLock");
+        assert_eq!(text("control+F13"), "Ctrl+F13");
+        // evdev + 8: F13 is 183, F19 189, Scroll Lock 70, Pause 119.
+        assert_eq!(key_name(183 + 8), Some("F13"));
+        assert_eq!(key_name(189 + 8), Some("F19"));
+        assert_eq!(key_name(70 + 8), Some("ScrollLock"));
+        assert_eq!(key_name(119 + 8), Some("Pause"));
+        // A key alone goes to the service as it is, for every row but the
+        // jumps.
+        assert_eq!(
+            record(Row::TakeBack, Some("F13"), NONE),
+            Recorded::Set("F13".into())
+        );
+        assert_eq!(
+            record(Row::Lock, Some("Pause"), NONE),
+            Recorded::Set("Pause".into())
+        );
+        assert_eq!(
+            record(Row::Relative, Some("F13"), NONE),
+            Recorded::Set("F13".into())
+        );
+        assert_eq!(record(Row::Jump, Some("F13"), NONE), Recorded::Wait);
+        assert!(Row::TakeBack.takes_single_keys() && Row::Lock.takes_single_keys());
+        assert!(!Row::Relative.takes_single_keys() && !Row::Jump.takes_single_keys());
+
+        let before = defaults();
+        for row in [Row::TakeBack, Row::Lock] {
+            assert_eq!(
+                refusal(
+                    "needs_modifier",
+                    Some(row),
+                    &with(&before, row, "KeyK"),
+                    &before
+                ),
+                ui!(keys::SHORTCUT_SINGLE_KEYS)
+            );
+        }
+        assert_eq!(
+            refusal(
+                "needs_modifier",
+                Some(Row::Relative),
+                &with(&before, Row::Relative, "F13"),
+                &before
+            ),
+            ui!(keys::SHORTCUT_NEEDS_MODIFIER)
+        );
+        assert_eq!(
+            refusal("needs_modifier", None, &before, &before),
+            ui!(keys::SHORTCUT_NEEDS_MODIFIER)
+        );
+        // F13 alone fires whatever modifiers are held: it clashes with any
+        // hotkey on F13.
+        let lock_alone = with(&before, Row::TakeBack, "control+F13");
+        assert_eq!(
+            refusal(
+                "duplicate",
+                Some(Row::Lock),
+                &with(&lock_alone, Row::Lock, "F13"),
+                &lock_alone
+            ),
+            ui!(keys::SHORTCUT_USED_FOR, ui!(keys::SHORTCUT_TAKE_BACK))
+        );
+        assert!(clash("F13", "control+alt+F13"));
+        assert!(!clash("F13", "F14"));
+    }
+
+    /// The double press: off in the defaults, which Reset Shortcuts goes
+    /// back to; asked about only when the service knows it.
+    #[test]
+    fn the_double_press_is_part_of_the_defaults() {
+        let before = defaults();
+        assert_eq!(before.take_back_double.as_deref(), Some(""));
+        let on = with_double_press(&before, true);
+        assert_eq!(on.take_back_double.as_deref(), Some(DOUBLE_CONTROL));
+        assert_eq!(DOUBLE_CONTROL, "double+control");
+        assert_eq!(with_double_press(&on, false), before);
+        assert!(is_default(&before, true, true));
+        assert!(!is_default(&on, true, true));
+        // A service from before it reports none.
+        let old = Hotkeys {
+            take_back_double: None,
+            ..before.clone()
+        };
+        assert!(is_default(&old, true, false));
+        assert!(!is_default(&old, true, true));
     }
 }

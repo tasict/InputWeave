@@ -43,6 +43,9 @@ pub enum CtlError {
     Input(std::io::Error),
     #[error("not every file arrived")]
     Transfer,
+    /// The agent is from a version that does not know what was asked.
+    #[error("the running agent does not know {0}: it is from an older version")]
+    Unsupported(&'static str),
 }
 
 /// What to add when the agent's socket cannot be opened. On Windows each
@@ -802,25 +805,56 @@ pub fn format_relative(status: &app::Status) -> String {
 }
 
 /// Changes the hotkeys given, keeping the others; `jump_modifiers` empty
-/// turns the jumps off, `relative` empty that hotkey. Returns the status
-/// with the hotkeys now in effect.
+/// turns the jumps off, `relative` empty that hotkey, and
+/// `take_back_double` empty the double press. Returns the status with the
+/// hotkeys now in effect.
 pub async fn set_hotkeys(
     socket: &Path,
     take_back: Option<String>,
     lock: Option<String>,
     jump_modifiers: Option<String>,
     relative: Option<String>,
+    take_back_double: Option<String>,
 ) -> Result<app::Status, CtlError> {
     let mut client = Client::connect(socket).await?;
     let current = client.status().await?.hotkeys.unwrap_or_default();
+    knows_double_press(&current, take_back_double.as_deref())?;
     let hotkeys = app::Hotkeys {
         take_back: take_back.unwrap_or(current.take_back),
         lock: lock.unwrap_or(current.lock),
         jump_modifiers: jump_modifiers.unwrap_or(current.jump_modifiers),
-        // Not given, the agent keeps the one in effect.
+        // Not given, the agent keeps the ones in effect.
         relative,
+        take_back_double,
     };
     client.set_hotkeys(hotkeys).await
+}
+
+/// Goes back to the default hotkeys, the double press off where the agent
+/// knows it. Returns the status with the hotkeys now in effect.
+pub async fn reset_hotkeys(socket: &Path) -> Result<app::Status, CtlError> {
+    let mut client = Client::connect(socket).await?;
+    let current = client.status().await?.hotkeys.unwrap_or_default();
+    let defaults = crate::agent::hotkeys_to_proto(&iw_core::hotkey::Hotkeys::default());
+    let hotkeys = app::Hotkeys {
+        // An agent that does not know it has nothing to turn off.
+        take_back_double: current
+            .take_back_double
+            .and(defaults.take_back_double.clone()),
+        ..defaults
+    };
+    client.set_hotkeys(hotkeys).await
+}
+
+/// Refuses to change the double press with an agent that does not report
+/// it (`current`, its hotkeys), which would leave it out without a word.
+fn knows_double_press(current: &app::Hotkeys, asked: Option<&str>) -> Result<(), CtlError> {
+    if asked.is_some() && current.take_back_double.is_none() {
+        return Err(CtlError::Unsupported(
+            "the double press (--take-back-double)",
+        ));
+    }
+    Ok(())
 }
 
 /// The hotkeys, and which device each jump goes to.
@@ -832,12 +866,17 @@ pub fn format_hotkeys(status: &app::Status, arrangement: &app::Arrangement) -> S
 ",
         hotkeys.take_back
     ));
+    // Agents from before relative mode and the double press do not say.
+    match hotkeys.take_back_double.as_deref() {
+        None => {}
+        Some("") => out.push_str("double press:       off\n"),
+        Some(double) => out.push_str(&format!("double press:       {double}\n")),
+    }
     out.push_str(&format!(
         "lock:               {}
 ",
         hotkeys.lock
     ));
-    // An agent from before relative mode does not say.
     match hotkeys.relative.as_deref() {
         None => {}
         Some("") => out.push_str("relative mouse:     off\n"),
@@ -1043,8 +1082,13 @@ pub fn format_status(status: &app::Status) -> String {
             Some("") => ", relative off".to_owned(),
             Some(relative) => format!(", relative {relative}"),
         };
+        // Said only while on.
+        let double = match hotkeys.take_back_double.as_deref() {
+            None | Some("") => String::new(),
+            Some(double) => format!(" or {double}"),
+        };
         out.push_str(&format!(
-            "hotkeys:        take back {}, lock {}, jump {jump}{relative}\n",
+            "hotkeys:        take back {}{double}, lock {}, jump {jump}{relative}\n",
             hotkeys.take_back, hotkeys.lock
         ));
     }
@@ -1568,6 +1612,7 @@ mod tests {
             lock: "control+alt+KeyL".to_owned(),
             jump_modifiers: jump_modifiers.to_owned(),
             relative: None,
+            take_back_double: None,
         }
     }
 
@@ -1608,6 +1653,45 @@ mod tests {
             "{}",
             format_hotkeys(&status, &arrangement)
         );
+        // A key alone, and the double press from an agent that knows it.
+        status.hotkeys = Some(app::Hotkeys {
+            take_back: "F13".to_owned(),
+            take_back_double: Some("double+control".to_owned()),
+            ..hotkeys("")
+        });
+        assert!(
+            format_hotkeys(&status, &arrangement).starts_with(
+                "take back control:  F13\n\
+                 double press:       double+control\n\
+                 lock:               control+alt+KeyL\n"
+            ),
+            "{}",
+            format_hotkeys(&status, &arrangement)
+        );
+        status.hotkeys.as_mut().unwrap().take_back_double = Some(String::new());
+        assert!(
+            format_hotkeys(&status, &arrangement).contains("double press:       off\n"),
+            "{}",
+            format_hotkeys(&status, &arrangement)
+        );
+    }
+
+    #[test]
+    fn the_double_press_is_not_set_on_an_agent_that_does_not_know_it() {
+        let old = hotkeys("");
+        let error = knows_double_press(&old, Some("double+control")).unwrap_err();
+        assert!(matches!(error, CtlError::Unsupported(_)));
+        assert_eq!(
+            error.to_string(),
+            "the running agent does not know the double press (--take-back-double): it is from an older version"
+        );
+        assert!(knows_double_press(&old, None).is_ok());
+        let new = app::Hotkeys {
+            take_back_double: Some(String::new()),
+            ..old
+        };
+        assert!(knows_double_press(&new, Some("double+control")).is_ok());
+        assert!(knows_double_press(&new, Some("")).is_ok());
     }
 
     #[test]
@@ -1632,6 +1716,15 @@ mod tests {
             "{text}"
         );
         assert!(text.contains("paired; jump 2\n"), "{text}");
+        status.hotkeys.as_mut().unwrap().take_back_double = Some("double+control".to_owned());
+        assert!(
+            format_status(&status).contains(
+                "hotkeys:        take back control+alt+shift+Escape or double+control, lock control+alt+KeyL, jump off\n"
+            ),
+            "{}",
+            format_status(&status)
+        );
+        status.hotkeys.as_mut().unwrap().take_back_double = Some(String::new());
         status.devices[0].sharing_paused = true;
         assert!(
             format_status(&status).contains("paired; sharing paused; jump 2\n"),

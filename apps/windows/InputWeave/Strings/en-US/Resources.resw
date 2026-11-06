@@ -77,6 +77,10 @@
     <value>Press {0} to take back control.</value>
     <comment>{0} is a shortcut, e.g. Ctrl + Alt + Shift + Esc.</comment>
   </data>
+  <data name="SubtitleControllingDouble" xml:space="preserve">
+    <value>Press {0} or double-press Ctrl to take back control.</value>
+    <comment>{0} is a shortcut, e.g. Ctrl + Alt + Shift + Esc.</comment>
+  </data>
   <data name="SubtitleCursorOn" xml:space="preserve">
     <value>Cursor on {0}</value>
     <comment>{0} is this computer's name.</comment>
@@ -789,6 +793,16 @@
     <value>Press the keys…</value>
     <comment>Shown in place of a shortcut while it is recorded.</comment>
   </data>
+  <data name="ShortcutPressSingle" xml:space="preserve">
+    <value>Press a shortcut, or a single key such as F13…</value>
+    <comment>Shown in place of the take-back or lock shortcut while it is recorded.</comment>
+  </data>
+  <data name="ShortcutDoublePress" xml:space="preserve">
+    <value>Double-press Ctrl to take back control</value>
+  </data>
+  <data name="ShortcutDoublePressHint" xml:space="preserve">
+    <value>While controlling another computer, press Ctrl twice quickly, with no other key between, to come back here. Ctrl still reaches the other computer.</value>
+  </data>
   <data name="ShortcutPressJump" xml:space="preserve">
     <value>Press the modifiers and a number…</value>
     <comment>Shown in place of the jump shortcuts while they are recorded.</comment>
@@ -806,6 +820,9 @@
   <data name="ShortcutNeedsModifier" xml:space="preserve">
     <value>This combination needs at least one modifier key: Ctrl, Alt, Shift or the Windows key.</value>
   </data>
+  <data name="ShortcutSingleKeys" xml:space="preserve">
+    <value>Only F13–F19, Scroll Lock and Pause work alone. Other keys need a modifier: Ctrl, Alt, Shift or the Windows key.</value>
+  </data>
   <data name="ShortcutUnknownKey" xml:space="preserve">
     <value>This key can't be used in a shortcut.</value>
   </data>
@@ -818,6 +835,10 @@
   </data>
   <data name="ShortcutNotChanged" xml:space="preserve">
     <value>The shortcut could not be changed.</value>
+  </data>
+  <data name="ShortcutNotSaved" xml:space="preserve">
+    <value>The shortcut changed but couldn't be saved. It goes back to the earlier one when the background service restarts.</value>
+    <comment>The background service put the change in effect but could not write it to its settings file.</comment>
   </data>
   <data name="SwitchModifierTitle" xml:space="preserve">
     <value>Switch to another computer</value>
@@ -1071,6 +1092,10 @@
   <data name="SetupTryDone" xml:space="preserve">
     <value>It works. Press {0} to take back control at any time.</value>
     <comment>{0} is a shortcut, e.g. Ctrl + Alt + Shift + Esc.</comment>
+  </data>
+  <data name="SetupTryDoneHint" xml:space="preserve">
+    <value>It works. {0}</value>
+    <comment>{0} is how to take back control, e.g. Press Ctrl + Alt + Shift + Esc or double-press Ctrl to take back control.</comment>
   </data>
 
   <!-- The HUD and the cursor locator -->

@@ -170,6 +170,27 @@ public class AgentModelTests
         // Refused, nothing changed.
         Assert.Equal("Ctrl + Alt + K", model.Snapshot.LockShortcut);
 
+        // Taking back and the lock alone, on a key typing never uses, and the double press.
+        var alone = ShortcutText.WithDoublePress(ShortcutText.With(ShortcutText.With(hotkeys, ShortcutRow.TakeBack, "F13"), ShortcutRow.Lock, "ScrollLock"), true);
+        await model.SetHotkeysAsync(alone);
+        Assert.Equal("F13", model.Snapshot.TakeBackShortcut);
+        Assert.True(model.Snapshot.DoublePressOn);
+        Assert.Equal("unknown_key", (await Assert.ThrowsAsync<AgentRefusal>(() =>
+        {
+            var wrong = alone.Clone();
+            wrong.TakeBackDouble = "double+shift";
+            return model.SetHotkeysAsync(wrong);
+        })).Code);
+        // An app from before the double press leaves it out: it stays.
+        var older = ShortcutText.With(alone, ShortcutRow.Lock, "Pause");
+        older.ClearTakeBackDouble();
+        await model.SetHotkeysAsync(older);
+        Assert.Equal("Pause", model.Snapshot.Hotkeys.Lock);
+        Assert.True(model.Snapshot.DoublePressOn);
+        await model.SetHotkeysAsync(Shortcut.Defaults);
+        Assert.False(model.Snapshot.DoublePressOn);
+        Assert.True(model.Snapshot.DoublePressSupported);
+
         await model.SetSwitchModifierAsync(SwitchModifier.Shift);
         Assert.Equal(SwitchModifier.Shift, agent.Received[^1].SetSwitchModifier.Modifier);
         Assert.Equal(SwitchModifier.Shift, model.Snapshot.Status.SwitchModifier);

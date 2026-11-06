@@ -481,6 +481,7 @@ pub(crate) fn from_windows(code: u8, extended: bool) -> Option<u16> {
         (0x45, false) => 0x0048,
         (0x45, true) => 0x0053,
         (0x46, false) => 0x0047,
+        (0x46, true) => 0x0048,
         (0x47, false) => 0x005f,
         (0x47, true) => 0x004a,
         (0x48, false) => 0x0060,

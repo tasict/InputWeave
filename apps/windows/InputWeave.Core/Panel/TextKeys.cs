@@ -24,6 +24,7 @@ public static class TextKeys
     public const string SubtitleLocked = "SubtitleLocked";
     public const string SubtitleRelative = "SubtitleRelative";
     public const string SubtitleControlling = "SubtitleControlling";
+    public const string SubtitleControllingDouble = "SubtitleControllingDouble";
     public const string SubtitleCursorOn = "SubtitleCursorOn";
 
     // Exception rows and what they offer.
@@ -263,7 +264,11 @@ public static class TextKeys
     public const string ShortcutRelative = "ShortcutRelative";
     public const string ShortcutRecord = "ShortcutRecord";
     public const string ShortcutPressKeys = "ShortcutPressKeys";
+    public const string ShortcutPressSingle = "ShortcutPressSingle";
     public const string ShortcutPressJump = "ShortcutPressJump";
+    public const string ShortcutDoublePress = "ShortcutDoublePress";
+    public const string ShortcutDoublePressHint = "ShortcutDoublePressHint";
+    public const string ShortcutSingleKeys = "ShortcutSingleKeys";
     public const string ShortcutOff = "ShortcutOff";
     public const string ShortcutReset = "ShortcutReset";
     public const string ShortcutsHint = "ShortcutsHint";
@@ -272,6 +277,7 @@ public static class TextKeys
     public const string ShortcutUsedFor = "ShortcutUsedFor";
     public const string ShortcutUsedElsewhere = "ShortcutUsedElsewhere";
     public const string ShortcutNotChanged = "ShortcutNotChanged";
+    public const string ShortcutNotSaved = "ShortcutNotSaved";
     public const string SwitchModifierTitle = "SwitchModifierTitle";
     public const string SwitchModifierHint = "SwitchModifierHint";
     public const string SwitchAlways = "SwitchAlways";
@@ -356,6 +362,7 @@ public static class TextKeys
     public const string SetupTryTitle = "SetupTryTitle";
     public const string SetupTryHint = "SetupTryHint";
     public const string SetupTryDone = "SetupTryDone";
+    public const string SetupTryDoneHint = "SetupTryDoneHint";
 
     // The HUD.
     public const string HudTakeBackHint = "HudTakeBackHint";

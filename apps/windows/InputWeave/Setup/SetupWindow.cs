@@ -165,7 +165,7 @@ internal sealed partial class SetupWindow : Window
         arrangeHint.Text = Strings.Format(TextKeys.SetupArrangeHint, other);
         tryHint.Text = Strings.Format(TextKeys.SetupTryHint, other);
         // The take-back hotkey the service reports, as it may have been changed.
-        tryDoneText.Text = Strings.Format(TextKeys.SetupTryDone, snapshot.TakeBackShortcut);
+        tryDoneText.Text = Strings.Text(snapshot.TakeBackWorked);
         bool worked = step == SetupStep.TryIt && SetupSteps.Worked(snapshot, returnsBefore);
         if (worked && tryDone.Visibility != Visibility.Visible)
         {
@@ -250,7 +250,7 @@ internal sealed partial class SetupWindow : Window
         AutomationProperties.SetName(canvas, Strings.Get(TextKeys.NavArrangement));
         views[SetupStep.Arrange] = Step(SetupStep.Arrange, "\uF246", arrangeHint, stage);
         tryDone.Children.Add(new FontIcon { Glyph = "\uE930", Foreground = Brand.System("SystemFillColorSuccessBrush"), VerticalAlignment = VerticalAlignment.Top, Margin = new Thickness(0, 2, 0, 0) });
-        tryDoneText.Text = Strings.Format(TextKeys.SetupTryDone, (model ?? new AgentSnapshot()).TakeBackShortcut);
+        tryDoneText.Text = Strings.Text((model ?? new AgentSnapshot()).TakeBackWorked);
         tryDone.Children.Add(tryDoneText);
         AutomationProperties.SetLiveSetting(tryDoneText, AutomationLiveSetting.Polite);
         views[SetupStep.TryIt] = Step(SetupStep.TryIt, "\uE962", tryHint, tryDone);

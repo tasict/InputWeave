@@ -640,22 +640,24 @@ final class Snapshots: XCTestCase {
         }
         // Without an update feed, as in these tests, General has no Updates
         // section; with one, it does.
-        try render("general", size: CGSize(width: 730, height: 1360)) {
+        try render("general", size: CGSize(width: 730, height: 1440)) {
             GeneralPage(updater: nil).environment(Self.sampleModel()).environment(BackgroundService())
         }
-        // Shortcuts changed, the jumps off, and switching only with ⇧ held.
+        // Shortcuts changed, taking back on F13 alone or Control twice, the
+        // jumps off, and switching only with ⇧ held.
         var custom = ShortcutText.defaults
-        custom.takeBack = "control+gui+Escape"
+        custom.takeBack = "F13"
+        custom.takeBackDouble = ShortcutText.doubleControl
         custom.lock = "control+alt+KeyK"
         custom.jumpModifiers = ""
         custom.relative = ""
-        try render("general-shortcuts", size: CGSize(width: 730, height: 1360)) {
+        try render("general-shortcuts", size: CGSize(width: 730, height: 1440)) {
             GeneralPage(updater: nil)
                 .environment(Self.sampleModel(hotkeys: custom, switchModifier: .shift))
                 .environment(BackgroundService())
         }
         let updater = Updater(load: { true }, store: { _ in }, check: {})
-        try render("general-updates", size: CGSize(width: 730, height: 1500)) {
+        try render("general-updates", size: CGSize(width: 730, height: 1580)) {
             GeneralPage(updater: updater, version: "0.1.0").environment(Self.sampleModel()).environment(BackgroundService())
         }
         try render("devices", size: CGSize(width: 730, height: 520)) {

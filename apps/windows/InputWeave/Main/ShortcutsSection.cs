@@ -17,9 +17,11 @@ namespace InputWeave.Main;
 /// General › Shortcuts: each hotkey with a
 /// Record button, which turns its keys into a box that takes the next
 /// combination pressed in this window; the jumps and relative mode also
-/// have a switch, and Reset Shortcuts goes back to the defaults. A service
-/// from before relative mode has no row for it. The background service checks
-/// what is recorded and says what is wrong; this only shows its answer.
+/// have a switch, below taking control back a switch turns on pressing Ctrl
+/// twice to do it too, and Reset Shortcuts goes back to the defaults. A
+/// service from before relative mode or the double press has no row for
+/// it. The background service checks what is recorded and says what is
+/// wrong; this only shows its answer.
 /// </summary>
 /// <remarks>
 /// The box hears only what Windows gives this window, as on the Mac: no
@@ -35,6 +37,10 @@ internal sealed class ShortcutsSection
     /// <summary>The relative mode row and the divider above it, shown when the service has relative mode.</summary>
     private readonly UIElement relativeDivider = Ui.Divider();
     private readonly Grid relativeRow;
+    /// <summary>The double press row and the divider above it, shown when the service has it.</summary>
+    private readonly UIElement doublePressDivider = Ui.Divider();
+    private readonly Grid doublePressRow;
+    private readonly ToggleSwitch doublePress;
     private readonly Button reset;
     private readonly TextBlock problem = new()
     {
@@ -59,6 +65,16 @@ internal sealed class ShortcutsSection
                 Set(row, on ? ShortcutText.Get(Shortcut.Defaults, row) : "");
             });
         }
+        doublePress = Ui.Switch(Strings.Get(TextKeys.ShortcutDoublePress), false, on =>
+        {
+            Stop();
+            if (model is not null)
+            {
+                Apply(ShortcutText.WithDoublePress(model.Hotkeys, on), null);
+            }
+        });
+        doublePressRow = Ui.Row(
+            Strings.Get(TextKeys.ShortcutDoublePress), Strings.Get(TextKeys.ShortcutDoublePressHint), doublePress);
         reset = Ui.Button(Strings.Get(TextKeys.ShortcutReset), () =>
         {
             Stop();
@@ -74,6 +90,11 @@ internal sealed class ShortcutsSection
                 card.Children.Add(Ui.Divider());
             }
             card.Children.Add(Row(row));
+            if (row == ShortcutRow.TakeBack)
+            {
+                card.Children.Add(doublePressDivider);
+                card.Children.Add(doublePressRow);
+            }
         }
         relativeRow = Row(ShortcutRow.Relative);
         card.Children.Add(relativeDivider);
@@ -183,7 +204,12 @@ internal sealed class ShortcutsSection
         {
             Stop();
         }
-        reset.IsEnabled = connected && !ShortcutText.IsDefault(hotkeys, relative);
+        var doublePressSupported = snapshot.DoublePressSupported;
+        doublePressDivider.Visibility = doublePressRow.Visibility =
+            doublePressSupported ? Visibility.Visible : Visibility.Collapsed;
+        Ui.Set(doublePress, snapshot.DoublePressOn);
+        doublePress.IsEnabled = connected;
+        reset.IsEnabled = connected && !ShortcutText.IsDefault(hotkeys, relative, doublePressSupported);
         if (!connected)
         {
             Stop();
@@ -295,7 +321,7 @@ internal sealed class ShortcutsSection
             await App.Instance.Model.SetHotkeysAsync(hotkeys);
             problem.Visibility = Visibility.Collapsed;
             AppLog.Info(
-                $"hotkeys set: {hotkeys.TakeBack}, {hotkeys.Lock}, jumps {(hotkeys.JumpModifiers.Length == 0 ? "off" : hotkeys.JumpModifiers)}, relative {(hotkeys.HasRelative ? (hotkeys.Relative.Length == 0 ? "off" : hotkeys.Relative) : "unknown")}");
+                $"hotkeys set: {hotkeys.TakeBack}, {hotkeys.Lock}, jumps {(hotkeys.JumpModifiers.Length == 0 ? "off" : hotkeys.JumpModifiers)}, relative {(hotkeys.HasRelative ? (hotkeys.Relative.Length == 0 ? "off" : hotkeys.Relative) : "unknown")}, double press {(hotkeys.TakeBackDouble.Length == 0 ? "off" : hotkeys.TakeBackDouble)}");
         }
         catch (AgentRefusal refusal)
         {

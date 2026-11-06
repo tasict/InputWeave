@@ -2,11 +2,11 @@
 //! buttons, wheel clicks, raw valuators, the modifier states of passive key
 //! grabs and the displays RandR describes.
 
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use iw_core::HidUsage;
 use iw_core::geometry::{Point, Rect};
-use iw_core::hotkey::{Modifier, Modifiers};
+use iw_core::hotkey::{DoublePressWatch, Modifier, Modifiers};
 use iw_core::input::Button;
 use iw_core::layout::Display;
 use iw_core::router::Hotkey;
@@ -152,37 +152,123 @@ impl RepeatPace<u8> for RepeatSettings {
 /// server would (`linux::repeat`), keyed by X key code.
 pub(crate) type KeyRepeat = crate::linux::repeat::KeyRepeat<u8>;
 
+/// What the router acts on while input is grabbed, which goes out even
+/// while input waits for a grab (`InputCapture::watch_hotkeys`,
+/// `InputCapture::watch_double_press`).
+#[derive(Clone, Debug, Default)]
+pub(crate) struct Watched {
+    pub hotkeys: Vec<Hotkey>,
+    pub double_press: bool,
+}
+
+/// How far an event's time may be behind the latest one read and still be
+/// another device's event read after it; further behind, the clock started
+/// over, as a server that restarted counts from its own start.
+const READ_LATE_WITHIN: u32 = 5_000;
+
+/// The X server's times of events, in milliseconds that wrap around after
+/// 2³² (about 49 days), as instants, keeping how far apart the events
+/// were. The first one read is taken as now; each later one as far after
+/// the latest so far as the server says, and one a little earlier than
+/// that, as another device's event read after it can be, as no later. One
+/// far earlier starts the clock over, taken as now again. A new
+/// connection starts it over too (`Reports::release_all`).
+#[derive(Debug, Default)]
+struct ServerClock {
+    latest: Option<(u32, Instant)>,
+}
+
+impl ServerClock {
+    /// The instant of `time`, and whether the clock started over with it,
+    /// so nothing timed before it counts with it.
+    fn at(&mut self, time: u32) -> (Instant, bool) {
+        let (at, anew) = match self.latest {
+            None => (Instant::now(), false),
+            Some((then, instant)) => {
+                let ahead = time.wrapping_sub(then);
+                if ahead <= u32::MAX / 2 {
+                    (instant + Duration::from_millis(ahead.into()), false)
+                } else if then.wrapping_sub(time) <= READ_LATE_WITHIN {
+                    return (instant, false);
+                } else {
+                    (Instant::now(), true)
+                }
+            }
+        };
+        self.latest = Some((time, at));
+        (at, anew)
+    }
+}
+
 /// What capture reports of keys and buttons. It remembers what it
 /// reported down, to report it released when the connection breaks; and
 /// while input waits for a grab another app holds, it reports only the
 /// release of those and presses completing a hotkey the router acts on,
-/// with the modifiers held for it. So input never goes to another device
-/// while it also reaches local apps, yet the user can still take control
-/// back meanwhile.
+/// with the modifiers held for it; Control pressed twice quickly, when that
+/// takes control back, it tells as such once the second release completes
+/// it (`take_double_press`, `InputEvent::DoublePressed`), none of the four
+/// as keys. A Control that went out down, with a hotkey, counts toward no
+/// double press, so its release goes out as ever. So input never goes to
+/// another device while it also reaches local apps, yet the user can still
+/// take control back meanwhile.
 #[derive(Debug, Default)]
 pub(crate) struct Reports {
     keys_down: Vec<HidUsage>,
     buttons_down: Vec<Button>,
-    /// Modifier keys down here, reported or not.
-    modifiers_down: Vec<HidUsage>,
+    /// Every key and button down here, reported or not, in the order they
+    /// went down.
+    held_keys: Vec<HidUsage>,
+    held_buttons: Vec<Button>,
+    /// Control pressed toward the double press while input waits.
+    double: DoublePressWatch,
+    /// The double press was completed while input waits, not yet told.
+    double_pressed: bool,
+    /// When the keys went down and up, as the server says.
+    clock: ServerClock,
 }
 
 impl Reports {
-    /// The key events to report as `key` goes down or up.
+    /// The key events to report as `key` goes down or up at `time`, the
+    /// server's time of the event: the double press is timed by it, not by
+    /// when the event is read, which may be late, several at once.
     pub(crate) fn key(
         &mut self,
         key: HidUsage,
         pressed: bool,
         waiting: bool,
-        hotkeys: &[Hotkey],
+        watched: &Watched,
+        time: u32,
     ) -> Vec<(HidUsage, bool)> {
-        if Modifier::of(key).is_some() {
-            self.modifiers_down.retain(|k| *k != key);
-            if pressed {
-                self.modifiers_down.push(key);
-            }
+        let (now, anew) = self.clock.at(time);
+        if anew {
+            self.double.interrupt();
         }
         let was_down = self.keys_down.contains(&key);
+        // Only keys none of which went out: one that did goes on as it
+        // went, and its release out too. Given what was held before it.
+        let doubled = if waiting && watched.double_press && !was_down {
+            let buttons_held = !self.held_buttons.is_empty();
+            self.double.key(
+                key,
+                pressed,
+                self.held_keys.iter().copied(),
+                buttons_held,
+                now,
+            )
+        } else {
+            self.double.interrupt();
+            false
+        };
+        self.held_keys.retain(|k| *k != key);
+        if pressed {
+            self.held_keys.push(key);
+        }
+        // None of those keys went out, and none goes: the apps had them.
+        if doubled {
+            self.double_pressed = true;
+            return Vec::new();
+        }
+        let hotkeys = &watched.hotkeys;
         if !pressed {
             if waiting && !was_down {
                 return Vec::new();
@@ -192,12 +278,16 @@ impl Reports {
         }
         let mut out = Vec::new();
         if waiting {
-            let held = |k: HidUsage| self.modifiers_down.contains(&k);
+            let held = |k: HidUsage| self.held_keys.contains(&k);
             if !hotkeys.iter().any(|h| h.matches(key, held)) {
                 return out;
             }
-            for &m in &self.modifiers_down {
-                if m != key && !self.keys_down.contains(&m) {
+            let modifiers = self
+                .held_keys
+                .iter()
+                .filter(|k| **k != key && Modifier::of(**k).is_some());
+            for &m in modifiers {
+                if !self.keys_down.contains(&m) {
                     self.keys_down.push(m);
                     out.push((m, true));
                 }
@@ -210,8 +300,28 @@ impl Reports {
         out
     }
 
+    /// Whether the double press was completed while input waits, since this
+    /// was last asked: capture tells it as `InputEvent::DoublePressed`.
+    pub(crate) fn take_double_press(&mut self) -> bool {
+        std::mem::take(&mut self.double_pressed)
+    }
+
+    /// Something that is no key went on: a wheel moving, smoothly or by a
+    /// click of a wheel button, or a button capture does not report. The
+    /// double press starts over, as the router has it for scrolling and
+    /// clicks.
+    pub(crate) fn interrupt_double_press(&mut self) {
+        self.double.interrupt();
+    }
+
     /// Whether to report a button going down or up.
     pub(crate) fn button(&mut self, button: Button, pressed: bool, waiting: bool) -> bool {
+        self.held_buttons.retain(|b| *b != button);
+        if pressed {
+            self.held_buttons.push(button);
+        }
+        // As any key between the two presses would.
+        self.double.interrupt();
         let was_down = self.buttons_down.contains(&button);
         if waiting && (pressed || !was_down) {
             return false;
@@ -223,9 +333,13 @@ impl Reports {
         true
     }
 
-    /// Everything reported down, let go of now, as the connection broke.
+    /// Everything reported down, let go of now, as the connection broke;
+    /// the next server's times count from anew.
     pub(crate) fn release_all(&mut self) -> (Vec<HidUsage>, Vec<Button>) {
-        self.modifiers_down.clear();
+        self.held_keys.clear();
+        self.held_buttons.clear();
+        self.double.interrupt();
+        self.clock = ServerClock::default();
         (
             std::mem::take(&mut self.keys_down),
             std::mem::take(&mut self.buttons_down),
@@ -762,10 +876,21 @@ mod tests {
         Hotkey::new(Modifiers::CONTROL_ALT_SHIFT, usage::L)
     }
 
+    /// The lock, watched while waiting.
+    fn watching_lock() -> Watched {
+        Watched {
+            hotkeys: vec![lock()],
+            double_press: false,
+        }
+    }
+
     #[test]
     fn what_went_out_down_is_let_go_of() {
         let mut r = Reports::default();
-        assert_eq!(r.key(usage::A, true, false, &[]), vec![(usage::A, true)]);
+        assert_eq!(
+            r.key(usage::A, true, false, &Watched::default(), 0),
+            vec![(usage::A, true)]
+        );
         assert!(r.button(Button::Left, true, false));
         assert_eq!(r.release_all(), (vec![usage::A], vec![Button::Left]));
         assert_eq!(r.release_all(), (vec![], vec![]));
@@ -775,23 +900,23 @@ mod tests {
     fn while_waiting_for_a_grab_only_releases_and_hotkeys_go_out() {
         let mut r = Reports::default();
         // Down before the wait, released during it.
-        r.key(usage::A, true, false, &[]);
+        r.key(usage::A, true, false, &Watched::default(), 0);
         assert!(r.button(Button::Left, true, false));
-        assert!(r.key(usage::C, true, true, &[lock()]).is_empty());
+        assert!(r.key(usage::C, true, true, &watching_lock(), 0).is_empty());
         assert!(!r.button(Button::Right, true, true));
         assert_eq!(
-            r.key(usage::A, false, true, &[lock()]),
+            r.key(usage::A, false, true, &watching_lock(), 0),
             vec![(usage::A, false)]
         );
-        assert!(r.key(usage::C, false, true, &[lock()]).is_empty());
+        assert!(r.key(usage::C, false, true, &watching_lock(), 0).is_empty());
         assert!(r.button(Button::Left, false, true));
         assert!(!r.button(Button::Right, false, true));
         // The modifiers alone go nowhere; the hotkey goes out with them.
         for m in [usage::LEFT_CONTROL, usage::LEFT_ALT, usage::LEFT_SHIFT] {
-            assert!(r.key(m, true, true, &[lock()]).is_empty());
+            assert!(r.key(m, true, true, &watching_lock(), 0).is_empty());
         }
         assert_eq!(
-            r.key(usage::L, true, true, &[lock()]),
+            r.key(usage::L, true, true, &watching_lock(), 0),
             vec![
                 (usage::LEFT_CONTROL, true),
                 (usage::LEFT_ALT, true),
@@ -801,15 +926,209 @@ mod tests {
         );
         // And their releases, reported down now.
         assert_eq!(
-            r.key(usage::L, false, true, &[lock()]),
+            r.key(usage::L, false, true, &watching_lock(), 0),
             vec![(usage::L, false)]
         );
         assert_eq!(
-            r.key(usage::LEFT_SHIFT, false, true, &[lock()]),
+            r.key(usage::LEFT_SHIFT, false, true, &watching_lock(), 0),
             vec![(usage::LEFT_SHIFT, false)]
         );
         // A key that is no hotkey, with the same modifiers, does not.
-        assert!(r.key(usage::A, true, true, &[lock()]).is_empty());
+        assert!(r.key(usage::A, true, true, &watching_lock(), 0).is_empty());
+    }
+
+    /// Control pressed twice while input waits is told as such once it
+    /// completes the double press, and not otherwise; none of it goes out
+    /// as keys.
+    #[test]
+    fn while_waiting_control_twice_is_told_once_it_takes_control_back() {
+        let watched = Watched {
+            hotkeys: vec![],
+            double_press: true,
+        };
+        let at = |ms: u32| ms;
+        let control = usage::LEFT_CONTROL;
+        let mut r = Reports::default();
+        let feed = |r: &mut Reports, key: HidUsage, pressed: bool, ms: u32| {
+            r.key(key, pressed, true, &watched, at(ms))
+        };
+        assert!(feed(&mut r, control, true, 0).is_empty());
+        assert!(feed(&mut r, control, false, 50).is_empty());
+        assert!(feed(&mut r, control, true, 100).is_empty());
+        assert!(!r.take_double_press());
+        // Told as such, none of it as keys.
+        assert!(feed(&mut r, control, false, 150).is_empty());
+        assert!(r.take_double_press());
+        assert!(!r.take_double_press());
+        // With a key between, too slow, or with a click between: nothing.
+        feed(&mut r, control, true, 200);
+        feed(&mut r, control, false, 250);
+        feed(&mut r, usage::C, true, 260);
+        feed(&mut r, usage::C, false, 270);
+        feed(&mut r, control, true, 280);
+        assert!(feed(&mut r, control, false, 300).is_empty());
+        assert!(!r.take_double_press());
+        feed(&mut r, control, true, 1000);
+        feed(&mut r, control, false, 1100);
+        feed(&mut r, control, true, 1350);
+        assert!(feed(&mut r, control, false, 1450).is_empty());
+        assert!(!r.take_double_press());
+        feed(&mut r, control, true, 2000);
+        feed(&mut r, control, false, 2050);
+        assert!(!r.button(Button::Left, true, true));
+        assert!(!r.button(Button::Left, false, true));
+        feed(&mut r, control, true, 2100);
+        assert!(feed(&mut r, control, false, 2150).is_empty());
+        assert!(!r.take_double_press());
+        // Off, or not waiting (grabbed, the router sees every key itself):
+        // as before.
+        let off = Watched::default();
+        let mut r = Reports::default();
+        for (pressed, ms) in [(true, 0), (false, 50), (true, 100)] {
+            assert!(r.key(control, pressed, true, &off, at(ms)).is_empty());
+        }
+        assert!(r.key(control, false, true, &off, at(150)).is_empty());
+        assert!(!r.take_double_press());
+        let mut r = Reports::default();
+        assert_eq!(
+            r.key(control, true, false, &watched, at(0)),
+            vec![(control, true)]
+        );
+        assert_eq!(
+            r.key(control, false, false, &watched, at(50)),
+            vec![(control, false)]
+        );
+    }
+
+    /// The double press is timed by the server's times of the events, not
+    /// by when they are read: four read at once, half a second apart by
+    /// the server, are no double press; read a second apart, a quarter
+    /// second apart by the server, they are. Across the server's time
+    /// wrapping around too.
+    #[test]
+    fn while_waiting_control_twice_is_timed_by_the_server() {
+        let watched = Watched {
+            hotkeys: vec![],
+            double_press: true,
+        };
+        let control = usage::LEFT_CONTROL;
+        let taps = |r: &mut Reports, times: [u32; 4], pause: Duration| {
+            for (pressed, time) in [true, false, true, false].into_iter().zip(times) {
+                std::thread::sleep(pause);
+                assert!(r.key(control, pressed, true, &watched, time).is_empty());
+            }
+            r.take_double_press()
+        };
+        let mut r = Reports::default();
+        assert!(!taps(&mut r, [1_000, 1_050, 1_500, 1_550], Duration::ZERO));
+        let mut r = Reports::default();
+        assert!(taps(
+            &mut r,
+            [1_000, 1_050, 1_200, 1_250],
+            Duration::from_millis(150)
+        ));
+        let mut r = Reports::default();
+        let late = u32::MAX - 100;
+        assert!(taps(&mut r, [late, late + 50, 100, 150], Duration::ZERO));
+        // One read after a later one, as from another device, is no later.
+        let mut clock = ServerClock::default();
+        let (first, _) = clock.at(5_000);
+        assert_eq!(clock.at(5_300), (first + Duration::from_millis(300), false));
+        assert_eq!(clock.at(5_100), (first + Duration::from_millis(300), false));
+        assert_eq!(clock.at(5_400), (first + Duration::from_millis(400), false));
+        // Far earlier: started over, now.
+        let before = Instant::now();
+        let (at, anew) = clock.at(100);
+        assert!(anew && at >= before);
+        assert_eq!(clock.at(150), (at + Duration::from_millis(50), false));
+    }
+
+    /// A server that started over, its times far behind, makes no double
+    /// press of taps far apart: told by the connection breaking, or by the
+    /// times alone.
+    #[test]
+    fn while_waiting_a_server_that_started_over_times_the_double_press_anew() {
+        let watched = Watched {
+            hotkeys: vec![],
+            double_press: true,
+        };
+        let control = usage::LEFT_CONTROL;
+        let tap = |r: &mut Reports, down: u32, up: u32| {
+            assert!(r.key(control, true, true, &watched, down).is_empty());
+            assert!(r.key(control, false, true, &watched, up).is_empty());
+        };
+        // A tap at the end of the old server's time, the next at the start
+        // of the new one's.
+        let mut r = Reports::default();
+        tap(&mut r, 3_600_000, 3_600_050);
+        tap(&mut r, 1_000, 1_050);
+        assert!(!r.take_double_press());
+        // Two quick taps on the new server still are one.
+        tap(&mut r, 1_100, 1_150);
+        assert!(r.take_double_press());
+        // Connected again: the old time is gone.
+        let mut r = Reports::default();
+        tap(&mut r, 3_600_000, 3_600_050);
+        r.release_all();
+        assert!(r.clock.latest.is_none());
+        tap(&mut r, 3_600_100, 3_600_150);
+        assert!(!r.take_double_press());
+    }
+
+    /// Scrolling while Control is held, or between the two presses, starts
+    /// the double press over; and a Control that went out with a hotkey
+    /// counts toward none, its release going out so nothing stays down.
+    #[test]
+    fn while_waiting_scrolling_and_hotkeys_start_the_double_press_over() {
+        let watched = Watched {
+            hotkeys: vec![lock()],
+            double_press: true,
+        };
+        let at = |ms: u32| ms;
+        let control = usage::LEFT_CONTROL;
+        let feed = |r: &mut Reports, key: HidUsage, pressed: bool, ms: u32| {
+            r.key(key, pressed, true, &watched, at(ms))
+        };
+        // Control held with the wheel turned (zooming), let go of, tapped.
+        let mut r = Reports::default();
+        feed(&mut r, control, true, 0);
+        r.interrupt_double_press();
+        feed(&mut r, control, false, 50);
+        feed(&mut r, control, true, 100);
+        feed(&mut r, control, false, 150);
+        assert!(!r.take_double_press());
+        // The wheel between two taps.
+        let mut r = Reports::default();
+        feed(&mut r, control, true, 0);
+        feed(&mut r, control, false, 50);
+        r.interrupt_double_press();
+        feed(&mut r, control, true, 100);
+        feed(&mut r, control, false, 150);
+        assert!(!r.take_double_press());
+        // The lock goes out with Control; Control's release goes out too,
+        // and the tap after it is a first press only.
+        let mut r = Reports::default();
+        let mut out = Vec::new();
+        for (key, pressed, ms) in [
+            (control, true, 0),
+            (usage::LEFT_ALT, true, 10),
+            (usage::LEFT_SHIFT, true, 20),
+            (usage::L, true, 30),
+            (usage::L, false, 40),
+            (usage::LEFT_SHIFT, false, 50),
+            (usage::LEFT_ALT, false, 60),
+            (control, false, 70),
+            (control, true, 100),
+            (control, false, 150),
+        ] {
+            out.extend(feed(&mut r, key, pressed, ms));
+        }
+        assert!(!r.take_double_press());
+        assert!(out.contains(&(control, true)) && out.contains(&(control, false)));
+        for (key, _) in out.iter().filter(|(_, pressed)| *pressed) {
+            assert!(out.contains(&(*key, false)), "{key:?} stays down");
+        }
+        assert_eq!(r.release_all(), (vec![], vec![]));
     }
 
     #[test]

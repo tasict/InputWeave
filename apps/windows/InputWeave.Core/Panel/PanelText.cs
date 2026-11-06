@@ -67,7 +67,7 @@ public static class PanelText
         {
             return model.RelativeShortcut is { } shortcut
                 ? new(TextKeys.SubtitleRelative, shortcut)
-                : new(TextKeys.SubtitleControlling, model.TakeBackShortcut);
+                : model.TakeBackHint;
         }
         if (status.Sharing && status.Locked)
         {
@@ -75,7 +75,7 @@ public static class PanelText
         }
         if (status.Sharing && model.ControllingOther)
         {
-            return new(TextKeys.SubtitleControlling, model.TakeBackShortcut);
+            return model.TakeBackHint;
         }
         if (status.Sharing && status.ThisDeviceName.Length != 0)
         {

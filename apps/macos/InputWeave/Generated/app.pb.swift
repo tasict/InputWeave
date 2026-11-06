@@ -296,7 +296,8 @@ nonisolated enum Inputweave_App_V1_ReturnReason: SwiftProtobuf.Enum, Swift.CaseI
   typealias RawValue = Int
   case unspecified // = 0
 
-  /// The take-back hotkey was pressed.
+  /// The take-back hotkey was pressed, or Control twice
+  /// (Hotkeys.take_back_double).
   case hotkey // = 1
 
   /// The connection to the controlled device was lost.
@@ -1565,7 +1566,9 @@ nonisolated struct Inputweave_App_V1_SetEdgeOptions: Sendable {
 /// ("KeyL", "Digit1", "Escape", "F5"), such as "control+alt+shift+Escape".
 /// They are read without regard to case and order; the agent reports them
 /// with the modifiers in that order and the key as named there. A hotkey
-/// works whatever other modifiers are held too.
+/// works whatever other modifiers are held too. take_back and lock may also
+/// be a key alone that typing never uses: "ScrollLock", "Pause" or "F13" to
+/// "F19" (agents before this refuse them with "needs_modifier").
 nonisolated struct Inputweave_App_V1_Hotkeys: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
@@ -1599,18 +1602,41 @@ nonisolated struct Inputweave_App_V1_Hotkeys: Sendable {
   /// Clears the value of `relative`. Subsequent reads from it will return its default value.
   mutating func clearRelative() {self._relative = nil}
 
+  /// "double+control": while this device controls another, Control pressed
+  /// and let go of twice within 400 ms, the same Control key with nothing
+  /// else between, takes the keyboard and mouse back too
+  /// (RETURN_REASON_HOTKEY); the presses still reach the other device.
+  /// Empty when off, the default. In SetHotkeys, absent keeps the one in
+  /// effect, as for relative; other text is refused with "unknown_key".
+  /// Agents before this field do not report it, and the apps then do not
+  /// offer it.
+  var takeBackDouble: String {
+    get {_takeBackDouble ?? String()}
+    set {_takeBackDouble = newValue}
+  }
+  /// Returns true if `takeBackDouble` has been explicitly set.
+  var hasTakeBackDouble: Bool {self._takeBackDouble != nil}
+  /// Clears the value of `takeBackDouble`. Subsequent reads from it will return its default value.
+  mutating func clearTakeBackDouble() {self._takeBackDouble = nil}
+
   var unknownFields = SwiftProtobuf.UnknownStorage()
 
   init() {}
 
   fileprivate var _relative: String? = nil
+  fileprivate var _takeBackDouble: String? = nil
 }
 
 /// Sets every hotkey at once; the change applies at once and is remembered.
-/// Answered with Status. Refused with "needs_modifier" for a hotkey without a
-/// modifier; "unknown_key" for a name that is no key or modifier, or a
-/// modifier where the key goes; and "duplicate" when two hotkeys are the same
-/// keys, counting each digit with jump_modifiers as one.
+/// Answered with Status once it is in effect and saved. Refused with
+/// "needs_modifier" for a hotkey without a modifier, other than take_back or
+/// lock on a key that works alone; "unknown_key" for a name that is no key
+/// or modifier, or a modifier where the key goes; and "duplicate" when two
+/// hotkeys are the same keys, counting each digit with jump_modifiers as
+/// one. Answered with "not_saved" when the change is in effect but could not
+/// be saved, so it is forgotten when the agent stops unless a later change is
+/// saved (the status shows it), and with "timeout" when it was not in effect
+/// and saved within a few seconds (it may still be).
 nonisolated struct Inputweave_App_V1_SetHotkeys: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
@@ -5199,7 +5225,7 @@ nonisolated extension Inputweave_App_V1_SetEdgeOptions: SwiftProtobuf.Message, S
 
 nonisolated extension Inputweave_App_V1_Hotkeys: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   static let protoMessageName: String = _protobuf_package + ".Hotkeys"
-  static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}take_back\0\u{1}lock\0\u{3}jump_modifiers\0\u{1}relative\0")
+  static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}take_back\0\u{1}lock\0\u{3}jump_modifiers\0\u{1}relative\0\u{3}take_back_double\0")
 
   mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -5211,6 +5237,7 @@ nonisolated extension Inputweave_App_V1_Hotkeys: SwiftProtobuf.Message, SwiftPro
       case 2: try { try decoder.decodeSingularStringField(value: &self.lock) }()
       case 3: try { try decoder.decodeSingularStringField(value: &self.jumpModifiers) }()
       case 4: try { try decoder.decodeSingularStringField(value: &self._relative) }()
+      case 5: try { try decoder.decodeSingularStringField(value: &self._takeBackDouble) }()
       default: break
       }
     }
@@ -5233,6 +5260,9 @@ nonisolated extension Inputweave_App_V1_Hotkeys: SwiftProtobuf.Message, SwiftPro
     try { if let v = self._relative {
       try visitor.visitSingularStringField(value: v, fieldNumber: 4)
     } }()
+    try { if let v = self._takeBackDouble {
+      try visitor.visitSingularStringField(value: v, fieldNumber: 5)
+    } }()
     try unknownFields.traverse(visitor: &visitor)
   }
 
@@ -5241,6 +5271,7 @@ nonisolated extension Inputweave_App_V1_Hotkeys: SwiftProtobuf.Message, SwiftPro
     if lhs.lock != rhs.lock {return false}
     if lhs.jumpModifiers != rhs.jumpModifiers {return false}
     if lhs._relative != rhs._relative {return false}
+    if lhs._takeBackDouble != rhs._takeBackDouble {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }

@@ -60,7 +60,7 @@ public class ShortcutTextTests
         hotkeys.JumpModifiers = "";
         Assert.Equal(new UiText(TextKeys.ShortcutOff), ShortcutText.Shown(hotkeys, ShortcutRow.Jump));
         Assert.Equal(TextKeys.ShortcutPressJump, ShortcutText.Prompt(ShortcutRow.Jump));
-        Assert.Equal(TextKeys.ShortcutPressKeys, ShortcutText.Prompt(ShortcutRow.Lock));
+        Assert.Equal(TextKeys.ShortcutPressSingle, ShortcutText.Prompt(ShortcutRow.Lock));
         Assert.Equal(TextKeys.ShortcutJump, ShortcutText.Title(ShortcutRow.Jump));
     }
 
@@ -143,12 +143,17 @@ public class ShortcutTextTests
     public void SaysWhyTheServiceRefused()
     {
         var before = Shortcut.Defaults;
-        Assert.Equal(new UiText(TextKeys.ShortcutNeedsModifier),
+        Assert.Equal(new UiText(TextKeys.ShortcutSingleKeys),
             ShortcutText.Refusal("needs_modifier", ShortcutRow.Lock, ShortcutText.With(before, ShortcutRow.Lock, "KeyL"), before));
         Assert.Equal(new UiText(TextKeys.ShortcutUnknownKey),
             ShortcutText.Refusal("unknown_key", ShortcutRow.Lock, before, before));
         Assert.Equal(new UiText(TextKeys.ShortcutNotChanged),
-            ShortcutText.Refusal("timeout", ShortcutRow.Lock, before, before));
+            ShortcutText.Refusal("other", ShortcutRow.Lock, before, before));
+        // Changed but not saved, or no answer in time.
+        Assert.Equal(new UiText(TextKeys.ShortcutNotSaved),
+            ShortcutText.Refusal("not_saved", ShortcutRow.Lock, before, before));
+        Assert.Equal(new UiText(TextKeys.TitleNotResponding),
+            ShortcutText.Refusal("timeout", null, before, before));
 
         // The lock made the same as taking back control.
         Assert.Equal(
@@ -189,14 +194,14 @@ public class ShortcutTextTests
         Assert.Equal(new Recorded(RecordStep.Set, "control+alt+KeyR"), ShortcutText.Record(ShortcutRow.Relative, "KeyR", CtrlAlt));
 
         // Reset Shortcuts asks about it only when the service knows it.
-        Assert.True(ShortcutText.IsDefault(before, relative: true));
-        Assert.False(ShortcutText.IsDefault(off, relative: true));
-        Assert.True(ShortcutText.IsDefault(off, relative: false));
+        Assert.True(ShortcutText.IsDefault(before, relative: true, doublePress: true));
+        Assert.False(ShortcutText.IsDefault(off, relative: true, doublePress: true));
+        Assert.True(ShortcutText.IsDefault(off, relative: false, doublePress: true));
         var old = before.Clone();
         old.ClearRelative();
-        Assert.True(ShortcutText.IsDefault(old, relative: false));
-        Assert.False(ShortcutText.IsDefault(old, relative: true));
-        Assert.False(ShortcutText.IsDefault(ShortcutText.With(before, ShortcutRow.Lock, "control+KeyK"), relative: false));
+        Assert.True(ShortcutText.IsDefault(old, relative: false, doublePress: true));
+        Assert.False(ShortcutText.IsDefault(old, relative: true, doublePress: true));
+        Assert.False(ShortcutText.IsDefault(ShortcutText.With(before, ShortcutRow.Lock, "control+KeyK"), relative: false, doublePress: true));
     }
 
     [Fact]
@@ -233,6 +238,88 @@ public class ShortcutTextTests
         // A code from the service, with no telling which row.
         Assert.Equal(new UiText(TextKeys.ShortcutUsedFor, new UiText(TextKeys.ShortcutRelative)),
             ShortcutText.Refusal("duplicate_relative", null, before, before));
+    }
+
+    /// <summary>Taking control back and the lock may be a single key such as F13; the service says which keys, and the app tells why by row.</summary>
+    [Fact]
+    public void TakesSingleKeysForTakingBackAndTheLock()
+    {
+        Assert.Equal("F13", ShortcutText.Text("F13"));
+        Assert.Equal("ScrollLock", ShortcutText.Text("ScrollLock"));
+        Assert.Equal("Ctrl + F13", ShortcutText.Text("control+F13"));
+        Assert.Equal("Pause", ShortcutText.Compact("Pause"));
+        // A key alone goes to the service as it is, for every row but the jumps.
+        Assert.Equal(new Recorded(RecordStep.Set, "F13"), ShortcutText.Record(ShortcutRow.TakeBack, "F13", None));
+        Assert.Equal(new Recorded(RecordStep.Set, "ScrollLock"), ShortcutText.Record(ShortcutRow.Lock, "ScrollLock", None));
+        Assert.Equal(new Recorded(RecordStep.Set, "F13"), ShortcutText.Record(ShortcutRow.Relative, "F13", None));
+        Assert.Equal(new Recorded(RecordStep.Wait), ShortcutText.Record(ShortcutRow.Jump, "F13", None));
+        // Windows names them by scan code.
+        Assert.Equal("F13", ShortcutText.KeyName(0x64, extended: false));
+        Assert.Equal("F19", ShortcutText.KeyName(0x6A, extended: false));
+        Assert.Equal("ScrollLock", ShortcutText.KeyName(0x46, extended: false));
+        Assert.Equal("Pause", ShortcutText.KeyName(0x45, extended: false));
+        // With Ctrl held, Pause comes as Break, which is Pause too.
+        Assert.Equal("Pause", ShortcutText.KeyName(0x46, extended: true));
+        Assert.Equal(new Recorded(RecordStep.Set, "control+Pause"), ShortcutText.Record(ShortcutRow.Lock, ShortcutText.KeyName(0x46, extended: true), Ctrl));
+        Assert.Equal(TextKeys.ShortcutPressSingle, ShortcutText.Prompt(ShortcutRow.TakeBack));
+        Assert.Equal(TextKeys.ShortcutPressSingle, ShortcutText.Prompt(ShortcutRow.Lock));
+        Assert.Equal(TextKeys.ShortcutPressKeys, ShortcutText.Prompt(ShortcutRow.Relative));
+        Assert.Equal(TextKeys.ShortcutPressJump, ShortcutText.Prompt(ShortcutRow.Jump));
+
+        var before = Shortcut.Defaults;
+        foreach (var row in new[] { ShortcutRow.TakeBack, ShortcutRow.Lock })
+        {
+            Assert.Equal(new UiText(TextKeys.ShortcutSingleKeys),
+                ShortcutText.Refusal("needs_modifier", row, ShortcutText.With(before, row, "KeyK"), before));
+        }
+        Assert.Equal(new UiText(TextKeys.ShortcutNeedsModifier),
+            ShortcutText.Refusal("needs_modifier", ShortcutRow.Relative, ShortcutText.With(before, ShortcutRow.Relative, "F13"), before));
+        Assert.Equal(new UiText(TextKeys.ShortcutNeedsModifier), ShortcutText.Refusal("needs_modifier", null, before, before));
+        // F13 alone fires whatever modifiers are held: it clashes with any hotkey on F13.
+        var lockAlone = ShortcutText.With(before, ShortcutRow.TakeBack, "control+F13");
+        Assert.Equal(new UiText(TextKeys.ShortcutUsedFor, new UiText(TextKeys.ShortcutTakeBack)),
+            ShortcutText.Refusal("duplicate", ShortcutRow.Lock, ShortcutText.With(lockAlone, ShortcutRow.Lock, "F13"), lockAlone));
+        Assert.True(ShortcutText.Clash("F13", "control+alt+F13"));
+        Assert.False(ShortcutText.Clash("F13", "F14"));
+    }
+
+    /// <summary>The switch for pressing Ctrl twice: shown only when the service reports it, part of Reset Shortcuts, and named in the panel.</summary>
+    [Fact]
+    public void TheDoublePress()
+    {
+        var unreported = Shortcut.Defaults;
+        unreported.ClearTakeBackDouble();
+        var old = Sample.Model(active: "mac", hotkeys: unreported);
+        Assert.False(old.DoublePressSupported);
+        Assert.False(old.DoublePressOn);
+        Assert.Equal(new UiText(TextKeys.SubtitleControlling, "Ctrl + Alt + Shift + Esc"), PanelText.Subtitle(old));
+        Assert.True(ShortcutText.IsDefault(unreported, relative: true, doublePress: false));
+        // Nor does a service that reports no hotkeys at all.
+        Assert.False(Sample.Model(active: "mac").DoublePressSupported);
+
+        var off = Sample.Model(active: "mac", hotkeys: Shortcut.Defaults);
+        Assert.True(off.DoublePressSupported);
+        Assert.False(off.DoublePressOn);
+        Assert.Equal(new UiText(TextKeys.SubtitleControlling, "Ctrl + Alt + Shift + Esc"), PanelText.Subtitle(off));
+        Assert.True(ShortcutText.IsDefault(Shortcut.Defaults, relative: true, doublePress: true));
+
+        var onKeys = ShortcutText.WithDoublePress(Shortcut.Defaults, true);
+        Assert.Equal(Shortcut.DoubleControl, onKeys.TakeBackDouble);
+        Assert.Equal("", ShortcutText.WithDoublePress(onKeys, false).TakeBackDouble);
+        var on = Sample.Model(active: "mac", hotkeys: onKeys);
+        Assert.True(on.DoublePressOn);
+        Assert.Equal(new UiText(TextKeys.SubtitleControllingDouble, "Ctrl + Alt + Shift + Esc"), PanelText.Subtitle(on));
+        // On, Reset Shortcuts has something to do; the defaults turn it off.
+        Assert.False(ShortcutText.IsDefault(onKeys, relative: true, doublePress: true));
+        Assert.Equal("", Shortcut.Defaults.TakeBackDouble);
+        Assert.True(Shortcut.Defaults.HasTakeBackDouble);
+        // In relative mouse with its hotkey off, the shortcut alone: the
+        // service ignores the double press then. A single key reads as itself.
+        var relativeOff = ShortcutText.With(onKeys, ShortcutRow.Relative, "");
+        Assert.Equal(new UiText(TextKeys.SubtitleControlling, "Ctrl + Alt + Shift + Esc"),
+            PanelText.Subtitle(Sample.Model(active: "mac", relative: "mac", hotkeys: relativeOff)));
+        Assert.Equal(new UiText(TextKeys.SubtitleControllingDouble, "F13"),
+            PanelText.Subtitle(Sample.Model(active: "mac", hotkeys: ShortcutText.With(onKeys, ShortcutRow.TakeBack, "F13"))));
     }
 
     [Fact]

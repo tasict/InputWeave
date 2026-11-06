@@ -10,6 +10,8 @@ use iw_proto::app::v1::{
 };
 
 use crate::shortcut;
+use crate::text::{UiText, keys};
+use crate::ui;
 
 /// How the app is connected to the background service.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -270,6 +272,62 @@ impl Snapshot {
         self.status.relative_supported
     }
 
+    /// Whether the service knows the double press of Control that takes
+    /// control back: it reports it, empty when off.
+    pub fn double_press_supported(&self) -> bool {
+        self.status
+            .hotkeys
+            .as_ref()
+            .is_some_and(|h| h.take_back_double.is_some())
+    }
+
+    /// Whether pressing Control twice takes control back too.
+    pub fn double_press_on(&self) -> bool {
+        self.double_press_supported()
+            && self
+                .hotkeys()
+                .take_back_double
+                .is_some_and(|d| !d.is_empty())
+    }
+
+    /// Whether what tells how to take control back names the double press:
+    /// it is on, and relative mouse is not, as the service ignores it then
+    /// (games often use Ctrl).
+    fn double_press_hinted(&self) -> bool {
+        self.double_press_on() && self.status.relative_mouse.is_empty()
+    }
+
+    /// How to take control back from the computer this one controls, as
+    /// the panel says it: the shortcut, and the double press while it
+    /// works. Every other place that tells it says this while it works.
+    pub fn take_back_hint(&self) -> UiText {
+        let key = if self.double_press_hinted() {
+            keys::SUBTITLE_CONTROLLING_DOUBLE
+        } else {
+            keys::SUBTITLE_CONTROLLING
+        };
+        ui!(key, self.take_back_shortcut())
+    }
+
+    /// How to take control back, as a notice says it: at any time; while
+    /// the double press works, as the panel does.
+    pub fn take_back_reminder(&self) -> UiText {
+        if self.double_press_hinted() {
+            self.take_back_hint()
+        } else {
+            ui!(keys::HUD_TAKE_BACK_HINT, self.take_back_shortcut())
+        }
+    }
+
+    /// What setup says once controlling another computer worked.
+    pub fn take_back_worked(&self) -> UiText {
+        if self.double_press_hinted() {
+            ui!(keys::SETUP_TRY_DONE_HINT, self.take_back_hint())
+        } else {
+            ui!(keys::SETUP_TRY_DONE, self.take_back_shortcut())
+        }
+    }
+
     pub fn relative_shortcut(&self) -> Option<String> {
         if !self.relative_supported() {
             return None;
@@ -465,6 +523,7 @@ mod tests {
             lock: "alt+KeyL".into(),
             jump_modifiers: String::new(),
             relative: Some(String::new()),
+            take_back_double: None,
         });
         assert_eq!(s.take_back_shortcut(), "Super+F5");
         assert_eq!(s.jump_shortcut(2), None);

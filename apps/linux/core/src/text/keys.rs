@@ -13,6 +13,8 @@ pub const TITLE_SHARING: &str = "TitleSharing";
 pub const SUBTITLE_CONTROLLED: &str = "SubtitleControlled";
 pub const SUBTITLE_LOCKED: &str = "SubtitleLocked";
 pub const SUBTITLE_CONTROLLING: &str = "SubtitleControlling";
+pub const SUBTITLE_CONTROLLING_DOUBLE: &str = "SubtitleControllingDouble";
+pub const SETUP_TRY_DONE_HINT: &str = "SetupTryDoneHint";
 pub const SUBTITLE_CURSOR_ON: &str = "SubtitleCursorOn";
 pub const EXCEPTION_SERVICE_STOPPED: &str = "ExceptionServiceStopped";
 pub const EXCEPTION_UNREACHABLE: &str = "ExceptionUnreachable";
@@ -302,12 +304,17 @@ pub const CANVAS_MOVE_CURSOR_HERE: &str = "CanvasMoveCursorHere";
 pub const CANVAS_LABEL: &str = "CanvasLabel";
 pub const SHORTCUT_RECORD: &str = "ShortcutRecord";
 pub const SHORTCUT_PRESS_KEYS: &str = "ShortcutPressKeys";
+pub const SHORTCUT_PRESS_SINGLE: &str = "ShortcutPressSingle";
+pub const SHORTCUT_SINGLE_KEYS: &str = "ShortcutSingleKeys";
+pub const SHORTCUT_DOUBLE_PRESS: &str = "ShortcutDoublePress";
+pub const SHORTCUT_DOUBLE_PRESS_HINT: &str = "ShortcutDoublePressHint";
 pub const SHORTCUT_PRESS_JUMP: &str = "ShortcutPressJump";
 pub const SHORTCUT_NEEDS_MODIFIER: &str = "ShortcutNeedsModifier";
 pub const SHORTCUT_UNKNOWN_KEY: &str = "ShortcutUnknownKey";
 pub const SHORTCUT_USED_FOR: &str = "ShortcutUsedFor";
 pub const SHORTCUT_USED_ELSEWHERE: &str = "ShortcutUsedElsewhere";
 pub const SHORTCUT_NOT_CHANGED: &str = "ShortcutNotChanged";
+pub const SHORTCUT_NOT_SAVED: &str = "ShortcutNotSaved";
 pub const SHORTCUT_TURN_ON: &str = "ShortcutTurnOn";
 pub const MENU_RUN_SETUP: &str = "MenuRunSetup";
 pub const SETUP_WINDOW_TITLE: &str = "SetupWindowTitle";
@@ -471,6 +478,8 @@ pub const ALL: &[&str] = &[
     SUBTITLE_CONTROLLED,
     SUBTITLE_LOCKED,
     SUBTITLE_CONTROLLING,
+    SUBTITLE_CONTROLLING_DOUBLE,
+    SETUP_TRY_DONE_HINT,
     SUBTITLE_CURSOR_ON,
     EXCEPTION_SERVICE_STOPPED,
     EXCEPTION_UNREACHABLE,
@@ -758,12 +767,17 @@ pub const ALL: &[&str] = &[
     CANVAS_LABEL,
     SHORTCUT_RECORD,
     SHORTCUT_PRESS_KEYS,
+    SHORTCUT_PRESS_SINGLE,
+    SHORTCUT_SINGLE_KEYS,
+    SHORTCUT_DOUBLE_PRESS,
+    SHORTCUT_DOUBLE_PRESS_HINT,
     SHORTCUT_PRESS_JUMP,
     SHORTCUT_NEEDS_MODIFIER,
     SHORTCUT_UNKNOWN_KEY,
     SHORTCUT_USED_FOR,
     SHORTCUT_USED_ELSEWHERE,
     SHORTCUT_NOT_CHANGED,
+    SHORTCUT_NOT_SAVED,
     SHORTCUT_TURN_ON,
     MENU_RUN_SETUP,
     SETUP_WINDOW_TITLE,

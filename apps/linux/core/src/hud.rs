@@ -108,7 +108,7 @@ impl HudWatch {
                 *hints_shown += 1;
                 return Some(ui!(
                     keys::HUD_TWO_LINES,
-                    ui!(keys::HUD_TAKE_BACK_HINT, snapshot.take_back_shortcut()),
+                    snapshot.take_back_reminder(),
                     relative
                 ));
             }
@@ -123,7 +123,7 @@ impl HudWatch {
             .is_some_and(|d| !d.device_id.is_empty());
         if controlling && !controlling_before && *hints_shown < HINT_TIMES && !dragging {
             *hints_shown += 1;
-            return Some(ui!(keys::HUD_TAKE_BACK_HINT, snapshot.take_back_shortcut()));
+            return Some(snapshot.take_back_reminder());
         }
         None
     }
@@ -433,6 +433,7 @@ mod tests {
             lock: "gui+shift+KeyK".into(),
             jump_modifiers: String::new(),
             relative: None,
+            take_back_double: None,
         };
         watch.update(
             &model(Model {
@@ -490,6 +491,105 @@ mod tests {
         }
         assert_eq!(watch.update(&there, &mut hints, start()), None);
         assert_eq!(hints, HINT_TIMES);
+    }
+
+    /// With the double press on, every notice that says how to take
+    /// control back says it as the panel does.
+    #[test]
+    fn hints_name_the_double_press_while_it_is_on() {
+        let double = Some(shortcut::with_double_press(&shortcut::defaults(), true));
+        let hint = ui!(keys::SUBTITLE_CONTROLLING_DOUBLE, "Ctrl+Alt+Shift+Esc");
+        let mut watch = HudWatch::default();
+        let mut hints = 0;
+        watch.update(
+            &model(Model {
+                hotkeys: double.clone(),
+                ..Default::default()
+            }),
+            &mut hints,
+            start(),
+        );
+        let there = model(Model {
+            active: "mac",
+            hotkeys: double.clone(),
+            ..Default::default()
+        });
+        assert_eq!(
+            watch.update(&there, &mut hints, start()),
+            Some(hint.clone())
+        );
+        assert_eq!(there.take_back_reminder(), hint);
+        assert_eq!(
+            there.take_back_worked().to_string(),
+            "It works. Press Ctrl+Alt+Shift+Esc or double-press Ctrl to take back control."
+        );
+        // Off: the words as before.
+        let off = model(Model {
+            active: "mac",
+            ..Default::default()
+        });
+        assert_eq!(
+            off.take_back_reminder(),
+            ui!(keys::HUD_TAKE_BACK_HINT, "Ctrl+Alt+Shift+Esc")
+        );
+        assert_eq!(
+            off.take_back_worked(),
+            ui!(keys::SETUP_TRY_DONE, "Ctrl+Alt+Shift+Esc")
+        );
+    }
+
+    /// In relative mouse the service ignores the double press (games often
+    /// use Ctrl), so nothing that tells how to take control back names it,
+    /// even with it on.
+    #[test]
+    fn relative_mouse_hints_leave_out_the_double_press() {
+        let mut no_relative = shortcut::with_double_press(&shortcut::defaults(), true);
+        no_relative.relative = Some(String::new());
+        let mut watch = HudWatch::default();
+        let mut hints = 0;
+        watch.update(
+            &model(Model {
+                hotkeys: Some(no_relative.clone()),
+                ..Default::default()
+            }),
+            &mut hints,
+            start(),
+        );
+        let relative = model(Model {
+            active: "mac",
+            hotkeys: Some(no_relative),
+            relative: "mac",
+            ..Default::default()
+        });
+        assert!(relative.double_press_on());
+        // Relative mouse as the cursor first crosses, without its own
+        // shortcut: the reminder and the relative notice.
+        let shown = watch.update(&relative, &mut hints, start());
+        assert_eq!(
+            shown,
+            Some(ui!(
+                keys::HUD_TWO_LINES,
+                ui!(keys::HUD_TAKE_BACK_HINT, "Ctrl+Alt+Shift+Esc"),
+                ui!(
+                    keys::HUD_RELATIVE_ENTERED_TAKE_BACK,
+                    "MacBook Pro",
+                    "Ctrl+Alt+Shift+Esc"
+                )
+            ))
+        );
+        assert!(!shown.unwrap().to_string().contains("double-press"));
+        assert_eq!(
+            crate::status_text::subtitle(&relative).unwrap().to_string(),
+            "Press Ctrl+Alt+Shift+Esc to take back control."
+        );
+        assert_eq!(
+            relative.take_back_reminder(),
+            ui!(keys::HUD_TAKE_BACK_HINT, "Ctrl+Alt+Shift+Esc")
+        );
+        assert_eq!(
+            relative.take_back_worked(),
+            ui!(keys::SETUP_TRY_DONE, "Ctrl+Alt+Shift+Esc")
+        );
     }
 
     #[test]

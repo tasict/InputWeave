@@ -2,6 +2,7 @@
 
 use crate::HidUsage;
 use crate::geometry::Point;
+use crate::hotkey::HeldHotkeys;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum Button {
@@ -46,4 +47,16 @@ pub enum InputEvent {
     /// reported released first; the cursor no longer pushes against an
     /// edge, and control comes back to this device.
     CaptureEnded,
+    /// Control was pressed twice quickly (`Hotkeys::take_back_double`), as
+    /// told by capture that reported none of those keys: X11 while another
+    /// app holds a grab, when the presses went to that app. Control comes
+    /// back to this device if the double press is on; nothing goes to the
+    /// device the cursor is on.
+    DoublePressed,
+    /// Capture holds back these of the reserved hotkeys from now on, as
+    /// told by a backend that can lose some or get them back (X11, as
+    /// another app grabs or lets go of one, the connection breaks or
+    /// injection lets go of them meanwhile): in order with the keys, so a
+    /// key that goes down after it is held back or not as it says.
+    HotkeysHeldBack(HeldHotkeys),
 }

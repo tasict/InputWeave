@@ -25,9 +25,10 @@
 //!
 //! [hotkeys]
 //! take_back = "control+alt+shift+Escape"
-//! lock = "control+alt+KeyL"
+//! lock = "F13"
 //! jump_modifiers = ""
 //! relative = "control+alt+shift+KeyR"
+//! take_back_double = "double+control"
 //!
 //! [folder_access]
 //! downloads = "granted"
@@ -208,7 +209,10 @@ pub struct PairedDevice {
 /// The hotkeys, written as `iw_core::hotkey` reads them. One left out is
 /// the default (`relative` too, unless that clashes with the others: then
 /// it is off); `jump_modifiers = ""` turns the jumps off, `relative = ""`
-/// that hotkey.
+/// that hotkey. `take_back_double` is there only while on, as
+/// `double+control`, so versions from before it read the file while it is
+/// off; while it is on, they refuse the whole file (`deny_unknown_fields`)
+/// and so do not start at all, not just leave the hotkeys out.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct HotkeysFile {
@@ -220,6 +224,8 @@ pub struct HotkeysFile {
     pub jump_modifiers: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub relative: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub take_back_double: Option<String>,
 }
 
 /// What macOS said of each folder it protects (`[folder_access]`); a
@@ -269,6 +275,9 @@ impl HotkeysFile {
             lock: Some(hotkeys.lock.to_string()),
             jump_modifiers: Some(hotkeys.jump.map(|m| m.to_string()).unwrap_or_default()),
             relative: Some(hotkeys.relative.map(|h| h.to_string()).unwrap_or_default()),
+            take_back_double: hotkeys
+                .take_back_double
+                .then(|| hotkeys.take_back_double_text().to_owned()),
         }
     }
 }
@@ -435,9 +444,10 @@ mod tests {
             relative_auto_off: true,
             hotkeys: Some(HotkeysFile {
                 take_back: Some("control+alt+shift+Escape".to_owned()),
-                lock: Some("control+alt+KeyL".to_owned()),
+                lock: Some("F13".to_owned()),
                 jump_modifiers: Some(String::new()),
                 relative: Some("control+alt+shift+KeyR".to_owned()),
+                take_back_double: Some("double+control".to_owned()),
             }),
             folder_access: Some(FolderAccessFile {
                 downloads: Some(Access::Granted),

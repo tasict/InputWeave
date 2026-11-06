@@ -175,12 +175,16 @@ public static class ShortcutText
     /// <summary>Whether a row can be turned off, with a switch beside it.</summary>
     public static bool CanTurnOff(ShortcutRow row) => row is ShortcutRow.Jump or ShortcutRow.Relative;
 
+    /// <summary>Whether a row's shortcut may be a single key, such as F13.</summary>
+    public static bool TakesSingleKeys(ShortcutRow row) => row is ShortcutRow.TakeBack or ShortcutRow.Lock;
+
     /// <summary>
-    /// Whether <paramref name="hotkeys"/> are the defaults, so Reset
-    /// Shortcuts has nothing to do. A service that knows no relative mode
-    /// hotkey (<paramref name="relative"/> false) is not asked about it.
+    /// Whether <paramref name="hotkeys"/> are the defaults, the double press
+    /// off, so Reset Shortcuts has nothing to do. A service that knows no
+    /// relative mode hotkey (<paramref name="relative"/> false) or no double
+    /// press (<paramref name="doublePress"/> false) is not asked about it.
     /// </summary>
-    public static bool IsDefault(Hotkeys hotkeys, bool relative)
+    public static bool IsDefault(Hotkeys hotkeys, bool relative, bool doublePress)
     {
         var shown = hotkeys.Clone();
         var defaults = Shortcut.Defaults;
@@ -189,7 +193,20 @@ public static class ShortcutText
             shown.ClearRelative();
             defaults.ClearRelative();
         }
+        if (!doublePress)
+        {
+            shown.ClearTakeBackDouble();
+            defaults.ClearTakeBackDouble();
+        }
         return shown.Equals(defaults);
+    }
+
+    /// <summary>A copy of <paramref name="hotkeys"/> with the double press of Control on or off.</summary>
+    public static Hotkeys WithDoublePress(Hotkeys hotkeys, bool on)
+    {
+        var changed = hotkeys.Clone();
+        changed.TakeBackDouble = on ? Shortcut.DoubleControl : "";
+        return changed;
     }
 
     /// <summary>A copy of <paramref name="hotkeys"/> with <paramref name="row"/> set to <paramref name="value"/>.</summary>
@@ -233,8 +250,12 @@ public static class ShortcutText
     };
 
     /// <summary>What a row says while it records.</summary>
-    public static string Prompt(ShortcutRow row) =>
-        row == ShortcutRow.Jump ? TextKeys.ShortcutPressJump : TextKeys.ShortcutPressKeys;
+    public static string Prompt(ShortcutRow row) => row switch
+    {
+        ShortcutRow.Jump => TextKeys.ShortcutPressJump,
+        ShortcutRow.TakeBack or ShortcutRow.Lock => TextKeys.ShortcutPressSingle,
+        _ => TextKeys.ShortcutPressKeys,
+    };
 
     /// <summary>
     /// What to tell the user about the background service refusing to
@@ -246,10 +267,17 @@ public static class ShortcutText
     {
         switch (code)
         {
+            case "needs_modifier" when row is { } single && TakesSingleKeys(single):
+                return new(TextKeys.ShortcutSingleKeys);
             case "needs_modifier":
                 return new(TextKeys.ShortcutNeedsModifier);
             case "unknown_key":
                 return new(TextKeys.ShortcutUnknownKey);
+            // In effect all the same, as the status shows.
+            case "not_saved":
+                return new(TextKeys.ShortcutNotSaved);
+            case "timeout":
+                return new(TextKeys.TitleNotResponding);
             case "duplicate" or "duplicate_relative":
                 if (row is { } changed && User(Get(hotkeys, changed), changed, before) is { } other)
                 {

@@ -4750,8 +4750,8 @@ async fn changed_hotkeys_apply_at_once_and_the_old_keys_go_through() {
     assert_eq!(mac.capture.reserved().len(), 10);
 
     let k = iw_core::HidUsage::from_name("KeyK").unwrap();
-    let hotkeys = Hotkeys::parse("control+alt+KeyT", "control+alt+KeyK", "", None).unwrap();
-    mac.agent.set_hotkeys(hotkeys).unwrap();
+    let hotkeys = Hotkeys::parse("control+alt+KeyT", "control+alt+KeyK", "", None, "").unwrap();
+    mac.agent.set_hotkeys(hotkeys).await.unwrap();
     wait_status(mac, |s| s.hotkeys == hotkeys).await;
     assert_eq!(mac.capture.reserved(), vec![hotkeys.lock]);
 
@@ -4787,7 +4787,10 @@ async fn changed_hotkeys_apply_at_once_and_the_old_keys_go_through() {
         lock: hotkeys.take_back,
         ..hotkeys
     };
-    assert_eq!(mac.agent.set_hotkeys(same).unwrap_err().code(), "duplicate");
+    assert_eq!(
+        mac.agent.set_hotkeys(same).await.unwrap_err().code(),
+        "duplicate"
+    );
     assert_eq!(mac.agent.status().hotkeys, hotkeys);
 
     for node in nodes {
@@ -4820,15 +4823,27 @@ async fn capture_losing_the_hotkeys_or_getting_them_back_is_followed() {
     assert!(before > 0);
 
     // Capture says it holds them back now, as X11's does once it grabbed
-    // them again: within a tick the digit is no longer let go of here.
-    mac.capture.set_hotkeys_held_back(Some(true));
-    tokio::time::sleep(Duration::from_millis(2500)).await;
+    // them again, in order with the keys: the digit pressed right after it
+    // is no longer let go of here.
+    let held = |but: &[iw_core::HidUsage]| {
+        mac.capture
+            .reserved()
+            .into_iter()
+            .filter(|h| !but.contains(&h.key))
+            .collect()
+    };
+    mac.capture.set_hotkeys_held_back(held(&[]));
     jump_there_and_back().await;
     assert_eq!(digit_released(&mac), before);
 
-    // And when it loses them again.
-    mac.capture.set_hotkeys_held_back(Some(false));
-    tokio::time::sleep(Duration::from_millis(2500)).await;
+    // Nor while it holds back all but another jump.
+    mac.capture.set_hotkeys_held_back(held(&[digit(3)]));
+    jump_there_and_back().await;
+    assert_eq!(digit_released(&mac), before);
+
+    // And when it loses the jump to 2 too.
+    mac.capture
+        .set_hotkeys_held_back(held(&[digit(2), digit(3)]));
     jump_there_and_back().await;
     assert!(digit_released(&mac) > before);
 
@@ -5126,6 +5141,7 @@ async fn hotkeys_and_the_switch_modifier_are_set_over_ipc_and_remembered() {
         lock: lock.to_owned(),
         jump_modifiers: jump.to_owned(),
         relative: None,
+        take_back_double: None,
     };
     let tries = [
         (set("control+Kay", "control+KeyL", ""), "unknown_key"),
@@ -5166,6 +5182,7 @@ async fn hotkeys_and_the_switch_modifier_are_set_over_ipc_and_remembered() {
         status.hotkeys.unwrap(),
         Hotkeys {
             relative: Some("control+alt+shift+KeyG".to_owned()),
+            take_back_double: Some(String::new()),
             ..set("control+alt+shift+Escape", "control+shift+KeyK", "alt+gui")
         }
     );
@@ -5259,6 +5276,494 @@ async fn hotkeys_and_the_switch_modifier_are_set_over_ipc_and_remembered() {
     assert!(!saved.contains("[hotkeys]"), "{saved}");
     assert!(saved.contains("switch_modifier = \"control\""), "{saved}");
     mac.agent.shutdown().await;
+}
+
+/// Presses and lets go of the left Control key twice, as quickly as the
+/// agent takes it.
+fn control_twice(node: &Node) {
+    for _ in 0..2 {
+        key(node, usage::LEFT_CONTROL, true);
+        key(node, usage::LEFT_CONTROL, false);
+    }
+}
+
+/// How many times `node` pressed and let go of `usage` in its injections
+/// from the `since`th on.
+fn presses(node: &Node, usage: iw_core::HidUsage, since: usize) -> (usize, usize) {
+    let calls = node.emulation.calls();
+    let count = |pressed| {
+        calls[since..]
+            .iter()
+            .filter(|c| **c == Emulated::Key(usage, pressed))
+            .count()
+    };
+    (count(true), count(false))
+}
+
+/// Presses A on the Mac, controlling the PC, and waits for the PC to
+/// inject it: everything sent before has arrived by then.
+async fn settle(mac: &Node, win: &Node) {
+    let since = win.emulation.calls().len();
+    key(mac, usage::A, true);
+    key(mac, usage::A, false);
+    let deadline = tokio::time::Instant::now() + TIMEOUT;
+    while presses(win, usage::A, since).1 == 0 {
+        assert!(tokio::time::Instant::now() < deadline, "timed out");
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+}
+
+/// Waits for the keyboard and mouse to be back on the Mac, as both see it.
+async fn back_on_mac(mac: &Node, win: &Node) -> Status {
+    let status = wait_status(mac, |s| s.cursor_on == "mac").await;
+    wait_status(win, |s| s.controlled_by.is_none()).await;
+    status
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_key_alone_and_control_twice_take_control_back() {
+    use iw_core::hotkey::Hotkeys;
+
+    let nodes = desk(&[mac(), win()]).await;
+    let (mac, win) = (&nodes[0], &nodes[1]);
+    // F16 for the lock, a key every platform's keyboards report.
+    let (f13, f16) = (usage::F13, iw_core::HidUsage::from_name("F16").unwrap());
+    let hotkeys =
+        Hotkeys::parse("F13", "F16", "control+alt+shift", None, "double+control").unwrap();
+    mac.agent.set_hotkeys(hotkeys).await.unwrap();
+    // The reply comes once the status shows them.
+    assert_eq!(mac.agent.status().hotkeys, hotkeys);
+    // A lock alone is held back from local apps like any lock, and capture
+    // knows of the double press, for while it waits for a grab.
+    assert_eq!(mac.capture.reserved(), hotkeys.reserved());
+    assert_eq!(mac.capture.reserved()[0], hotkeys.lock);
+    assert!(mac.capture.watches_double_press());
+
+    // F13 alone takes control back, and does not reach the PC.
+    mac_enters_win(mac, win).await;
+    key(mac, f13, true);
+    key(mac, f13, false);
+    let status = back_on_mac(mac, win).await;
+    assert_eq!(status.last_return, Some(ReturnReason::Hotkey));
+    assert!(!win.emulation.calls().contains(&Emulated::Key(f13, true)));
+    // F16 alone locks and unlocks, and does not reach it either.
+    mac_enters_win(mac, win).await;
+    key(mac, f16, true);
+    key(mac, f16, false);
+    wait_status(mac, |s| s.locked).await;
+    key(mac, f16, true);
+    key(mac, f16, false);
+    wait_status(mac, |s| !s.locked).await;
+    settle(mac, win).await;
+    assert!(!win.emulation.calls().contains(&Emulated::Key(f16, true)));
+
+    // Control twice comes back too; the PC saw each press and release.
+    let since = win.emulation.calls().len();
+    control_twice(mac);
+    let status = back_on_mac(mac, win).await;
+    assert_eq!(status.last_return, Some(ReturnReason::Hotkey));
+    assert!(!mac.capture.is_grabbed());
+    assert_eq!(presses(win, usage::LEFT_CONTROL, since), (2, 2));
+
+    // Told as such by capture (X11 while another app holds a grab): it
+    // comes back, and the PC gets no Control.
+    mac_enters_win(mac, win).await;
+    let since = win.emulation.calls().len();
+    mac.capture.emit(InputEvent::DoublePressed).unwrap();
+    let status = back_on_mac(mac, win).await;
+    assert_eq!(status.last_return, Some(ReturnReason::Hotkey));
+    assert_eq!(presses(win, usage::LEFT_CONTROL, since), (0, 0));
+
+    // Too slow: it stays on the PC, and Control still goes through.
+    mac_enters_win(mac, win).await;
+    let since = win.emulation.calls().len();
+    key(mac, usage::LEFT_CONTROL, true);
+    key(mac, usage::LEFT_CONTROL, false);
+    tokio::time::sleep(Duration::from_millis(450)).await;
+    key(mac, usage::LEFT_CONTROL, true);
+    key(mac, usage::LEFT_CONTROL, false);
+    settle(mac, win).await;
+    assert_eq!(mac.agent.status().cursor_on, "win");
+    assert_eq!(presses(win, usage::LEFT_CONTROL, since), (2, 2));
+    // Another key between: the same.
+    tokio::time::sleep(Duration::from_millis(450)).await;
+    key(mac, usage::LEFT_CONTROL, true);
+    key(mac, usage::LEFT_CONTROL, false);
+    key(mac, usage::A, true);
+    key(mac, usage::A, false);
+    key(mac, usage::LEFT_CONTROL, true);
+    key(mac, usage::LEFT_CONTROL, false);
+    settle(mac, win).await;
+    assert_eq!(mac.agent.status().cursor_on, "win");
+
+    // Turned off, it is Control and nothing more.
+    let off = Hotkeys {
+        take_back_double: false,
+        ..hotkeys
+    };
+    mac.agent.set_hotkeys(off).await.unwrap();
+    assert!(!mac.capture.watches_double_press());
+    tokio::time::sleep(Duration::from_millis(450)).await;
+    control_twice(mac);
+    settle(mac, win).await;
+    assert_eq!(mac.agent.status().cursor_on, "win");
+    // F13 alone takes back with Control held too, and Control is let go
+    // of on the PC as the cursor leaves.
+    let since = win.emulation.calls().len();
+    key(mac, usage::LEFT_CONTROL, true);
+    key(mac, f13, true);
+    key(mac, f13, false);
+    key(mac, usage::LEFT_CONTROL, false);
+    back_on_mac(mac, win).await;
+    assert_eq!(presses(win, usage::LEFT_CONTROL, since), (1, 1));
+
+    for node in nodes {
+        node.agent.shutdown().await;
+    }
+}
+
+/// Hotkeys put in effect that the devices file could not take are not
+/// said to be remembered: the answer says they are in effect but not
+/// saved, and the status shows them.
+#[cfg(unix)]
+#[tokio::test(flavor = "multi_thread")]
+async fn hotkeys_the_devices_file_cannot_take_are_said_not_to_be_saved() {
+    use iw_proto::app::v1::Hotkeys;
+
+    let dir = tempfile::tempdir().unwrap();
+    let socket = dir.path().join("agent.sock");
+    let file = dir.path().join("devices.toml");
+    let spec = mac();
+    let mac = start_with(
+        &spec,
+        Identity::generate().unwrap(),
+        &[&spec],
+        &[],
+        Options {
+            ipc_socket: Some(socket.clone()),
+            devices_file: Some(file.clone()),
+            ..Options::default()
+        },
+    )
+    .await;
+    let mut client = inputweave::ctl::Client::connect(&socket).await.unwrap();
+    let current = client.status().await.unwrap().hotkeys.unwrap();
+    // A folder where the file goes: it cannot be replaced. A save the
+    // agent makes as it starts may put the file back in between: again.
+    loop {
+        let _ = std::fs::remove_file(&file);
+        match std::fs::create_dir(&file) {
+            Ok(()) => break,
+            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => continue,
+            Err(e) => panic!("{e}"),
+        }
+    }
+    let lock = Hotkeys {
+        lock: "F13".to_owned(),
+        ..current
+    };
+    match client.set_hotkeys(lock.clone()).await {
+        Err(inputweave::ctl::CtlError::Agent { code, detail }) => {
+            assert_eq!(code, "not_saved");
+            assert!(detail.contains("in effect"), "{detail}");
+        }
+        other => panic!("not refused: {other:?}"),
+    }
+    // In effect all the same.
+    let status = client.status().await.unwrap();
+    assert_eq!(status.hotkeys.unwrap().lock, "F13");
+    assert_eq!(mac.agent.status().hotkeys.lock.to_string(), "F13");
+
+    // Once the file can be written, the next change is, with that one.
+    std::fs::remove_dir(&file).unwrap();
+    let both = Hotkeys {
+        take_back: "F14".to_owned(),
+        ..lock
+    };
+    client.set_hotkeys(both).await.unwrap();
+    let saved = std::fs::read_to_string(&file).unwrap();
+    assert!(
+        saved.contains("\"F13\"") && saved.contains("\"F14\""),
+        "{saved}"
+    );
+    mac.agent.shutdown().await;
+}
+
+#[cfg(unix)]
+#[tokio::test(flavor = "multi_thread")]
+async fn keys_alone_and_the_double_press_are_set_over_ipc_and_remembered() {
+    use iw_proto::app::v1::Hotkeys;
+
+    let dir = tempfile::tempdir().unwrap();
+    let socket = dir.path().join("agent.sock");
+    let spec = mac();
+    let options = || Options {
+        ipc_socket: Some(socket.clone()),
+        devices_file: Some(dir.path().join("devices.toml")),
+        ..Options::default()
+    };
+    let mac = start_with(
+        &spec,
+        Identity::generate().unwrap(),
+        &[&spec],
+        &[],
+        options(),
+    )
+    .await;
+    let mut client = inputweave::ctl::Client::connect(&socket).await.unwrap();
+    // A new agent says what the double press is, off at first.
+    let status = client.status().await.unwrap();
+    assert_eq!(
+        status.hotkeys.unwrap().take_back_double.as_deref(),
+        Some("")
+    );
+    let set = |take_back: &str, lock: &str, relative: &str, double: Option<&str>| Hotkeys {
+        take_back: take_back.to_owned(),
+        lock: lock.to_owned(),
+        jump_modifiers: "control+alt+shift".to_owned(),
+        relative: Some(relative.to_owned()),
+        take_back_double: double.map(str::to_owned),
+    };
+    let relative = "control+alt+shift+KeyG";
+    let tries = [
+        // Keys alone only where they work alone.
+        (
+            set("KeyK", "control+KeyL", relative, None),
+            "needs_modifier",
+        ),
+        (set("control+KeyT", "F12", relative, None), "needs_modifier"),
+        (
+            set("control+KeyT", "control+KeyL", "F13", None),
+            "needs_modifier",
+        ),
+        (set("F13", "F13", relative, None), "duplicate"),
+        (set("control+F13", "F13", relative, None), "duplicate"),
+        (
+            set("F13", "control+KeyL", "alt+F13", None),
+            "duplicate_relative",
+        ),
+        (
+            set("F13", "control+KeyL", relative, Some("double+shift")),
+            "unknown_key",
+        ),
+        (
+            set("F13", "control+KeyL", relative, Some("on")),
+            "unknown_key",
+        ),
+    ];
+    // A Mac's keyboards never report Scroll Lock or Pause (Apple's extended
+    // keyboard has F14 there): on one, a hotkey on them could never fire.
+    for key in ["ScrollLock", "Pause"] {
+        let result = client
+            .set_hotkeys(set(key, "control+KeyL", relative, None))
+            .await;
+        if cfg!(target_os = "macos") {
+            assert_eq!(refusal(result), "unknown_key", "{key}");
+        } else {
+            result.unwrap();
+        }
+    }
+    client
+        .set_hotkeys(set(
+            "control+alt+shift+Escape",
+            "control+alt+shift+KeyL",
+            relative,
+            Some(""),
+        ))
+        .await
+        .unwrap();
+    for (hotkeys, code) in tries {
+        assert_eq!(
+            refusal(client.set_hotkeys(hotkeys.clone()).await),
+            code,
+            "{hotkeys:?}"
+        );
+    }
+    assert_eq!(
+        mac.agent.status().hotkeys,
+        iw_core::hotkey::Hotkeys::default()
+    );
+
+    let status = client
+        .set_hotkeys(set("F13", "F14", relative, Some("Double+Control")))
+        .await
+        .unwrap();
+    assert_eq!(
+        status.hotkeys.unwrap(),
+        set("F13", "F14", relative, Some("double+control"))
+    );
+    // F13 takes back and ⌃F13 locks: the lock, looked at first, needs
+    // Control.
+    client
+        .set_hotkeys(set("F13", "control+F13", relative, None))
+        .await
+        .unwrap();
+    // An app from before the double press leaves it out: it stays on.
+    let status = client
+        .set_hotkeys(set("F13", "F15", relative, None))
+        .await
+        .unwrap();
+    let hotkeys = status.hotkeys.unwrap();
+    assert_eq!(hotkeys.lock, "F15");
+    assert_eq!(hotkeys.take_back_double.as_deref(), Some("double+control"));
+    let saved = std::fs::read_to_string(dir.path().join("devices.toml")).unwrap();
+    assert!(
+        saved.contains("take_back_double = \"double+control\""),
+        "{saved}"
+    );
+
+    // From the command line.
+    let output = run_ctl(&socket, &["hotkeys"]).await;
+    assert!(output.status.success(), "ctl failed: {output:?}");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains("take back control:  F13\n")
+            && stdout.contains("lock:               F15\n")
+            && stdout.contains("double press:       double+control\n"),
+        "{stdout}"
+    );
+    let output = run_ctl(&socket, &["hotkeys", "set", "--take-back-double", ""]).await;
+    assert!(output.status.success(), "ctl failed: {output:?}");
+    assert!(
+        String::from_utf8_lossy(&output.stdout).contains("double press:       off\n"),
+        "{output:?}"
+    );
+    let output = run_ctl(
+        &socket,
+        &["hotkeys", "set", "--take-back-double", "double+alt"],
+    )
+    .await;
+    assert!(!output.status.success());
+    assert!(
+        String::from_utf8_lossy(&output.stderr).contains("unknown_key"),
+        "{output:?}"
+    );
+    let output = run_ctl(
+        &socket,
+        &[
+            "hotkeys",
+            "set",
+            "--take-back-double",
+            "double+control",
+            "--lock",
+            "F19",
+        ],
+    )
+    .await;
+    assert!(output.status.success(), "ctl failed: {output:?}");
+    let output = run_ctl(&socket, &["status"]).await;
+    assert!(
+        String::from_utf8_lossy(&output.stdout)
+            .contains("hotkeys:        take back F13 or double+control, lock F19,"),
+        "{output:?}"
+    );
+    drop(client);
+    mac.agent.shutdown().await;
+
+    // Remembered.
+    let mac = start_with(
+        &spec,
+        Identity::generate().unwrap(),
+        &[&spec],
+        &[],
+        options(),
+    )
+    .await;
+    let status = mac.agent.status();
+    assert_eq!(status.hotkeys.take_back.to_string(), "F13");
+    assert_eq!(status.hotkeys.lock.to_string(), "F19");
+    assert!(status.hotkeys.take_back_double);
+    assert_eq!(mac.capture.reserved(), status.hotkeys.reserved());
+    // Back to the defaults, the double press off too, leaving nothing.
+    let output = run_ctl(&socket, &["hotkeys", "reset"]).await;
+    assert!(output.status.success(), "ctl failed: {output:?}");
+    assert_eq!(
+        mac.agent.status().hotkeys,
+        iw_core::hotkey::Hotkeys::default()
+    );
+    let saved = std::fs::read_to_string(dir.path().join("devices.toml")).unwrap();
+    assert!(!saved.contains("[hotkeys]"), "{saved}");
+    mac.agent.shutdown().await;
+}
+
+/// Hotkeys in the devices file that cannot be used leave the defaults in
+/// effect; setting the defaults then writes the file as it should be.
+#[cfg(unix)]
+#[tokio::test(flavor = "multi_thread")]
+async fn setting_the_hotkeys_in_effect_mends_a_file_with_unusable_ones() {
+    let dir = tempfile::tempdir().unwrap();
+    let socket = dir.path().join("agent.sock");
+    let file = dir.path().join("devices.toml");
+    std::fs::write(&file, "[hotkeys]\ntake_back = \"KeyK\"\n").unwrap();
+    let spec = mac();
+    let mac = start_with(
+        &spec,
+        Identity::generate().unwrap(),
+        &[&spec],
+        &[],
+        Options {
+            ipc_socket: Some(socket.clone()),
+            devices_file: Some(file.clone()),
+            ..Options::default()
+        },
+    )
+    .await;
+    assert_eq!(
+        mac.agent.status().hotkeys,
+        iw_core::hotkey::Hotkeys::default()
+    );
+    let output = run_ctl(&socket, &["hotkeys", "reset"]).await;
+    assert!(output.status.success(), "ctl failed: {output:?}");
+    let saved = std::fs::read_to_string(&file).unwrap();
+    assert!(!saved.contains("[hotkeys]"), "{saved}");
+    mac.agent.shutdown().await;
+}
+
+#[cfg(unix)]
+#[tokio::test(flavor = "multi_thread")]
+async fn hotkeys_from_two_apps_at_once_are_all_answered() {
+    use iw_proto::app::v1::Hotkeys;
+
+    let dir = tempfile::tempdir().unwrap();
+    let socket = dir.path().join("agent.sock");
+    let nodes = desk_with(&[mac(), win()], ipc_on_mac(&socket)).await;
+    let mac = &nodes[0];
+    let mut one = inputweave::ctl::Client::connect(&socket).await.unwrap();
+    let mut other = inputweave::ctl::Client::connect(&socket).await.unwrap();
+    let set = |lock: &str, double: Option<&str>| Hotkeys {
+        take_back: "control+alt+shift+Escape".to_owned(),
+        lock: lock.to_owned(),
+        jump_modifiers: "control+alt+shift".to_owned(),
+        relative: None,
+        take_back_double: double.map(str::to_owned),
+    };
+    // Each may be replaced by the other before the status shows it; the
+    // answer does not wait for its own value, so neither times out.
+    for round in 0..5 {
+        let (a, b) = tokio::join!(
+            one.set_hotkeys(set(
+                "F13",
+                Some(if round % 2 == 0 { "double+control" } else { "" })
+            )),
+            other.set_hotkeys(set("control+alt+KeyK", None))
+        );
+        a.unwrap();
+        b.unwrap();
+    }
+    // The one that left the double press out did not undo the other's.
+    let (a, b) = tokio::join!(
+        one.set_hotkeys(set("F13", Some("double+control"))),
+        other.set_hotkeys(set("F14", None))
+    );
+    a.unwrap();
+    b.unwrap();
+    let hotkeys = mac.agent.status().hotkeys;
+    assert!(hotkeys.take_back_double);
+    assert!(["F13", "F14"].contains(&hotkeys.lock.to_string().as_str()));
+
+    for node in nodes {
+        node.agent.shutdown().await;
+    }
 }
 
 /// Bytes that pass for a JPEG: the right start, then `len` bytes in all.

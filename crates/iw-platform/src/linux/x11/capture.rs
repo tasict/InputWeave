@@ -1,5 +1,4 @@
 use std::collections::{HashMap, VecDeque};
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::Sender;
 use std::sync::{Arc, Condvar, Mutex, MutexGuard, PoisonError};
 use std::thread::JoinHandle;
@@ -7,6 +6,7 @@ use std::time::{Duration, Instant};
 
 use iw_core::HidUsage;
 use iw_core::geometry::Point;
+use iw_core::hotkey::HeldHotkeys;
 use iw_core::input::InputEvent;
 use iw_core::layout::Display;
 use iw_core::router::Hotkey;
@@ -30,7 +30,7 @@ use x11rb::{COPY_DEPTH_FROM_PARENT, CURRENT_TIME, NONE};
 use super::platform::{DISPLAYS_STALE, connect, monitors};
 use super::translate::{
     AbsoluteAxis, Axes, Drift, KeyRepeat, ModifierMasks, RepeatSettings, Reports, ScrollAxis,
-    button_of, fixed, hold_point, is_xtest_device, key_of, keycode, root_size, valuators,
+    Watched, button_of, fixed, hold_point, is_xtest_device, key_of, keycode, root_size, valuators,
     wheel_notches,
 };
 use crate::linux::common::{Backoff, os};
@@ -54,9 +54,19 @@ const GRAB_RETRY: Duration = Duration::from_millis(50);
 const SHOW_LATER: Duration = Duration::from_millis(100);
 
 /// How long `reserve_hotkeys` waits for the worker before answering that
-/// the hotkeys are not held back (yet); `hotkeys_held_back` says when they
-/// are.
+/// none of the hotkeys is held back (yet); capture tells the agent when
+/// they are (`InputEvent::HotkeysHeldBack`).
 const RESERVE_WAIT: Duration = Duration::from_millis(200);
+
+/// How long after a hotkey was left to local apps, because another app
+/// holds it, it is grabbed again, so it is held back once that app lets go
+/// of it; twice as long after each try that leaves the same hotkeys, up to
+/// [`RETRY_HOTKEYS_MAX`], and no more after [`RETRY_HOTKEYS_TIMES`] such
+/// tries, until the keyboard mapping or the hotkeys change, injection lets
+/// go of them or the server connects again.
+const RETRY_HOTKEYS: Duration = Duration::from_secs(3);
+const RETRY_HOTKEYS_MAX: Duration = Duration::from_secs(60);
+const RETRY_HOTKEYS_TIMES: u32 = 5;
 
 /// How long after injection last held a key the hotkeys are grabbed again
 /// (`HotkeyPause`): not after every keystroke of someone typing here from
@@ -94,7 +104,10 @@ const RESUME_HOTKEYS: Duration = Duration::from_secs(1);
 /// down before or after the grab. Reserved hotkeys are passive key grabs,
 /// so local clients never see them; the server hands their release to the
 /// grab too. They are grabbed again when the keyboard mapping changes them,
-/// and `hotkeys_held_back` says whether they are held now.
+/// one another app holds now and then ([`RETRY_HOTKEYS`]), and capture
+/// tells the agent which are held back as that changes, in order with the
+/// keys and numbered (`InputEvent::HotkeysHeldBack`): none while another
+/// client's grab takes every key.
 ///
 /// Wheel scrolling comes from the scrolling axes of smooth scrolling
 /// (XI 2.1) where a device has them, as all do under the libinput and
@@ -295,84 +308,123 @@ impl Link {
         let _ = self.conn.flush();
     }
 
-    /// The passive grabs `hotkeys` need: each in every modifier state it
-    /// may come with (`ModifierMasks::grab_states`). `None` when one has no
-    /// key code or modifier on this server.
-    fn grabs_for(&self, hotkeys: &[Hotkey]) -> Option<Vec<(u8, u16)>> {
+    /// Grabs what `hotkeys` need now, given the grabs `held` already,
+    /// hotkey by hotkey: each in every modifier state it may come with
+    /// (`ModifierMasks::grab_states`). A hotkey this server has no key code
+    /// or modifier for, or that another client holds a grab of, as the
+    /// desktop's own shortcuts may (GNOME's XF86Tools is F13), is left to
+    /// local apps, all of its grabs let go of; the others stay held. New
+    /// grabs are made before the ones no longer needed are let go of, so a
+    /// key changing state is never left ungrabbed in between; nothing is
+    /// asked of the server when nothing changed. The requests all go out
+    /// before any answer is waited for. Trying `again`, a hotkey none of
+    /// whose grabs is held is first tried by its own modifiers alone, the
+    /// state another app most likely holds, and the rest only if that is
+    /// taken: one still held so is found without grabbing, and letting go of
+    /// at once, the states that app does not hold. Returns the grabs held
+    /// now and the hotkeys left to local apps.
+    fn regrab(&self, hotkeys: &[Hotkey], held: &[(u8, u16)], again: bool) -> (Grabs, Vec<Hotkey>) {
         let masks = match self.conn.get_modifier_mapping().map(|c| c.reply()) {
             Ok(Ok(reply)) => ModifierMasks::from_mapping(&reply.keycodes),
-            _ => return None,
+            _ => {
+                self.ungrab_keys(held);
+                return (Vec::new(), hotkeys.to_vec());
+            }
         };
-        let mut grabs = Vec::new();
-        for hotkey in hotkeys {
-            let (Some(code), Some(states)) = (
-                keycode(hotkey.key, self.min_keycode, self.max_keycode),
-                masks.grab_states(hotkey.modifiers),
-            ) else {
-                tracing::info!(%hotkey, "this X server cannot hold the hotkey back; hotkeys reach local apps");
-                return None;
-            };
-            grabs.extend(states.into_iter().map(|state| (code, state)));
-        }
-        Some(grabs)
-    }
-
-    /// Grabs what `hotkeys` need now, given the grabs `held` already: all
-    /// or none. The new ones are grabbed before the ones no longer needed
-    /// are let go of, so a key changing state is never left ungrabbed in
-    /// between; nothing is asked of the server when nothing changed. When
-    /// another client holds one, as the desktop's own shortcuts may, every
-    /// grab is let go of and `None` returned. The requests all go out
-    /// before any answer is waited for.
-    fn regrab(&self, hotkeys: &[Hotkey], held: &[(u8, u16)]) -> Option<Vec<(u8, u16)>> {
-        let Some(wanted) = self.grabs_for(hotkeys) else {
-            self.ungrab_keys(held);
-            return None;
-        };
-        let new: Vec<_> = wanted
+        // Each hotkey's grabs; none when it cannot have them here.
+        let wanted: Vec<(Hotkey, Option<Grabs>)> = hotkeys
             .iter()
-            .filter(|g| !held.contains(g))
-            .copied()
-            .collect();
-        let stale: Vec<_> = held
-            .iter()
-            .filter(|g| !wanted.contains(g))
-            .copied()
-            .collect();
-        if new.is_empty() && stale.is_empty() {
-            return Some(held.to_vec());
-        }
-        let cookies: Vec<_> = new
-            .iter()
-            .map(|&(code, state)| {
-                self.conn.grab_key(
-                    false,
-                    self.root,
-                    ModMask::from(state),
-                    code,
-                    GrabMode::ASYNC,
-                    GrabMode::ASYNC,
-                )
+            .map(|hotkey| {
+                let grabs = keycode(hotkey.key, self.min_keycode, self.max_keycode)
+                    .zip(masks.grab_states(hotkey.modifiers))
+                    .map(|(code, states)| states.into_iter().map(|state| (code, state)).collect());
+                (*hotkey, grabs)
             })
             .collect();
+        // Each of `grabs`, whether the server took it.
+        let grab_all = |grabs: &[(u8, u16)]| -> Vec<((u8, u16), bool)> {
+            let cookies: Vec<_> = grabs
+                .iter()
+                .map(|&(code, state)| {
+                    self.conn.grab_key(
+                        false,
+                        self.root,
+                        ModMask::from(state),
+                        code,
+                        GrabMode::ASYNC,
+                        GrabMode::ASYNC,
+                    )
+                })
+                .collect();
+            cookies
+                .into_iter()
+                .zip(grabs)
+                .map(|(cookie, &grab)| (grab, matches!(cookie.map(|c| c.check()), Ok(Ok(())))))
+                .collect()
+        };
         let mut grabbed = Vec::new();
-        let mut all = true;
-        for (cookie, &grab) in cookies.into_iter().zip(&new) {
-            match cookie.map(|c| c.check()) {
-                Ok(Ok(())) => grabbed.push(grab),
-                _ => all = false,
+        let mut refused_grabs = Vec::new();
+        let sort = |answers: Vec<((u8, u16), bool)>, grabbed: &mut Grabs, refused: &mut Grabs| {
+            for (grab, taken) in answers {
+                if taken {
+                    grabbed.push(grab);
+                } else {
+                    refused.push(grab);
+                }
+            }
+        };
+        if again {
+            let mut firsts: Vec<(u8, u16)> = wanted
+                .iter()
+                .filter_map(|(_, grabs)| grabs.as_ref())
+                .filter(|grabs| !grabs.iter().any(|g| held.contains(g)))
+                .filter_map(|grabs| grabs.first().copied())
+                .collect();
+            firsts.sort_unstable();
+            firsts.dedup();
+            sort(grab_all(&firsts), &mut grabbed, &mut refused_grabs);
+        }
+        let mut new: Vec<(u8, u16)> = wanted
+            .iter()
+            .filter_map(|(_, grabs)| grabs.as_ref())
+            .filter(|grabs| !grabs.iter().any(|g| refused_grabs.contains(g)))
+            .flatten()
+            .filter(|g| !held.contains(g) && !grabbed.contains(g))
+            .copied()
+            .collect();
+        new.sort_unstable();
+        new.dedup();
+        sort(grab_all(&new), &mut grabbed, &mut refused_grabs);
+        let mut kept = Vec::new();
+        let mut left = Vec::new();
+        for (hotkey, grabs) in wanted {
+            match grabs {
+                Some(grabs) if !grabs.iter().any(|g| refused_grabs.contains(g)) => {
+                    kept.extend(grabs)
+                }
+                _ => left.push(hotkey),
             }
         }
-        if !all {
-            tracing::info!("another app holds a hotkey; hotkeys reach local apps");
-            self.ungrab_keys(&grabbed);
-            self.ungrab_keys(held);
-            return None;
+        kept.sort_unstable();
+        kept.dedup();
+        // What is held, or was just grabbed, that no hotkey kept needs.
+        let mut stale: Vec<(u8, u16)> = held
+            .iter()
+            .chain(&grabbed)
+            .filter(|g| !kept.contains(g))
+            .copied()
+            .collect();
+        stale.sort_unstable();
+        stale.dedup();
+        if !stale.is_empty() {
+            self.ungrab_keys(&stale);
         }
-        self.ungrab_keys(&stale);
-        Some(wanted)
+        (kept, left)
     }
 }
+
+/// Passive key grabs: a key code and a modifier state each.
+type Grabs = Vec<(u8, u16)>;
 
 /// What the agent asks of the worker.
 enum Command {
@@ -383,8 +435,10 @@ enum Command {
     ShowCursor,
     /// Another client held a grab: try again.
     RetryGrab,
-    /// Grab these hotkeys, and say whether they are held.
-    Reserve(Vec<Hotkey>, std::sync::mpsc::Sender<bool>),
+    /// Grab these hotkeys, and say which are held.
+    Reserve(Vec<Hotkey>, std::sync::mpsc::Sender<HeldHotkeys>),
+    /// Grab again the hotkeys another app held.
+    RetryHotkeys,
     /// Injection held no key for a while: grab the hotkeys again.
     ResumeHotkeys,
     /// Answered once everything asked before is done.
@@ -402,15 +456,47 @@ struct Shared {
     /// Wakes the worker while it has no connection to be woken through.
     commanded: Condvar,
     hotkeys: Mutex<Reserved>,
-    /// Whether the hotkeys are held back now (`hotkeys_held_back`), read
-    /// without waiting on whatever holds `hotkeys`.
-    held: AtomicBool,
-    /// The hotkeys the router acts on while grabbed, which go out even
-    /// while input waits for a grab (`InputCapture::watch_hotkeys`).
-    watched: Mutex<Vec<Hotkey>>,
+    /// The hotkeys held back now, under a lock of their own, so telling
+    /// them never waits on whatever holds `hotkeys`.
+    held: Mutex<Held>,
+    /// What the router acts on while grabbed, which goes out even while
+    /// input waits for a grab (`InputCapture::watch_hotkeys`,
+    /// `InputCapture::watch_double_press`).
+    watched: Mutex<Watched>,
     timer: Mutex<Timer>,
     /// Wakes the timer thread when what it waits for changed.
     timer_wake: Condvar,
+}
+
+/// What capture tells of the hotkeys held back (`InputEvent::HotkeysHeldBack`):
+/// those its passive grabs hold, but none while another client's grab
+/// takes every key; numbered, so the agent never takes a set told before
+/// the one it has; and where its events go once it started.
+#[derive(Default)]
+struct Held {
+    grabbed: HeldHotkeys,
+    /// Another client's grab takes every key (`Worker::waiting_for_grab`).
+    waiting: bool,
+    told: HeldHotkeys,
+    events: Option<Sender<InputEvent>>,
+}
+
+impl Held {
+    /// The set held back now, told as the next change if it changed.
+    fn tell(&mut self) -> HeldHotkeys {
+        let now = if self.waiting {
+            HeldHotkeys::default()
+        } else {
+            self.grabbed
+        };
+        if now != self.told {
+            self.told = now.as_change(self.told.change() + 1);
+            if let Some(events) = &self.events {
+                let _ = events.send(InputEvent::HotkeysHeldBack(self.told));
+            }
+        }
+        self.told
+    }
 }
 
 #[derive(Default)]
@@ -424,6 +510,10 @@ struct Commands {
 struct Reserved {
     hotkeys: Vec<Hotkey>,
     grabs: Vec<(u8, u16)>,
+    /// Those of `hotkeys` not held back, last time they were grabbed.
+    left: Vec<Hotkey>,
+    /// How many tries again in a row left the same hotkeys to local apps.
+    tries: u32,
     /// Let go of while injection holds keys (`HotkeyPause`).
     paused: bool,
 }
@@ -440,6 +530,7 @@ struct Timer {
     show_at: Option<Instant>,
     retry_grab_at: Option<Instant>,
     resume_hotkeys_at: Option<Instant>,
+    retry_hotkeys_at: Option<Instant>,
     stop: bool,
 }
 
@@ -467,15 +558,28 @@ impl Shared {
         self.hotkeys.lock().unwrap_or_else(PoisonError::into_inner)
     }
 
-    fn set_held(&self, held: bool) {
-        self.held.store(held, Ordering::Relaxed);
+    fn held(&self) -> MutexGuard<'_, Held> {
+        self.held.lock().unwrap_or_else(PoisonError::into_inner)
     }
 
-    fn watched(&self) -> Vec<Hotkey> {
-        self.watched
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .clone()
+    /// The passive grabs hold back `hotkeys` from now on; tells the agent
+    /// if what is held back changed, after the keys capture reported
+    /// before. What is held back now, numbered.
+    fn set_held(&self, hotkeys: HeldHotkeys) -> HeldHotkeys {
+        let mut held = self.held();
+        held.grabbed = hotkeys;
+        held.tell()
+    }
+
+    /// Another client's grab takes every key from now on, or no longer.
+    fn set_waiting(&self, waiting: bool) {
+        let mut held = self.held();
+        held.waiting = waiting;
+        held.tell();
+    }
+
+    fn watched(&self) -> MutexGuard<'_, Watched> {
+        self.watched.lock().unwrap_or_else(PoisonError::into_inner)
     }
 
     fn timer(&self) -> MutexGuard<'_, Timer> {
@@ -534,26 +638,77 @@ impl Shared {
         self.timer_wake.notify_all();
     }
 
-    /// Grabs `hotkeys` on `link`, unless injection holds them paused.
-    /// Whether they are held now.
-    fn reserve(&self, link: &Link, reserved: &mut Reserved, hotkeys: &[Hotkey]) -> bool {
+    fn retry_hotkeys_at(&self, at: Option<Instant>) {
+        self.timer().retry_hotkeys_at = at;
+        self.timer_wake.notify_all();
+    }
+
+    /// Grabs `hotkeys` on `link`, unless injection holds them paused,
+    /// trying `again` a hotkey left to local apps before. What is held back
+    /// now, numbered. One left to local apps is tried again after
+    /// [`RETRY_HOTKEYS`], backing off while the same ones stay left.
+    fn reserve(
+        &self,
+        link: &Link,
+        reserved: &mut Reserved,
+        hotkeys: &[Hotkey],
+        again: bool,
+    ) -> HeldHotkeys {
         reserved.hotkeys = hotkeys.to_vec();
         if reserved.paused {
-            return false;
+            return self.held().told;
         }
-        let held = match link.regrab(hotkeys, &reserved.grabs) {
-            Some(grabs) => {
-                reserved.grabs = grabs;
-                true
-            }
-            None => {
-                reserved.grabs.clear();
-                false
-            }
+        let (grabs, left) = link.regrab(hotkeys, &reserved.grabs, again);
+        reserved.grabs = grabs;
+        // Said as it changes, not at every try again.
+        for hotkey in left.iter().filter(|h| !reserved.left.contains(h)) {
+            tracing::info!(
+                %hotkey,
+                "another app holds this hotkey, or this X server cannot grab it; it reaches local apps"
+            );
+        }
+        for hotkey in reserved
+            .left
+            .iter()
+            .filter(|h| hotkeys.contains(h) && !left.contains(h))
+        {
+            tracing::info!(%hotkey, "this hotkey is held back again");
+        }
+        let held: HeldHotkeys = hotkeys
+            .iter()
+            .filter(|h| !left.contains(h))
+            .copied()
+            .collect();
+        reserved.tries = if again && left == reserved.left {
+            reserved.tries + 1
+        } else {
+            0
         };
-        self.set_held(held);
-        held
+        let retry = if left.is_empty() {
+            None
+        } else {
+            retry_after(reserved.tries)
+        };
+        if !left.is_empty() && retry.is_none() && reserved.tries == RETRY_HOTKEYS_TIMES {
+            tracing::info!(
+                "the hotkeys another app holds are not tried again until the keyboard mapping or the hotkeys change"
+            );
+        }
+        self.retry_hotkeys_at(retry.map(|after| Instant::now() + after));
+        reserved.left = left;
+        self.set_held(held)
     }
+}
+
+/// How long to wait before trying again hotkeys another app holds, after
+/// `tries` tries in a row that left the same ones; none after
+/// [`RETRY_HOTKEYS_TIMES`].
+fn retry_after(tries: u32) -> Option<Duration> {
+    (tries < RETRY_HOTKEYS_TIMES).then(|| {
+        RETRY_HOTKEYS
+            .saturating_mul(1 << tries.min(16))
+            .min(RETRY_HOTKEYS_MAX)
+    })
 }
 
 /// Keeps capture's passive key grabs from taking keys injected here: the
@@ -562,7 +717,7 @@ impl Shared {
 /// reach the focused app. Before a key goes down by injection the grabs are
 /// let go of, the server done with that before the key is sent; they are
 /// taken again once injection held no key for [`RESUME_HOTKEYS`].
-/// Meanwhile `hotkeys_held_back` says they are not held.
+/// Meanwhile capture tells the agent none is held back.
 #[derive(Clone)]
 pub struct HotkeyPause {
     shared: Arc<Shared>,
@@ -583,7 +738,7 @@ impl HotkeyPause {
             let _ = link.conn.sync();
         }
         reserved.grabs.clear();
-        s.set_held(reserved.hotkeys.is_empty());
+        s.set_held(HeldHotkeys::default());
     }
 
     /// Injection let go of a key; `idle` once it holds none.
@@ -604,14 +759,20 @@ impl X11Capture {
                 commands: Mutex::new(Commands::default()),
                 commanded: Condvar::new(),
                 hotkeys: Mutex::new(Reserved::default()),
-                held: AtomicBool::new(true),
-                watched: Mutex::new(Vec::new()),
+                held: Mutex::new(Held::default()),
+                watched: Mutex::new(Watched::default()),
                 timer: Mutex::new(Timer::default()),
                 timer_wake: Condvar::new(),
             }),
             threads: Vec::new(),
             report_injected: false,
         })
+    }
+
+    /// The hotkeys held back now, as capture last told them.
+    #[cfg(test)]
+    pub(crate) fn hotkeys_held_back(&self) -> HeldHotkeys {
+        self.shared.held().told
     }
 
     /// For injection into the same session, which lets go of the hotkeys
@@ -668,6 +829,7 @@ impl InputCapture for X11Capture {
             mapping_changed: false,
         };
         worker.listen(&link)?;
+        self.shared.held().events = Some(events.clone());
         let spawn = |name: &str, run: Box<dyn FnOnce() + Send>| {
             std::thread::Builder::new()
                 .name(name.to_owned())
@@ -706,42 +868,42 @@ impl InputCapture for X11Capture {
         Ok(())
     }
 
-    /// All or none (`Link::regrab`), on the current connection; the worker
-    /// grabs them again when the keyboard mapping changes or it connects
-    /// again, and `hotkeys_held_back` follows. A grab already active, for a
+    /// Hotkey by hotkey (`Link::regrab`), on the current connection: one
+    /// another app holds is left to local apps and the others held back,
+    /// and this returns those held back. The worker grabs them again when
+    /// the keyboard mapping changes or it connects again, one another app
+    /// holds every [`RETRY_HOTKEYS`], and tells each change
+    /// (`InputEvent::HotkeysHeldBack`). A grab already active, for a
     /// key held down, lasts until the key is released, whatever becomes of
     /// the passive grab it came from.
     ///
     /// Before `start`, done here; after, by the worker, waited for at most
-    /// [`RESERVE_WAIT`] so a hung server never holds up the agent: false
-    /// then, and `hotkeys_held_back` says when they are held.
-    fn reserve_hotkeys(&mut self, hotkeys: &[Hotkey]) -> bool {
+    /// [`RESERVE_WAIT`] so a hung server never holds up the agent: what was
+    /// held back before then, and capture tells when that changes.
+    fn reserve_hotkeys(&mut self, hotkeys: &[Hotkey]) -> HeldHotkeys {
         let s = &self.shared;
         if self.threads.is_empty() {
             let mut reserved = s.hotkeys();
             let Some(link) = s.link() else {
                 reserved.hotkeys = hotkeys.to_vec();
-                s.set_held(false);
-                return false;
+                return s.set_held(HeldHotkeys::default());
             };
-            return s.reserve(&link, &mut reserved, hotkeys);
+            return s.reserve(&link, &mut reserved, hotkeys, false);
         }
-        s.set_held(false);
+        // Not told here: what the worker tells comes in order with the
+        // keys, and later than this answer, which is no later than it.
         let (tx, rx) = std::sync::mpsc::channel();
         s.command(Command::Reserve(hotkeys.to_vec(), tx));
-        rx.recv_timeout(RESERVE_WAIT).unwrap_or(false)
+        rx.recv_timeout(RESERVE_WAIT)
+            .unwrap_or_else(|_| s.held().told)
     }
 
     fn watch_hotkeys(&mut self, hotkeys: &[Hotkey]) {
-        *self
-            .shared
-            .watched
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner) = hotkeys.to_vec();
+        self.shared.watched().hotkeys = hotkeys.to_vec();
     }
 
-    fn hotkeys_held_back(&self) -> Option<bool> {
-        Some(self.shared.held.load(Ordering::Relaxed))
+    fn watch_double_press(&mut self, on: bool) {
+        self.shared.watched().double_press = on;
     }
 }
 
@@ -784,6 +946,7 @@ fn run_timer(shared: &Shared, events: &Sender<InputEvent>) {
             (due(&mut timer.show_at), Command::ShowCursor),
             (due(&mut timer.retry_grab_at), Command::RetryGrab),
             (due(&mut timer.resume_hotkeys_at), Command::ResumeHotkeys),
+            (due(&mut timer.retry_hotkeys_at), Command::RetryHotkeys),
         ]
         .into_iter()
         .filter_map(|(due, command)| due.then_some(command))
@@ -810,10 +973,16 @@ fn run_timer(shared: &Shared, events: &Sender<InputEvent>) {
             continue;
         }
         let repeat = t.grabbed.then(|| t.keys.deadline()).flatten();
-        let deadline = [repeat, t.show_at, t.retry_grab_at, t.resume_hotkeys_at]
-            .into_iter()
-            .flatten()
-            .min();
+        let deadline = [
+            repeat,
+            t.show_at,
+            t.retry_grab_at,
+            t.resume_hotkeys_at,
+            t.retry_hotkeys_at,
+        ]
+        .into_iter()
+        .flatten()
+        .min();
         timer = match deadline {
             Some(deadline) => {
                 let wait = deadline.saturating_duration_since(now);
@@ -919,7 +1088,7 @@ impl Worker {
                     tracing::info!("connected to the X server again");
                     let l = Arc::new(l);
                     self.shared.set_link(Some(l.clone()));
-                    self.reserve_again(&l);
+                    self.reserve_again(&l, false);
                     link = Some(l);
                     backoff.succeeded();
                 }
@@ -936,7 +1105,9 @@ impl Worker {
     /// let go of it, and keys stop repeating.
     fn lost(&mut self) {
         self.grabbed = false;
-        self.waiting_for_grab = false;
+        if std::mem::take(&mut self.waiting_for_grab) {
+            self.shared.set_waiting(false);
+        }
         self.cursor_hidden = false;
         self.show_on_warp = false;
         self.displays = None;
@@ -946,7 +1117,7 @@ impl Worker {
         {
             let mut reserved = self.shared.hotkeys();
             reserved.grabs.clear();
-            self.shared.set_held(reserved.hotkeys.is_empty());
+            self.shared.set_held(HeldHotkeys::default());
         }
         {
             let mut timer = self.shared.timer();
@@ -954,6 +1125,7 @@ impl Worker {
             timer.grabbed = false;
             timer.show_at = None;
             timer.retry_grab_at = None;
+            timer.retry_hotkeys_at = None;
             let (keys, buttons) = self.reports.release_all();
             for usage in keys {
                 let _ = self.events.send(InputEvent::Key {
@@ -986,10 +1158,14 @@ impl Worker {
                     Command::Ungrab => self.want_grabbed = false,
                     Command::Reserve(hotkeys, done) => {
                         self.shared.hotkeys().hotkeys = hotkeys;
-                        let _ = done.send(false);
+                        let _ = done.send(HeldHotkeys::default());
                     }
                     Command::ResumeHotkeys => self.shared.hotkeys().paused = false,
-                    Command::Warp(_) | Command::ShowCursor | Command::RetryGrab => {}
+                    // Grabbed again once connected.
+                    Command::Warp(_)
+                    | Command::ShowCursor
+                    | Command::RetryGrab
+                    | Command::RetryHotkeys => {}
                     #[cfg(test)]
                     Command::Settle(done) => {
                         let _ = done.send(());
@@ -1037,7 +1213,7 @@ impl Worker {
                 return Served::Stopped;
             }
             if std::mem::take(&mut self.mapping_changed) {
-                self.reserve_again(link);
+                self.reserve_again(link, false);
             }
         }
     }
@@ -1116,6 +1292,7 @@ impl Worker {
                     self.want_grabbed = false;
                     if std::mem::take(&mut self.waiting_for_grab) {
                         self.shared.retry_grab_at(None);
+                        self.shared.set_waiting(false);
                     }
                     if self.grabbed {
                         self.ungrab(link);
@@ -1130,13 +1307,19 @@ impl Worker {
                 Command::ShowCursor => self.show_if_due(link),
                 Command::Reserve(hotkeys, done) => {
                     let mut reserved = self.shared.hotkeys();
-                    let held = self.shared.reserve(link, &mut reserved, &hotkeys);
+                    let held = self.shared.reserve(link, &mut reserved, &hotkeys, false);
                     let _ = done.send(held);
                 }
                 Command::ResumeHotkeys => {
                     let paused = std::mem::take(&mut self.shared.hotkeys().paused);
                     if paused {
-                        self.reserve_again(link);
+                        self.reserve_again(link, false);
+                    }
+                }
+                Command::RetryHotkeys => {
+                    let left = !self.shared.hotkeys().left.is_empty();
+                    if left {
+                        self.reserve_again(link, true);
                     }
                 }
                 #[cfg(test)]
@@ -1179,6 +1362,7 @@ impl Worker {
             Err(e) => {
                 if !std::mem::replace(&mut self.waiting_for_grab, true) {
                     tracing::warn!(error = %e, "cannot take the keyboard and mouse yet; their input waits until it can");
+                    self.shared.set_waiting(true);
                 }
                 self.shared.retry_grab_at(Some(Instant::now() + GRAB_RETRY));
                 return;
@@ -1206,6 +1390,7 @@ impl Worker {
         }
         if std::mem::take(&mut self.waiting_for_grab) {
             tracing::info!("took the keyboard and mouse after all");
+            self.shared.set_waiting(false);
         }
         self.grabbed = true;
         self.hold = hold;
@@ -1254,17 +1439,20 @@ impl Worker {
         let _ = link.conn.sync();
     }
 
-    /// Grabs the reserved hotkeys again, all or none, on a new connection
-    /// or a changed keyboard mapping (`Link::regrab`).
-    fn reserve_again(&self, link: &Link) {
+    /// Grabs the reserved hotkeys again, hotkey by hotkey (`Link::regrab`):
+    /// on a new connection, a changed keyboard mapping or injection letting
+    /// go of them, or `again`, trying the ones another app held.
+    fn reserve_again(&self, link: &Link, again: bool) {
         let mut reserved = self.shared.hotkeys();
         if reserved.hotkeys.is_empty() || reserved.paused {
             return;
         }
-        let was = self.shared.held.load(Ordering::Relaxed);
         let hotkeys = reserved.hotkeys.clone();
-        if !self.shared.reserve(link, &mut reserved, &hotkeys) && was {
-            tracing::warn!("the hotkeys cannot be held back any more; they reach local apps");
+        let was = self.shared.held().grabbed.len();
+        let held = self.shared.reserve(link, &mut reserved, &hotkeys, again);
+        let held = held.len();
+        if held < was {
+            tracing::warn!("fewer hotkeys can be held back now; the others reach local apps");
         }
     }
 
@@ -1308,6 +1496,11 @@ impl Worker {
                         }
                         false
                     };
+                    // Scrolling between the two presses of the double press
+                    // starts it over, whether or not it goes out.
+                    if scroll.is_some() {
+                        self.reports.interrupt_double_press();
+                    }
                     if waiting {
                         continue;
                     }
@@ -1332,7 +1525,12 @@ impl Worker {
                     self.flush(link, &mut pending)?;
                     if let Some(button) = button_of(e.detail) {
                         self.button(button, pressed)?;
-                    } else if let Some((dx, dy)) = wheel_notches(e.detail)
+                        continue;
+                    }
+                    // A wheel click, or a button capture does not report:
+                    // the double press starts over, as for any button.
+                    self.reports.interrupt_double_press();
+                    if let Some((dx, dy)) = wheel_notches(e.detail)
                         && pressed
                         && !emulated
                         && !scrolls_smoothly
@@ -1348,7 +1546,7 @@ impl Worker {
                     self.flush(link, &mut pending)?;
                     let pressed = e.event_type == xinput::RAW_KEY_PRESS_EVENT;
                     if let (Some(usage), Ok(code)) = (key_of(e.detail), u8::try_from(e.detail)) {
-                        self.key(code, usage, pressed)?;
+                        self.key(code, usage, pressed, e.time)?;
                     }
                 }
                 Event::XinputHierarchy(_) => self.refresh_devices(link),
@@ -1399,17 +1597,19 @@ impl Worker {
     }
 
     /// Reports a key, but while input waits for a grab only the release of
-    /// one reported down and the hotkeys the router acts on (`Reports`);
-    /// and has the timer repeat one reported down while grabbed. Under the
-    /// timer's lock, so a repeat never follows the release.
-    fn key(&mut self, code: u8, usage: HidUsage, pressed: bool) -> Result<(), ()> {
+    /// one reported down, the hotkeys the router acts on and, as such, the
+    /// double press, timed by `time`, the server's (`Reports`); and has the
+    /// timer repeat one reported down while grabbed. Under the timer's
+    /// lock, so a repeat never follows the release.
+    fn key(&mut self, code: u8, usage: HidUsage, pressed: bool, time: u32) -> Result<(), ()> {
         let waiting = self.waiting();
-        let watched = if waiting && pressed {
-            self.shared.watched()
+        let out = if waiting {
+            let watched = self.shared.watched();
+            self.reports.key(usage, pressed, true, &watched, time)
         } else {
-            Vec::new()
+            self.reports
+                .key(usage, pressed, false, &Watched::default(), time)
         };
-        let out = self.reports.key(usage, pressed, waiting, &watched);
         let mut timer = self.shared.timer();
         let t = &mut *timer;
         if !pressed {
@@ -1422,6 +1622,9 @@ impl Worker {
             self.events
                 .send(InputEvent::Key { usage, pressed })
                 .map_err(|_| ())?;
+        }
+        if self.reports.take_double_press() {
+            self.send(InputEvent::DoublePressed)?;
         }
         Ok(())
     }
@@ -1584,4 +1787,22 @@ fn natural_scrolling(conn: &RustConnection, device: u16, atom: u32) -> bool {
         .xinput_xi_get_property(device, false, atom, u32::from(AtomEnum::ANY), 0, 1)
         .map(|c| c.reply());
     matches!(reply, Ok(Ok(r)) if matches!(r.items, XIGetPropertyItems::Data8(ref d) if d.first() == Some(&1)))
+}
+
+#[cfg(test)]
+mod retry_tests {
+    use super::*;
+
+    /// Hotkeys another app holds are tried again after 3 s, then twice as
+    /// long after each try that leaves the same ones, five times.
+    #[test]
+    fn hotkeys_another_app_holds_are_tried_again_less_and_less_often() {
+        let waits: Vec<_> = (0..7).map(retry_after).collect();
+        let secs = |s| Some(Duration::from_secs(s));
+        assert_eq!(
+            waits,
+            vec![secs(3), secs(6), secs(12), secs(24), secs(48), None, None]
+        );
+        assert!(waits.iter().flatten().all(|w| *w <= RETRY_HOTKEYS_MAX));
+    }
 }

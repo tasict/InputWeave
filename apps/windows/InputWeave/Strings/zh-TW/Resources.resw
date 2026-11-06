@@ -71,6 +71,9 @@
   <data name="SubtitleControlling" xml:space="preserve">
     <value>按 {0} 切回這台。</value>
   </data>
+  <data name="SubtitleControllingDouble" xml:space="preserve">
+    <value>按 {0} 或連按兩下 Ctrl，就會切回這台。</value>
+  </data>
   <data name="SubtitleCursorOn" xml:space="preserve">
     <value>游標在：{0}</value>
   </data>
@@ -729,6 +732,15 @@
   <data name="ShortcutPressKeys" xml:space="preserve">
     <value>請按組合鍵…</value>
   </data>
+  <data name="ShortcutPressSingle" xml:space="preserve">
+    <value>請按組合鍵，或 F13–F19 這類單一按鍵…</value>
+  </data>
+  <data name="ShortcutDoublePress" xml:space="preserve">
+    <value>連按兩下 Ctrl 切回這台</value>
+  </data>
+  <data name="ShortcutDoublePressHint" xml:space="preserve">
+    <value>控制其他電腦時，快速按兩下 Ctrl、中間不按其他鍵，就會切回這台。Ctrl 照樣會送到那台。</value>
+  </data>
   <data name="ShortcutPressJump" xml:space="preserve">
     <value>請按修飾鍵和一個數字…</value>
   </data>
@@ -744,6 +756,9 @@
   <data name="ShortcutNeedsModifier" xml:space="preserve">
     <value>這個組合至少要有一個修飾鍵：Ctrl、Alt、Shift 或 Windows 鍵。</value>
   </data>
+  <data name="ShortcutSingleKeys" xml:space="preserve">
+    <value>單一按鍵只能用 F13–F19、Scroll Lock 或 Pause；其他按鍵要加上修飾鍵：Ctrl、Alt、Shift 或 Windows 鍵。</value>
+  </data>
   <data name="ShortcutUnknownKey" xml:space="preserve">
     <value>這個按鍵不能用在快速鍵。</value>
   </data>
@@ -755,6 +770,9 @@
   </data>
   <data name="ShortcutNotChanged" xml:space="preserve">
     <value>無法變更快速鍵。</value>
+  </data>
+  <data name="ShortcutNotSaved" xml:space="preserve">
+    <value>快速鍵已經變更，但無法儲存；背景服務重新啟動後會回到原本的設定。</value>
   </data>
   <data name="SwitchModifierTitle" xml:space="preserve">
     <value>切換到另一台電腦</value>
@@ -997,6 +1015,9 @@
   </data>
   <data name="SetupTryDone" xml:space="preserve">
     <value>成功了。按 {0} 可以隨時切回這台。</value>
+  </data>
+  <data name="SetupTryDoneHint" xml:space="preserve">
+    <value>成功了。{0}</value>
   </data>
 
   <!-- The HUD and the cursor locator -->

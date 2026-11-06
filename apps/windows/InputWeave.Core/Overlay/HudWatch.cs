@@ -97,7 +97,7 @@ public sealed class HudWatch
             if (controlling && !controllingBefore && hintsShown < HintTimes)
             {
                 hintsShown++;
-                return new UiText(TextKeys.HudTwoLines, new UiText(TextKeys.HudTakeBackHint, snapshot.TakeBackShortcut), relative);
+                return new UiText(TextKeys.HudTwoLines, snapshot.TakeBackReminder, relative);
             }
             return relative;
         }
@@ -110,7 +110,7 @@ public sealed class HudWatch
         if (controlling && !controllingBefore && hintsShown < HintTimes && !dragging)
         {
             hintsShown++;
-            return new UiText(TextKeys.HudTakeBackHint, snapshot.TakeBackShortcut);
+            return snapshot.TakeBackReminder;
         }
         return null;
     }

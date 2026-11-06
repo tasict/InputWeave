@@ -1,7 +1,7 @@
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use iw_core::geometry::{Point, Rect};
-use iw_core::hotkey::{Hotkeys, Modifier};
+use iw_core::hotkey::{HotkeyError, Hotkeys, Modifier};
 use iw_core::layout::{Display, Edge};
 use iw_core::router::{RelativeEnd, ReturnReason};
 use iw_net::discovery::{Found, os_name};
@@ -468,7 +468,24 @@ pub fn hotkeys_to_proto(hotkeys: &Hotkeys) -> app::Hotkeys {
         lock: hotkeys.lock.to_string(),
         jump_modifiers: hotkeys.jump.map(|m| m.to_string()).unwrap_or_default(),
         relative: Some(hotkeys.relative.map(|h| h.to_string()).unwrap_or_default()),
+        take_back_double: Some(hotkeys.take_back_double_text().to_owned()),
     }
+}
+
+/// The hotkeys a client asks for (`SetHotkeys`), checked, also against
+/// this computer's keyboard (`checked_here`). What it leaves out stays as
+/// in `current`: relative mode's hotkey and the double press, which clients
+/// from before them do not send.
+pub fn hotkeys_from_proto(asked: &app::Hotkeys, current: &Hotkeys) -> Result<Hotkeys, HotkeyError> {
+    let hotkeys = Hotkeys::parse_keeping(
+        current,
+        &asked.take_back,
+        &asked.lock,
+        &asked.jump_modifiers,
+        asked.relative.as_deref(),
+        asked.take_back_double.as_deref(),
+    )?;
+    super::checked_here(hotkeys)
 }
 
 pub fn switch_modifier_to_proto(modifier: Option<Modifier>) -> app::SwitchModifier {

@@ -19,6 +19,7 @@ use inputweave_app_core::text::keys;
 use inputweave_app_core::ui;
 
 use crate::overlay::paint;
+use crate::pages::shortcuts::Spot;
 use crate::pairing::{AddDevice, CodeWindow};
 use crate::strings::tr;
 use crate::ui::Ui;
@@ -481,12 +482,15 @@ pub fn run(ui: Rc<Ui>, dir: PathBuf) {
         shortcuts.stop_recording();
         let before = inputweave_app_core::shortcut::defaults();
         let after = inputweave_app_core::shortcut::with(&before, Row::Lock, &before.take_back);
-        shortcuts.show_error(&tr(&inputweave_app_core::shortcut::refusal(
-            "duplicate",
-            Some(Row::Lock),
-            &after,
-            &before,
-        )));
+        shortcuts.show_error(
+            Spot::Row(Row::Lock),
+            &tr(&inputweave_app_core::shortcut::refusal(
+                "duplicate",
+                Some(Row::Lock),
+                &after,
+                &before,
+            )),
+        );
         gtk::glib::timeout_future(SETTLE).await;
         shot("shortcuts-refused", &shortcuts.widget().clone().upcast());
 

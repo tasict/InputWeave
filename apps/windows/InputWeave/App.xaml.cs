@@ -353,7 +353,7 @@ public partial class App : Application
     {
         if (text.Length == 0)
         {
-            return Strings.Text(new UiText(TextKeys.HudTakeBackHint, Model.Snapshot.TakeBackShortcut));
+            return Strings.Text(Model.Snapshot.TakeBackReminder);
         }
         if (text.StartsWith("key:", StringComparison.Ordinal))
         {

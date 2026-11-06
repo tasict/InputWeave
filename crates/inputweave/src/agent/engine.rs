@@ -9,7 +9,7 @@ use std::time::{Duration, Instant};
 
 use iw_core::clipboard::{ClipboardMove, ClipboardRelay};
 use iw_core::geometry::Point;
-use iw_core::hotkey::{Hotkey, Hotkeys, Modifier};
+use iw_core::hotkey::{Hotkey, HotkeyError, Hotkeys, Modifier};
 use iw_core::input::InputEvent;
 use iw_core::layout::{Crossing, Device, DeviceId, Display, EdgeSpot, Exit, Layout};
 use iw_core::receiver::{Injection, Receiver, RemoteEvent};
@@ -31,7 +31,7 @@ use tokio::sync::{broadcast, mpsc, oneshot, watch};
 use tracing::{debug, info, warn};
 
 use super::clipboard_files::{self, Patience, Staging};
-use super::directory::{Directory, LayoutDoc, Peer, TrustedDevices, name_of};
+use super::directory::{Directory, LayoutDoc, Peer, TrustedDevices, Unsaved, name_of};
 use super::drag::{DragEvent, Drags, Effect, MAX_LINKED, REMOTE_DRAG_SINCE};
 use super::files::{Carrier, Files, SendError};
 use super::folder_access::FolderAccess;
@@ -58,6 +58,13 @@ use super::transfer::ClipboardTransfer;
 use crate::config::{Config, PlacementConfig};
 use crate::convert;
 
+/// Makes new hotkeys of those in effect (`EngineEvent::SetHotkeys`).
+pub(crate) type HotkeysChange = Box<dyn FnOnce(&Hotkeys) -> Result<Hotkeys, HotkeyError> + Send>;
+
+/// Says once a change is in the devices file, or why it could not be
+/// written (`Engine::save_devices`).
+pub(crate) type Saved = oneshot::Receiver<std::io::Result<()>>;
+
 pub(crate) enum EngineEvent {
     Capture(InputEvent),
     /// What the platform poller saw changed.
@@ -65,8 +72,7 @@ pub(crate) enum EngineEvent {
     /// The platform poller's tick, about once a second whatever changed:
     /// injection catches up with the session (`InputEmulation::refresh`),
     /// and capture says whether it still captures
-    /// (`InputCapture::capturing`) and still holds the hotkeys back
-    /// (`InputCapture::hotkeys_held_back`).
+    /// (`InputCapture::capturing`).
     RefreshInjection,
     /// This device was renamed.
     Renamed,
@@ -82,8 +88,14 @@ pub(crate) enum EngineEvent {
     IdentifyScreens,
     /// The modifier the cursor needs held to cross an edge changed.
     SetSwitchModifier(Option<Modifier>),
-    /// The hotkeys changed; they were checked.
-    SetHotkeys(Hotkeys),
+    /// The user changed the hotkeys: `change` makes the new ones of those
+    /// in effect, or says why they cannot be used. The status shows them
+    /// before the reply, which carries, when the devices file is to be
+    /// written, what says once it is, or that it could not be.
+    SetHotkeys {
+        change: HotkeysChange,
+        reply: oneshot::Sender<Result<Option<Saved>, HotkeyError>>,
+    },
     /// Letting other devices control this Mac at the login window was
     /// turned on or off.
     SetLoginWindowAccess(bool),
@@ -329,6 +341,36 @@ pub enum RelativeError {
     Refused(#[from] router::RelativeError),
     #[error("the agent is stopping")]
     Stopping,
+}
+
+/// Why the hotkeys were not changed, or not remembered.
+#[derive(Debug, thiserror::Error, PartialEq)]
+pub enum HotkeysError {
+    #[error(transparent)]
+    Refused(#[from] HotkeyError),
+    /// In effect, but the devices file could not be written: the agent
+    /// forgets them as it stops, unless a later change is saved.
+    #[error(
+        "the hotkeys are in effect but could not be saved, so they are forgotten when the agent stops unless a later change is saved: {0}"
+    )]
+    NotSaved(String),
+    /// Not in effect and saved in time; they may still be.
+    #[error("the agent did not put the hotkeys in effect and save them in time")]
+    Timeout,
+    #[error("the agent is stopping")]
+    Stopping,
+}
+
+impl HotkeysError {
+    /// The error code clients are told.
+    pub fn code(&self) -> &'static str {
+        match self {
+            Self::Refused(e) => e.code(),
+            Self::NotSaved(_) => "not_saved",
+            Self::Timeout => "timeout",
+            Self::Stopping => "agent_stopping",
+        }
+    }
 }
 
 /// A peer cannot make the agent hold an arrangement larger than this.
@@ -874,6 +916,7 @@ impl Engine {
         let mut capture = capture;
         router_config.hotkeys_held_back = capture.reserve_hotkeys(&hotkeys.reserved());
         capture.watch_hotkeys(&acted_on(&hotkeys));
+        capture.watch_double_press(hotkeys.take_back_double);
         // As `start` showed it.
         let license_status = status.borrow().license.clone();
         let mut engine = Self {
@@ -1504,7 +1547,6 @@ impl Engine {
             EngineEvent::RefreshInjection => {
                 self.follow_capture();
                 self.emulation.refresh();
-                self.recheck_hotkeys_held_back();
             }
             EngineEvent::SetLoginWindowAccess(on) => self.login_window_access = on,
             EngineEvent::PullClipboard {
@@ -1595,7 +1637,33 @@ impl Engine {
                     router.set_edge(self.router_config.edge);
                 }
             }
-            EngineEvent::SetHotkeys(hotkeys) => self.set_hotkeys(hotkeys),
+            EngineEvent::SetHotkeys { change, reply } => {
+                // What the client sends replaces what is in effect, the
+                // last one to ask winning; only what it leaves out (relative
+                // mode's hotkey and the double press, from clients before
+                // them) is taken from the hotkeys in effect now, rather than
+                // from a status it read before.
+                let result = change(&self.router_config.hotkeys);
+                let unsaved = match result {
+                    Ok(hotkeys) => {
+                        // The file may hold other hotkeys than those in
+                        // effect, ones that could not be used: rewritten
+                        // whenever it differs, even with nothing new here.
+                        let unsaved = self.directory.change_hotkeys(&hotkeys);
+                        if hotkeys != self.router_config.hotkeys {
+                            self.set_hotkeys(hotkeys);
+                            // Published before the reply, so the client
+                            // that asked reads the change in the status it
+                            // gets back.
+                            self.publish();
+                        }
+                        unsaved
+                    }
+                    Err(_) => None,
+                };
+                let saved = unsaved.map(|unsaved| self.save_devices(unsaved));
+                let _ = reply.send(result.map(|_| saved));
+            }
             EngineEvent::SetRelative { on, reply } => {
                 let result = match self.router.as_mut() {
                     Some(router) => router.set_relative(on),
@@ -1721,39 +1789,36 @@ impl Engine {
     /// lock and jumps from now on. A key held back as part of an old one
     /// stays so until it is released, in capture and in the router alike.
     fn set_hotkeys(&mut self, hotkeys: Hotkeys) {
-        if hotkeys == self.router_config.hotkeys {
-            return;
-        }
         info!(
             take_back = %hotkeys.take_back,
             lock = %hotkeys.lock,
             jump = %hotkeys.jump.map(|m| m.to_string()).unwrap_or_default(),
+            relative = %hotkeys.relative.map(|h| h.to_string()).unwrap_or_default(),
+            double = hotkeys.take_back_double_text(),
             "hotkeys changed"
         );
         let held_back = self.capture.reserve_hotkeys(&hotkeys.reserved());
         self.capture.watch_hotkeys(&acted_on(&hotkeys));
+        self.capture.watch_double_press(hotkeys.take_back_double);
         self.router_config.hotkeys = hotkeys;
-        self.router_config.hotkeys_held_back = held_back;
+        self.router_config.hotkeys_held_back.take(held_back);
         if let Some(router) = self.router.as_mut() {
             router.set_hotkeys(hotkeys, held_back);
         }
     }
 
-    /// Follows capture losing the hotkeys or getting them back after it
-    /// reserved them.
-    fn recheck_hotkeys_held_back(&mut self) {
-        let Some(held_back) = self.capture.hotkeys_held_back() else {
-            return;
-        };
-        if held_back == self.router_config.hotkeys_held_back {
-            return;
-        }
-        info!(held_back, "capture holds the hotkeys back, or no longer");
-        self.router_config.hotkeys_held_back = held_back;
-        let hotkeys = self.router_config.hotkeys;
-        if let Some(router) = self.router.as_mut() {
-            router.set_hotkeys(hotkeys, held_back);
-        }
+    /// Writes a change to the devices file off this loop, on a blocking
+    /// thread of the runtime, so it is written whether or not whoever asked
+    /// for the change waits for it; a later change's write wins over an
+    /// earlier one's (`Directory::save`). What it returns says once it is
+    /// written, or why it could not be (logged too).
+    fn save_devices(&self, unsaved: Unsaved) -> Saved {
+        let directory = self.directory.clone();
+        let (done, saved) = oneshot::channel();
+        tokio::task::spawn_blocking(move || {
+            let _ = done.send(directory.save(unsaved));
+        });
+        saved
     }
 
     /// Tells `device` that relative mode began or ended there: ending, with
@@ -2014,8 +2079,14 @@ impl Engine {
         let activity = match input {
             InputEvent::PointerMotion { .. } | InputEvent::Scroll { .. } => true,
             InputEvent::Key { pressed, .. } | InputEvent::Button { pressed, .. } => pressed,
-            InputEvent::CaptureEnded => false,
+            InputEvent::DoublePressed => true,
+            InputEvent::CaptureEnded | InputEvent::HotkeysHeldBack(_) => false,
         };
+        // Kept for a router made later; the router in place hears it in
+        // order with the keys, below.
+        if let InputEvent::HotkeysHeldBack(held) = input {
+            self.router_config.hotkeys_held_back.take(held);
+        }
         if activity && let Some((controller, releases)) = self.receiver.local_activity() {
             info!(%controller, "local input while controlled; taking control back");
             self.inject_all(releases);

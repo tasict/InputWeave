@@ -7,6 +7,12 @@ All notable changes to InputWeave are recorded here. The format follows [Keep a 
 ### Added
 
 - Cursor speed for each other computer: in the inspector on the Arrangement and Devices pages, a slider from 50% to 300% makes the pointer move faster or slower on that computer while this one controls it (for large or high-resolution screens). It is this computer's own setting, kept until the computer is removed; relative mouse for games isn't affected. Also `inputweave ctl device <id> --speed <percent>`.
+- Single-key shortcuts: take back control and lock to the current computer can be one key that typing doesn't use, F13 to F19, Scroll Lock or Pause (on a Mac F13 to F19, F14 being Scroll Lock on Apple's extended keyboard). Also `inputweave ctl hotkeys set --take-back F13`.
+- Double-press Control to take back control: an option in Settings › General › Shortcuts, off by default. While controlling another computer, pressing the same Control key twice quickly, with nothing else in between, brings the keyboard and mouse back; the presses still reach that computer. It does nothing in relative mouse, where games often use Control. Also `inputweave ctl hotkeys set --take-back-double double+control`.
+
+### Fixed
+
+- Changing shortcuts from two apps at once, or from the command line while an app changes them, no longer times out.
 
 ## [1.0.1] - 2026-11-06
 

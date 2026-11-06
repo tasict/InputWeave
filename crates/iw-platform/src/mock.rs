@@ -6,6 +6,7 @@ use std::sync::{Arc, Mutex};
 
 use iw_core::HidUsage;
 use iw_core::geometry::Point;
+use iw_core::hotkey::HeldHotkeys;
 use iw_core::input::{Button, InputEvent};
 use iw_core::layout::{Display, Exit};
 use iw_core::router::Hotkey;
@@ -42,8 +43,8 @@ struct CaptureState {
     no_warp: bool,
     /// `start` says capture is starting, not yet allowed.
     starting: bool,
-    /// What `hotkeys_held_back` says.
-    held_back: Option<bool>,
+    /// What `watch_double_press` was last told.
+    double_press: bool,
 }
 
 /// Capture driven by the test: events passed to [`MockCaptureHandle::emit`]
@@ -152,10 +153,17 @@ impl MockCaptureHandle {
         self.state.lock().unwrap().reserved.clone()
     }
 
-    /// What capture says, from now on, of whether it holds the hotkeys
-    /// back (`InputCapture::hotkeys_held_back`).
-    pub fn set_hotkeys_held_back(&self, held_back: Option<bool>) {
-        self.state.lock().unwrap().held_back = held_back;
+    /// Whether the agent last told capture that Control pressed twice
+    /// takes control back (`InputCapture::watch_double_press`).
+    pub fn watches_double_press(&self) -> bool {
+        self.state.lock().unwrap().double_press
+    }
+
+    /// Says capture holds back `held` of the hotkeys from now on, as X11's
+    /// does as that changes (`InputEvent::HotkeysHeldBack`), after the
+    /// events emitted before.
+    pub fn set_hotkeys_held_back(&self, held: HeldHotkeys) {
+        let _ = self.emit(InputEvent::HotkeysHeldBack(held));
     }
 }
 
@@ -182,9 +190,13 @@ impl InputCapture for MockCapture {
         Ok(())
     }
 
-    fn reserve_hotkeys(&mut self, hotkeys: &[Hotkey]) -> bool {
+    fn reserve_hotkeys(&mut self, hotkeys: &[Hotkey]) -> HeldHotkeys {
         self.state.lock().unwrap().reserved = hotkeys.to_vec();
-        false
+        HeldHotkeys::default()
+    }
+
+    fn watch_double_press(&mut self, on: bool) {
+        self.state.lock().unwrap().double_press = on;
     }
 
     /// The agent's tests follow what it would tell a backend that does.
@@ -223,10 +235,6 @@ impl InputCapture for MockCapture {
             .unwrap()
             .edge_waits
             .push((handled, waiting));
-    }
-
-    fn hotkeys_held_back(&self) -> Option<bool> {
-        self.state.lock().unwrap().held_back
     }
 }
 

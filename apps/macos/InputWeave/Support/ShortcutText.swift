@@ -22,7 +22,23 @@ enum ShortcutText {
 
         /// Whether the row can be turned off, with a switch beside it.
         var canTurnOff: Bool { self == .jump || self == .relative }
+
+        /// Whether the row's shortcut may be a single key, such as F13.
+        var takesSingleKeys: Bool { self == .takeBack || self == .lock }
+
+        /// What the row says while it records.
+        var prompt: String {
+            switch self {
+            case .jump: String(localized: "Press the modifiers and a number…")
+            case .takeBack, .lock: String(localized: "Press a shortcut, or a single key such as F13…")
+            case .relative: String(localized: "Press the keys…")
+            }
+        }
     }
+
+    /// The double press of Control that takes control back, as the service
+    /// writes it while it is on (`Hotkeys.take_back_double`); off is empty.
+    static let doubleControl = "double+control"
 
     /// The hotkeys of a service that does not report them, and what
     /// Delete in the recorder goes back to.
@@ -32,6 +48,7 @@ enum ShortcutText {
         hotkeys.lock = "control+alt+shift+KeyL"
         hotkeys.jumpModifiers = "control+alt+shift"
         hotkeys.relative = "control+alt+shift+KeyG"
+        hotkeys.takeBackDouble = ""
         return hotkeys
     }()
 
@@ -98,15 +115,20 @@ enum ShortcutText {
             .joined(separator: "+")
     }
 
-    /// Whether `hotkeys` are the defaults, so Reset Shortcuts has nothing
-    /// to do. A service that knows no relative mode hotkey (`relative`
-    /// false) is not asked about it.
-    static func isDefault(_ hotkeys: Hotkeys, relative: Bool) -> Bool {
+    /// Whether `hotkeys` are the defaults, the double press off, so Reset
+    /// Shortcuts has nothing to do. A service that knows no relative mode
+    /// hotkey (`relative` false) or no double press (`doublePress` false)
+    /// is not asked about it.
+    static func isDefault(_ hotkeys: Hotkeys, relative: Bool, doublePress: Bool) -> Bool {
         var hotkeys = hotkeys
         var defaults = defaults
         if !relative {
             hotkeys.clearRelative()
             defaults.clearRelative()
+        }
+        if !doublePress {
+            hotkeys.clearTakeBackDouble()
+            defaults.clearTakeBackDouble()
         }
         return hotkeys == defaults
     }
@@ -116,10 +138,17 @@ enum ShortcutText {
     /// which shortcut uses it.
     static func refusal(_ code: String, changing row: Row?, to hotkeys: Hotkeys, from before: Hotkeys) -> String {
         switch code {
+        case "needs_modifier" where row?.takesSingleKeys == true:
+            return String(localized: "Only F13–F19 work alone. Other keys need a modifier: ⌃, ⌥, ⇧ or ⌘.")
         case "needs_modifier":
             return String(localized: "This combination needs at least one modifier key: ⌃, ⌥, ⇧ or ⌘.")
         case "unknown_key":
             return String(localized: "This key can't be used in a shortcut.")
+        // In effect all the same, as the status shows.
+        case "not_saved":
+            return String(localized: "The shortcut changed but couldn't be saved. It goes back to the earlier one when the background service restarts.")
+        case "timeout":
+            return String(localized: "The background service is not responding.")
         case "duplicate", "duplicate_relative":
             if let row, let other = user(of: hotkeys[row], for: row, among: before) {
                 return String(localized: "This combination is already used for “\(other.title)”.")
@@ -210,6 +239,48 @@ extension AgentModel {
 
     /// Takes the keyboard and mouse back to this computer, such as ⌃⌥⇧⎋.
     var takeBackShortcut: String { ShortcutText.symbols(hotkeys.takeBack) }
+
+    /// Whether the service knows the double press of Control that takes
+    /// control back: it reports it, empty when off.
+    var doublePressSupported: Bool {
+        status.hasHotkeys && status.hotkeys.hasTakeBackDouble
+    }
+
+    /// Whether pressing Control twice takes control back too.
+    var doublePressOn: Bool {
+        doublePressSupported && !hotkeys.takeBackDouble.isEmpty
+    }
+
+    /// Whether what tells how to take control back names the double press:
+    /// it is on, and relative mouse is not, as the service ignores it then
+    /// (games often use Control).
+    private var doublePressHinted: Bool {
+        doublePressOn && status.relativeMouse.isEmpty
+    }
+
+    /// How to take control back from the computer this one controls, as
+    /// the panel says it: the shortcut, and the double press while it
+    /// works. Every other place that tells it says this while it works.
+    var takeBackHint: String {
+        doublePressHinted
+            ? String(localized: "Press \(takeBackShortcut) or double-press ⌃ to take back control.")
+            : String(localized: "Press \(takeBackShortcut) to take back control.")
+    }
+
+    /// How to take control back, as a notice says it: at any time; while
+    /// the double press works, as the panel does.
+    var takeBackReminder: String {
+        doublePressHinted
+            ? takeBackHint
+            : String(localized: "Press \(takeBackShortcut) to take back control at any time.")
+    }
+
+    /// What setup says once controlling another computer worked.
+    var takeBackWorked: String {
+        doublePressHinted
+            ? String(localized: "It works. \(takeBackHint)")
+            : String(localized: "It works. Press \(takeBackShortcut) to take back control at any time.")
+    }
 
     /// Locks the cursor to the computer it is on, or unlocks it.
     var lockShortcut: String { ShortcutText.symbols(hotkeys.lock) }

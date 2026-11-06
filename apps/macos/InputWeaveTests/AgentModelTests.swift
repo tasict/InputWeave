@@ -384,7 +384,69 @@ final class AgentModelTests: XCTestCase {
         XCTAssertTrue(model.relativeSupported)
         XCTAssertNil(model.relativeShortcut)
         try await model.setHotkeys(ShortcutText.defaults)
-        XCTAssertTrue(ShortcutText.isDefault(model.hotkeys, relative: true))
+        XCTAssertTrue(ShortcutText.isDefault(model.hotkeys, relative: true, doublePress: true))
+    }
+
+    /// Single keys for taking control back and the lock, and the double
+    /// press of Control, with the service's own answers.
+    func testSingleKeysAndTheDoublePress() async throws {
+        let model = AgentModel(socketPath: directory.appending(path: "a.sock").path)
+        model.start()
+        try await eventually("a connection") { model.link == .connected }
+        XCTAssertTrue(model.doublePressSupported)
+        XCTAssertFalse(model.doublePressOn)
+
+        var hotkeys = model.hotkeys
+        hotkeys.takeBack = "F13"
+        hotkeys.lock = "F14"
+        hotkeys.takeBackDouble = ShortcutText.doubleControl
+        try await model.setHotkeys(hotkeys)
+        XCTAssertEqual(model.status.hotkeys, hotkeys)
+        XCTAssertEqual(model.takeBackShortcut, "F13")
+        XCTAssertTrue(model.doublePressOn)
+
+        func refusal(_ hotkeys: Hotkeys) async -> String? {
+            do {
+                try await model.setHotkeys(hotkeys)
+                return nil
+            } catch {
+                return (error as? AgentRefusal)?.code
+            }
+        }
+        var plain = hotkeys
+        plain.lock = "KeyK"
+        let needsModifier = await refusal(plain)
+        XCTAssertEqual(needsModifier, "needs_modifier")
+        var relativeAlone = hotkeys
+        relativeAlone.relative = "F14"
+        let relativeNeedsModifier = await refusal(relativeAlone)
+        XCTAssertEqual(relativeNeedsModifier, "needs_modifier")
+        // A Mac never reports Scroll Lock or Pause: refused, as a key that
+        // can't be used.
+        for key in ["ScrollLock", "Pause"] {
+            var unreported = hotkeys
+            unreported.lock = key
+            let code = await refusal(unreported)
+            XCTAssertEqual(code, "unknown_key", key)
+            XCTAssertEqual(
+                ShortcutText.refusal(code ?? "", changing: .lock, to: unreported, from: hotkeys),
+                "This key can't be used in a shortcut.")
+        }
+        var shadowed = hotkeys
+        shadowed.lock = "F13"
+        let duplicate = await refusal(shadowed)
+        XCTAssertEqual(duplicate, "duplicate")
+        // An app from before the double press leaves it out: it stays.
+        var older = hotkeys
+        older.clearTakeBackDouble()
+        older.lock = "F15"
+        try await model.setHotkeys(older)
+        XCTAssertEqual(model.status.hotkeys.lock, "F15")
+        XCTAssertTrue(model.doublePressOn)
+        // Reset turns it off too.
+        try await model.setHotkeys(ShortcutText.defaults)
+        XCTAssertFalse(model.doublePressOn)
+        XCTAssertTrue(ShortcutText.isDefault(model.hotkeys, relative: true, doublePress: true))
     }
 
     /// Setup has the background service list the folders macOS protects,

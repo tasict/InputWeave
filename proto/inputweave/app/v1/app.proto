@@ -239,7 +239,9 @@ message SetEdgeOptions {
 // ("KeyL", "Digit1", "Escape", "F5"), such as "control+alt+shift+Escape".
 // They are read without regard to case and order; the agent reports them
 // with the modifiers in that order and the key as named there. A hotkey
-// works whatever other modifiers are held too.
+// works whatever other modifiers are held too. take_back and lock may also
+// be a key alone that typing never uses: "ScrollLock", "Pause" or "F13" to
+// "F19" (agents before this refuse them with "needs_modifier").
 message Hotkeys {
   // Takes the keyboard and mouse back to this device. Default
   // control+alt+shift+Escape.
@@ -258,13 +260,27 @@ message Hotkeys {
   // this field, a reset from them included, leave it be. A clash with it is
   // refused with "duplicate_relative" rather than "duplicate".
   optional string relative = 4;
+  // "double+control": while this device controls another, Control pressed
+  // and let go of twice within 400 ms, the same Control key with nothing
+  // else between, takes the keyboard and mouse back too
+  // (RETURN_REASON_HOTKEY); the presses still reach the other device.
+  // Empty when off, the default. In SetHotkeys, absent keeps the one in
+  // effect, as for relative; other text is refused with "unknown_key".
+  // Agents before this field do not report it, and the apps then do not
+  // offer it.
+  optional string take_back_double = 5;
 }
 
 // Sets every hotkey at once; the change applies at once and is remembered.
-// Answered with Status. Refused with "needs_modifier" for a hotkey without a
-// modifier; "unknown_key" for a name that is no key or modifier, or a
-// modifier where the key goes; and "duplicate" when two hotkeys are the same
-// keys, counting each digit with jump_modifiers as one.
+// Answered with Status once it is in effect and saved. Refused with
+// "needs_modifier" for a hotkey without a modifier, other than take_back or
+// lock on a key that works alone; "unknown_key" for a name that is no key
+// or modifier, or a modifier where the key goes; and "duplicate" when two
+// hotkeys are the same keys, counting each digit with jump_modifiers as
+// one. Answered with "not_saved" when the change is in effect but could not
+// be saved, so it is forgotten when the agent stops unless a later change is
+// saved (the status shows it), and with "timeout" when it was not in effect
+// and saved within a few seconds (it may still be).
 message SetHotkeys {
   Hotkeys hotkeys = 1;
 }
@@ -733,7 +749,8 @@ message DeviceStatus {
 // Why the keyboard and mouse came back to this device.
 enum ReturnReason {
   RETURN_REASON_UNSPECIFIED = 0;
-  // The take-back hotkey was pressed.
+  // The take-back hotkey was pressed, or Control twice
+  // (Hotkeys.take_back_double).
   RETURN_REASON_HOTKEY = 1;
   // The connection to the controlled device was lost.
   RETURN_REASON_PEER_LOST = 2;

@@ -138,6 +138,7 @@ public static class KeyCodes
         (0x38u, true) => "AltRight",
         (0x3bu, true) => "Help",
         (0x45u, true) => "NumLock",
+        (0x46u, true) => "Pause",
         (0x47u, true) => "Home",
         (0x48u, true) => "ArrowUp",
         (0x49u, true) => "PageUp",

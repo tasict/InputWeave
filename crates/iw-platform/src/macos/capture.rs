@@ -6,6 +6,7 @@ use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::thread::JoinHandle;
 
 use iw_core::geometry::Point;
+use iw_core::hotkey::HeldHotkeys;
 use iw_core::input::InputEvent;
 use iw_core::router::Hotkey;
 use objc2_core_foundation::{CFMachPort, CFRetained, CFRunLoop, CGPoint, kCFRunLoopCommonModes};
@@ -166,13 +167,13 @@ impl InputCapture for MacCapture {
         Ok(())
     }
 
-    fn reserve_hotkeys(&mut self, hotkeys: &[Hotkey]) -> bool {
+    fn reserve_hotkeys(&mut self, hotkeys: &[Hotkey]) -> HeldHotkeys {
         *self
             .shared
             .reserved
             .lock()
             .unwrap_or_else(PoisonError::into_inner) = hotkeys.to_vec();
-        true
+        hotkeys.iter().copied().collect()
     }
 }
 

@@ -241,11 +241,17 @@ enum LicenseAction {
 enum HotkeysAction {
     /// Change the hotkeys given; the others stay. A hotkey is written as
     /// modifiers (control, alt, shift, gui) and a key's UI Events code name,
-    /// joined by "+", such as control+alt+shift+KeyL.
+    /// joined by "+", such as control+alt+shift+KeyL; taking back and the
+    /// lock may also be ScrollLock, Pause or F13 to F19 alone.
     Set {
         /// Takes the keyboard and mouse back to this device.
         #[arg(long, value_name = "HOTKEY")]
         take_back: Option<String>,
+        /// Control pressed twice quickly, while controlling another device,
+        /// takes the keyboard and mouse back too: "double+control" turns it
+        /// on, an empty value off.
+        #[arg(long, value_name = "DOUBLE")]
+        take_back_double: Option<String>,
         /// Locks the cursor to the device it is on, or unlocks it.
         #[arg(long, value_name = "HOTKEY")]
         lock: Option<String>,
@@ -1173,24 +1179,22 @@ fn ctl(socket: Option<PathBuf>, command: CtlCommand) -> Result<(), String> {
                 let status = match action {
                     Some(HotkeysAction::Set {
                         take_back,
+                        take_back_double,
                         lock,
                         jump_modifiers,
                         relative,
                     }) => {
-                        ctl::set_hotkeys(&socket, take_back, lock, jump_modifiers, relative).await
-                    }
-                    Some(HotkeysAction::Reset) => {
-                        let defaults = iw_core::hotkey::Hotkeys::default();
-                        let jump = defaults.jump.map(|m| m.to_string()).unwrap_or_default();
                         ctl::set_hotkeys(
                             &socket,
-                            Some(defaults.take_back.to_string()),
-                            Some(defaults.lock.to_string()),
-                            Some(jump),
-                            Some(defaults.relative.map(|h| h.to_string()).unwrap_or_default()),
+                            take_back,
+                            lock,
+                            jump_modifiers,
+                            relative,
+                            take_back_double,
                         )
                         .await
                     }
+                    Some(HotkeysAction::Reset) => ctl::reset_hotkeys(&socket).await,
                     None => ctl::status(&socket).await.map(|(_, status)| status),
                 }
                 .map_err(fail)?;
