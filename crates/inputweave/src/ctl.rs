@@ -11,9 +11,9 @@ use iw_proto::app::v1::{
     DevicePosition, GetArrangement, GetNearby, GetPairing, GetStatus, GetTransfers,
     IdentifyScreens, JumpTo, LicenseState, PairingPhase, PairingState, RemoveLicense,
     RemoveTransfer, RenameDevice, RequestFolderAccess, RequestPermission, Response, SendFiles,
-    SetArrangement, SetDeviceSharing, SetEdgeOptions, SetHotkeys, SetLicenseKey, SetLocked,
-    SetLoginWindowAccess, SetRelativeAuto, SetRelativeMouse, SetSwitchModifier, StartPairing,
-    SubmitPairingCode, SwitchModifier, TransferState, Unpair, agent_message,
+    SetArrangement, SetDeviceSharing, SetDeviceSpeed, SetEdgeOptions, SetHotkeys, SetLicenseKey,
+    SetLocked, SetLoginWindowAccess, SetRelativeAuto, SetRelativeMouse, SetSwitchModifier,
+    StartPairing, SubmitPairingCode, SwitchModifier, TransferState, Unpair, agent_message,
     client_message::Command, event, response, start_pairing,
 };
 
@@ -266,6 +266,20 @@ impl Client {
             device_id: device_id.to_owned(),
             clipboard_off,
             files_off,
+        });
+        self.status_request(set).await
+    }
+
+    /// Makes the cursor move faster or slower on another device, in
+    /// percent of how the mouse moves it here.
+    pub async fn set_device_speed(
+        &mut self,
+        device_id: &str,
+        percent: u32,
+    ) -> Result<app::Status, CtlError> {
+        let set = Command::SetDeviceSpeed(SetDeviceSpeed {
+            device_id: device_id.to_owned(),
+            percent,
         });
         self.status_request(set).await
     }
@@ -1123,6 +1137,10 @@ pub fn format_status(status: &app::Status) -> String {
         }
         if d.files_off {
             notes.push("files off".to_owned());
+        }
+        // 0 from agents before cursor speeds.
+        if d.speed_percent != 0 && d.speed_percent != 100 {
+            notes.push(format!("cursor speed {}%", d.speed_percent));
         }
         if d.jump_slot > 0 {
             notes.push(format!("jump {}", d.jump_slot));

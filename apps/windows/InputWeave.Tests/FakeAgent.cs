@@ -119,6 +119,7 @@ internal sealed class FakeAgent
         Status.Devices.Add(new DeviceStatus
         {
             Id = "mac", Name = "MacBook Pro", ReportedName = "MacBook Pro", State = ConnectionState.Connected, Paired = true, Os = "macos",
+            SpeedPercent = 100,
         });
         Arrangement = new Arrangement { Version = 3 };
         var pc = new ArrangedDevice { Id = "pc", Name = "Test PC", Placed = true, Connected = true, ThisDevice = true };
@@ -346,6 +347,22 @@ internal sealed class FakeAgent
                 foreach (var device in Status.Devices.Where(d => d.Id == sharing.DeviceId))
                 {
                     (device.ClipboardOff, device.FilesOff) = (sharing.ClipboardOff, sharing.FilesOff);
+                }
+                return new Response { Status = Status };
+            case ClientMessage.CommandOneofCase.SetDeviceSpeed:
+                var speed = request.SetDeviceSpeed;
+                if (Status.Devices.All(d => d.Id != speed.DeviceId))
+                {
+                    return Refuse("unknown_device", "no such trusted device");
+                }
+                if (speed.Percent is < 50 or > 300 || speed.Percent % 10 != 0)
+                {
+                    return Refuse("invalid_speed", "a cursor speed is 50 to 300 percent, in steps of 10");
+                }
+                Status = Status.Clone();
+                foreach (var device in Status.Devices.Where(d => d.Id == speed.DeviceId))
+                {
+                    device.SpeedPercent = speed.Percent;
                 }
                 return new Response { Status = Status };
             case ClientMessage.CommandOneofCase.SendFiles when Status.Devices.Any(d => d.Id == request.SendFiles.DeviceId && d.FilesOff):

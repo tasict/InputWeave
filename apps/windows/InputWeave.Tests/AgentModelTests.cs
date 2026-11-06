@@ -307,6 +307,26 @@ public class AgentModelTests
     }
 
     [Fact]
+    public async Task SetsHowFastTheCursorMovesOnAnotherComputer()
+    {
+        var agent = new FakeAgent();
+        await using var model = agent.Model();
+        model.Start();
+        await Eventually("a connection", () => model.Snapshot.Link == AgentLink.Connected);
+        Assert.Equal<int?>(100, CursorSpeed.Shown(model.Snapshot, "mac"));
+
+        await model.SetDeviceSpeedAsync("mac", 150);
+        var sent = agent.Received[^1].SetDeviceSpeed;
+        Assert.Equal(("mac", 150u), (sent.DeviceId, sent.Percent));
+        Assert.Equal<int?>(150, CursorSpeed.Shown(model.Snapshot, "mac"));
+
+        Assert.Equal("invalid_speed", (await Assert.ThrowsAsync<AgentRefusal>(() => model.SetDeviceSpeedAsync("mac", 155))).Code);
+        Assert.Equal("unknown_device", (await Assert.ThrowsAsync<AgentRefusal>(() => model.SetDeviceSpeedAsync("ghost", 150))).Code);
+        // Refused, it keeps the speed it had.
+        Assert.Equal<int?>(150, CursorSpeed.Shown(model.Snapshot, "mac"));
+    }
+
+    [Fact]
     public async Task TakesFinishedTransfersOffTheHistory()
     {
         var agent = new FakeAgent();

@@ -7,6 +7,7 @@ pub mod agent;
 pub mod autostart;
 pub mod canvas;
 pub mod clipboard_text;
+pub mod cursor_speed;
 pub mod desktop_picture;
 pub mod device_text;
 pub mod edge_glow;

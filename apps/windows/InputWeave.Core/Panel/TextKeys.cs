@@ -289,6 +289,9 @@ public static class TextKeys
     public const string InspectorSyncClipboard = "InspectorSyncClipboard";
     public const string InspectorSendFiles = "InspectorSendFiles";
     public const string InspectorSharingHint = "InspectorSharingHint";
+    public const string InspectorCursorSpeed = "InspectorCursorSpeed";
+    public const string InspectorCursorSpeedHint = "InspectorCursorSpeedHint";
+    public const string InspectorCursorSpeedReset = "InspectorCursorSpeedReset";
     public const string DeviceFilesOff = "DeviceFilesOff";
     public const string DeviceFilesOffShort = "DeviceFilesOffShort";
     public const string TroubleProblems = "TroubleProblems";

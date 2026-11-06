@@ -210,6 +210,9 @@ pub struct DeviceState {
     pub clipboard_off: bool,
     /// Files are not sent to it or taken from it.
     pub files_off: bool,
+    /// How fast the cursor moves on it, in percent of how the mouse moves
+    /// it here: 50 to 300.
+    pub cursor_speed: u32,
     /// The number the jump hotkeys go to it by, from 1; 0 for none.
     pub jump_slot: u32,
     /// Its screen is locked, as it last said; false while offline.
@@ -241,6 +244,7 @@ impl DeviceState {
             rtt_ms: 0,
             clipboard_off: peer.clipboard_off,
             files_off: peer.files_off,
+            cursor_speed: peer.cursor_speed.percent(),
             jump_slot: 0,
             screen_locked: false,
             lock_screen_input: false,
@@ -373,6 +377,7 @@ impl Status {
                     }
                     .into(),
                     rtt_ms: d.rtt_ms,
+                    speed_percent: d.cursor_speed,
                     jump_slot: d.jump_slot,
                     screen_locked: d.screen_locked,
                     lock_screen_input: d.lock_screen_input,

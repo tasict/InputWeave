@@ -14,6 +14,7 @@ use iw_core::input::InputEvent;
 use iw_core::layout::{Crossing, Device, DeviceId, Display, EdgeSpot, Exit, Layout};
 use iw_core::receiver::{Injection, Receiver, RemoteEvent};
 use iw_core::router::{self, Action, Event, RelativeStart, Router, RouterConfig};
+use iw_core::speed::CursorSpeed;
 use iw_keymap::ModifierRemap;
 use iw_net::Fingerprint;
 use iw_platform::{
@@ -30,7 +31,7 @@ use tokio::sync::{broadcast, mpsc, oneshot, watch};
 use tracing::{debug, info, warn};
 
 use super::clipboard_files::{self, Patience, Staging};
-use super::directory::{Directory, LayoutDoc, Peer, name_of};
+use super::directory::{Directory, LayoutDoc, Peer, TrustedDevices, name_of};
 use super::drag::{DragEvent, Drags, Effect, MAX_LINKED, REMOTE_DRAG_SINCE};
 use super::files::{Carrier, Files, SendError};
 use super::folder_access::FolderAccess;
@@ -541,6 +542,10 @@ pub(crate) struct EngineParts {
     pub(crate) license_unavailable: Option<PathBuf>,
     pub(crate) license_reread: Duration,
     pub(crate) status: watch::Sender<Status>,
+    /// The generation of the trusted devices (`Directory::peers_now`) the
+    /// status shows, sent after the status: apart from it, so a change to
+    /// the devices that shows nothing new sends apps no status.
+    pub(crate) peers_applied: watch::Sender<u64>,
     pub(crate) arrangement: watch::Sender<Arrangement>,
     /// Where IPC clients learn where to show the cursor.
     pub(crate) located: watch::Sender<Option<Point>>,
@@ -659,6 +664,8 @@ pub(crate) struct Engine {
     directory: Arc<Directory>,
     /// Trusted devices, as of the last directory change.
     peers: Arc<Vec<Peer>>,
+    /// Their generation (`Directory::peers_now`).
+    peers_generation: u64,
     local: DeviceId,
     capture: Box<dyn InputCapture>,
     /// Where capture delivers input; kept to start capture again once its
@@ -746,6 +753,7 @@ pub(crate) struct Engine {
     last_relative_end: Option<RelativeEnded>,
     relative_ends: u64,
     status: watch::Sender<Status>,
+    peers_applied: watch::Sender<u64>,
     arrangement: watch::Sender<Arrangement>,
     located: watch::Sender<Option<Point>>,
     /// When the cursor was last shown on this device.
@@ -801,6 +809,7 @@ impl Engine {
             license_unavailable,
             license_reread,
             status,
+            peers_applied,
             arrangement,
             located,
             identified,
@@ -834,7 +843,7 @@ impl Engine {
         }
         let local = DeviceId::new(&config.device.id);
         let relay_device = local.clone();
-        let peers = directory.peers();
+        let (peers, peers_generation) = directory.peers_now();
         // Devices seen before keep their displays and pictures while
         // offline, so the arrangement can still show them.
         let peer_displays: HashMap<DeviceId, Vec<Display>> = peers
@@ -872,6 +881,7 @@ impl Engine {
             this,
             directory,
             peers,
+            peers_generation,
             local,
             capture,
             capture_tx,
@@ -921,6 +931,7 @@ impl Engine {
             last_relative_end: None,
             relative_ends: 0,
             status,
+            peers_applied,
             arrangement,
             located,
             last_located: None,
@@ -1429,12 +1440,15 @@ impl Engine {
     }
 
     pub(crate) async fn run(mut self, mut events: mpsc::UnboundedReceiver<EngineEvent>) {
-        let mut peers = self.directory.watch_peers();
         // The list may have changed since the engine was made with it: a
         // device unpaired as the agent starts.
-        let current = peers.borrow_and_update().clone();
-        if *current != *self.peers {
-            self.on_peers(current);
+        let mut peers = self.directory.watch_peers();
+        let TrustedDevices {
+            list: current,
+            generation,
+        } = peers.borrow_and_update().clone();
+        if generation != self.peers_generation {
+            self.on_peers(current, generation);
             self.publish();
         }
         let mut ticks = tokio::time::interval(DRAG_TICK);
@@ -1451,8 +1465,15 @@ impl Engine {
                     Some(event) => self.handle(event),
                 },
                 Ok(()) = peers.changed() => {
-                    let current = peers.borrow_and_update().clone();
-                    self.on_peers(current);
+                    // One read already, as a session came up, is not applied
+                    // twice.
+                    let TrustedDevices {
+                        list: current,
+                        generation,
+                    } = peers.borrow_and_update().clone();
+                    if generation != self.peers_generation {
+                        self.on_peers(current, generation);
+                    }
                 }
                 _ = ticks.tick(), if self.drags.pending() || self.clipboard.pulls.pending() => {
                     let now = Instant::now();
@@ -2017,9 +2038,9 @@ impl Engine {
         }
         // A session with a just-paired device can come up before the
         // engine has seen the directory change.
-        let current = self.directory.peers();
-        if !Arc::ptr_eq(&current, &self.peers) {
-            self.on_peers(current);
+        let (current, generation) = self.directory.peers_now();
+        if generation != self.peers_generation {
+            self.on_peers(current, generation);
         }
         if !self.trusts(&device, &fingerprint) {
             // Unpaired while the session was being set up; dropping `tx`
@@ -2074,7 +2095,17 @@ impl Engine {
     /// The set of trusted devices changed: sessions with devices no longer
     /// trusted end, their pictures are forgotten, and names, key remapping
     /// and the layout follow.
-    fn on_peers(&mut self, peers: Arc<Vec<Peer>>) {
+    fn on_peers(&mut self, peers: Arc<Vec<Peer>>, generation: u64) {
+        self.peers_generation = generation;
+        // Only how fast the cursor moves changed: nothing to trust, name or
+        // place anew.
+        if only_speeds_differ(&self.peers, &peers) {
+            self.peers = peers;
+            if let Some(router) = self.router.as_mut() {
+                router.set_speeds(peer_speeds(&self.peers));
+            }
+            return;
+        }
         let gone: Vec<String> = self
             .peers
             .iter()
@@ -2098,9 +2129,9 @@ impl Engine {
             self.on_peer_down(device);
         }
         if let Some(router) = self.router.as_mut() {
-            for peer in self.peers.iter() {
-                router.set_remap(DeviceId::new(&peer.id), remap(peer));
-            }
+            // Replaced, so devices no longer trusted keep none.
+            router.set_remaps(peer_remaps(&self.peers));
+            router.set_speeds(peer_speeds(&self.peers));
         }
         // Devices no longer trusted leave the computers on the license, and
         // the names of the others may have changed.
@@ -4398,9 +4429,8 @@ impl Engine {
                 else {
                     return;
                 };
-                for peer in self.peers.iter() {
-                    router.set_remap(DeviceId::new(&peer.id), remap(peer));
-                }
+                router.set_remaps(peer_remaps(&self.peers));
+                router.set_speeds(peer_speeds(&self.peers));
                 // A router without relative mode yet: nothing to end.
                 let _ = router.set_relative_auto(self.relative_auto);
                 let now = Instant::now();
@@ -4573,6 +4603,11 @@ impl Engine {
                 true
             }
         });
+        self.peers_applied.send_if_modified(|applied| {
+            let changed = *applied != self.peers_generation;
+            *applied = self.peers_generation;
+            changed
+        });
     }
 }
 
@@ -4594,6 +4629,53 @@ fn remap(peer: &Peer) -> ModifierRemap {
     ModifierRemap {
         swap_gui_and_control: peer.swap_gui_and_control,
     }
+}
+
+/// Each trusted device's key remapping, for the router.
+fn peer_remaps(peers: &[Peer]) -> impl Iterator<Item = (DeviceId, ModifierRemap)> + '_ {
+    peers.iter().map(|p| (DeviceId::new(&p.id), remap(p)))
+}
+
+/// Each trusted device's cursor speed, for the router.
+fn peer_speeds(peers: &[Peer]) -> impl Iterator<Item = (DeviceId, CursorSpeed)> + '_ {
+    peers.iter().map(|p| (DeviceId::new(&p.id), p.cursor_speed))
+}
+
+/// Whether `new` is `old` with only cursor speeds changed.
+fn only_speeds_differ(old: &[Peer], new: &[Peer]) -> bool {
+    old.len() == new.len() && old.iter().zip(new).all(|(o, n)| same_but_speed(o, n))
+}
+
+/// Whether `a` and `b` are the same but for their cursor speed. Every field
+/// is named, so one added later is not left out of the comparison.
+fn same_but_speed(a: &Peer, b: &Peer) -> bool {
+    let Peer {
+        id,
+        name,
+        reported_name,
+        fingerprint,
+        os,
+        origin,
+        address,
+        last_address,
+        swap_gui_and_control,
+        side,
+        clipboard_off,
+        files_off,
+        cursor_speed: _,
+    } = a;
+    *id == b.id
+        && *name == b.name
+        && *reported_name == b.reported_name
+        && *fingerprint == b.fingerprint
+        && *os == b.os
+        && *origin == b.origin
+        && *address == b.address
+        && *last_address == b.last_address
+        && *swap_gui_and_control == b.swap_gui_and_control
+        && *side == b.side
+        && *clipboard_off == b.clipboard_off
+        && *files_off == b.files_off
 }
 
 fn layout_message(doc: &LayoutDoc) -> Control {
@@ -4670,6 +4752,42 @@ impl InjectionFailures {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_change_to_speeds_alone_is_told_apart() {
+        use crate::agent::directory::Origin;
+        use crate::store::Side;
+        let peer = |id: &str, percent: u32| Peer {
+            id: id.to_owned(),
+            name: id.to_uppercase(),
+            reported_name: id.to_uppercase(),
+            fingerprint: iw_net::Fingerprint::of_certificate(id.as_bytes()),
+            os: iw_proto::peer::v1::Os::Linux,
+            origin: Origin::Paired,
+            address: None,
+            last_address: None,
+            swap_gui_and_control: false,
+            side: Side::Right,
+            clipboard_off: false,
+            files_off: false,
+            cursor_speed: CursorSpeed::from_percent(percent).unwrap(),
+        };
+        let old = [peer("mini", 100), peer("win", 100)];
+        assert!(only_speeds_differ(
+            &old,
+            &[peer("mini", 150), peer("win", 100)]
+        ));
+        assert!(only_speeds_differ(&old, &old));
+        // Anything else is a change of its own.
+        let mut renamed = peer("mini", 150);
+        renamed.name = "Studio".to_owned();
+        assert!(!only_speeds_differ(&old, &[renamed, peer("win", 100)]));
+        assert!(!only_speeds_differ(&old, &[peer("mini", 100)]));
+        assert!(!only_speeds_differ(
+            &old,
+            &[peer("win", 100), peer("mini", 100)]
+        ));
+    }
 
     #[test]
     fn the_cursor_is_shown_at_most_once_a_second() {

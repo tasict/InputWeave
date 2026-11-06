@@ -2,6 +2,12 @@
 
 All notable changes to InputWeave are recorded here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and versions follow [Semantic Versioning](https://semver.org/). Each release's full notes are in [`docs/release-notes/`](docs/release-notes/README.md) and on its [GitHub release](https://github.com/tasict/InputWeave/releases).
 
+## [Unreleased]
+
+### Added
+
+- Cursor speed for each other computer: in the inspector on the Arrangement and Devices pages, a slider from 50% to 300% makes the pointer move faster or slower on that computer while this one controls it (for large or high-resolution screens). It is this computer's own setting, kept until the computer is removed; relative mouse for games isn't affected. Also `inputweave ctl device <id> --speed <percent>`.
+
 ## [1.0.1] - 2026-11-06
 
 ### Fixed

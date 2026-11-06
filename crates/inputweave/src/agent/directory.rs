@@ -15,6 +15,7 @@ use std::sync::{Arc, Mutex};
 use iw_core::geometry::Point;
 use iw_core::hotkey::{Hotkeys, Modifier};
 use iw_core::layout::Display;
+use iw_core::speed::CursorSpeed;
 use iw_net::Fingerprint;
 use iw_net::discovery::{self, Found};
 use iw_proto::peer::v1::Os;
@@ -58,6 +59,16 @@ pub struct Peer {
     pub clipboard_off: bool,
     /// This device neither sends it files nor takes its own.
     pub files_off: bool,
+    /// How fast the cursor moves on it while this device controls it.
+    pub cursor_speed: CursorSpeed,
+}
+
+/// The trusted devices as published: the list, and how many times it
+/// changed (its generation), which IPC requests wait on.
+#[derive(Clone, Debug, Default)]
+pub(crate) struct TrustedDevices {
+    pub(crate) list: Arc<Vec<Peer>>,
+    pub(crate) generation: u64,
 }
 
 /// The name this device shows for the trusted device `id`, if it trusts it.
@@ -95,6 +106,13 @@ pub enum DeviceError {
     Unknown(String),
     #[error("a device name is 1 to 64 characters without control characters")]
     InvalidName,
+    #[error(
+        "a cursor speed is {} to {} percent, in steps of {}",
+        CursorSpeed::MIN_PERCENT,
+        CursorSpeed::MAX_PERCENT,
+        CursorSpeed::STEP_PERCENT
+    )]
+    InvalidSpeed,
 }
 
 impl DeviceError {
@@ -105,6 +123,7 @@ impl DeviceError {
             Self::Configured(_) => "configured_device",
             Self::Unknown(_) => "unknown_device",
             Self::InvalidName => "invalid_name",
+            Self::InvalidSpeed => "invalid_speed",
         }
     }
 }
@@ -120,7 +139,7 @@ pub(crate) struct Directory {
     /// The last of those changes saved to `file`. Held while writing, so
     /// the file is written by one caller at a time.
     written: Mutex<u64>,
-    peers: watch::Sender<Arc<Vec<Peer>>>,
+    peers: watch::Sender<TrustedDevices>,
     nearby: watch::Sender<Arc<Vec<Found>>>,
     /// Saved hotkeys from before relative mode left its hotkey off; said
     /// once.
@@ -147,6 +166,7 @@ impl Directory {
                 side: Side::Right,
                 clipboard_off: false,
                 files_off: false,
+                cursor_speed: CursorSpeed::NORMAL,
             })
             .collect();
         let directory = Self {
@@ -157,7 +177,7 @@ impl Directory {
             stored: Mutex::new(stored),
             changes: AtomicU64::new(0),
             written: Mutex::new(0),
-            peers: watch::Sender::new(Arc::new(Vec::new())),
+            peers: watch::Sender::new(TrustedDevices::default()),
             nearby: watch::Sender::new(Arc::new(Vec::new())),
             relative_left_off_told: AtomicBool::new(false),
         };
@@ -166,23 +186,48 @@ impl Directory {
     }
 
     pub(crate) fn peers(&self) -> Arc<Vec<Peer>> {
-        self.peers.borrow().clone()
+        self.peers.borrow().list.clone()
     }
 
-    pub(crate) fn watch_peers(&self) -> watch::Receiver<Arc<Vec<Peer>>> {
+    pub(crate) fn watch_peers(&self) -> watch::Receiver<TrustedDevices> {
         self.peers.subscribe()
     }
 
+    /// The trusted devices and their generation: a change made after one of
+    /// the setters returned its generation has that generation, or a later
+    /// one.
+    pub(crate) fn peers_now(&self) -> (Arc<Vec<Peer>>, u64) {
+        let now = self.peers.borrow();
+        (now.list.clone(), now.generation)
+    }
+
+    fn generation(&self) -> u64 {
+        self.peers.borrow().generation
+    }
+
     pub(crate) fn peer(&self, id: &str) -> Option<Peer> {
-        self.peers.borrow().iter().find(|p| p.id == id).cloned()
+        self.peers
+            .borrow()
+            .list
+            .iter()
+            .find(|p| p.id == id)
+            .cloned()
     }
 
     pub(crate) fn peer_by_fingerprint(&self, fp: &Fingerprint) -> Option<Peer> {
         self.peers
             .borrow()
+            .list
             .iter()
             .find(|p| p.fingerprint == *fp)
             .cloned()
+    }
+
+    /// Whether `id` is trusted. Called under `stored`'s lock, the devices
+    /// published are those `stored` holds: every change publishes them
+    /// before the lock is let go.
+    fn is_trusted(&self, id: &str) -> bool {
+        self.peers.borrow().list.iter().any(|p| p.id == id)
     }
 
     /// Devices seen on the network, sorted by name.
@@ -240,6 +285,7 @@ impl Directory {
             || self
                 .peers
                 .borrow()
+                .list
                 .iter()
                 .any(|p| p.id == id && p.fingerprint != *fp)
     }
@@ -256,6 +302,31 @@ impl Directory {
             return;
         }
         self.update(|stored| {
+            // What was chosen here under this id is this device's only if it
+            // was paired under it before; anything else (another device
+            // paired under it, or one since removed from the configuration
+            // file) does not pass to it.
+            if !stored
+                .devices
+                .iter()
+                .any(|d| d.id == device.id && d.fingerprint == device.fingerprint)
+            {
+                forget_choices(stored, &device.id);
+            }
+            // This device paired before under another id: the name, cursor
+            // speed and clipboard and file choices given here go with it to
+            // the new id, and nothing stays under the old one. Its place in
+            // the arrangement and its last displays stay under the old id,
+            // as before.
+            let earlier: Vec<String> = stored
+                .devices
+                .iter()
+                .filter(|d| d.fingerprint == device.fingerprint && d.id != device.id)
+                .map(|d| d.id.clone())
+                .collect();
+            for id in &earlier {
+                move_choices(stored, id, &device.id);
+            }
             stored
                 .devices
                 .retain(|d| d.id != device.id && d.fingerprint != device.fingerprint);
@@ -275,8 +346,7 @@ impl Directory {
             removed = stored.devices.len() != before;
             stored.layout.retain(|p| p.device != id);
             stored.known_displays.retain(|k| k.device != id);
-            stored.aliases.remove(id);
-            stored.device_sharing.retain(|s| s.id != id);
+            forget_choices(stored, id);
             removed
         });
         if removed {
@@ -287,7 +357,9 @@ impl Directory {
     }
 
     /// Turns swapping ⌘ and Ctrl for keys sent to a paired device on or off.
-    pub(crate) fn set_swap(&self, id: &str, swap: bool) -> Result<(), DeviceError> {
+    /// Returns the generation of the trusted devices (`peers_now`) that has
+    /// it.
+    pub(crate) fn set_swap(&self, id: &str, swap: bool) -> Result<u64, DeviceError> {
         if self.configured.iter().any(|p| p.id == id) {
             return Err(DeviceError::Configured(id.to_owned()));
         }
@@ -304,24 +376,56 @@ impl Directory {
             },
         );
         if found {
-            Ok(())
+            Ok(self.generation())
         } else {
             Err(DeviceError::NotPaired(id.to_owned()))
         }
     }
 
+    /// Makes the cursor move faster or slower on a trusted device than the
+    /// mouse moves it here, `percent` of that: 50 to 300, in steps of 10.
+    /// The normal speed (100) also clears a speed kept for a device no
+    /// longer trusted. Returns the generation of the trusted devices
+    /// (`peers_now`) that has it.
+    pub(crate) fn set_speed(&self, id: &str, percent: u32) -> Result<u64, DeviceError> {
+        let speed = CursorSpeed::from_percent(percent).ok_or(DeviceError::InvalidSpeed)?;
+        let mut trusted = false;
+        let mut cleared = false;
+        // Trusted as of the change itself, under the lock: unpaired just
+        // before, it leaves no speed behind.
+        self.update(|stored| {
+            trusted = self.is_trusted(id);
+            if speed == CursorSpeed::NORMAL {
+                // A speed left behind goes, whoever it was for.
+                cleared = stored.cursor_speed.remove(id).is_some();
+                cleared
+            } else if trusted {
+                stored.cursor_speed.insert(id.to_owned(), speed) != Some(speed)
+            } else {
+                false
+            }
+        });
+        if !trusted && !cleared {
+            return Err(DeviceError::Unknown(id.to_owned()));
+        }
+        Ok(self.generation())
+    }
+
     /// Gives a trusted device a name shown here in place of its own, or
     /// with an empty `name` takes it away. Other devices are not told.
-    pub(crate) fn set_alias(&self, id: &str, name: &str) -> Result<(), DeviceError> {
+    pub(crate) fn set_alias(&self, id: &str, name: &str) -> Result<u64, DeviceError> {
         let name = name.trim();
         if !name.is_empty() && !iw_net::is_valid_device_name(name) {
             return Err(DeviceError::InvalidName);
         }
-        if self.peer(id).is_none() {
-            return Err(DeviceError::Unknown(id.to_owned()));
-        }
+        let mut trusted = false;
+        // Trusted as of the change itself, under the lock: unpaired just
+        // before, it leaves no name behind.
         self.update(|stored| {
-            if name.is_empty() {
+            trusted = self.is_trusted(id);
+            if !trusted {
+                false
+            } else if name.is_empty() {
                 stored.aliases.remove(id).is_some()
             } else {
                 stored
@@ -331,21 +435,28 @@ impl Directory {
                     != Some(name)
             }
         });
-        Ok(())
+        if !trusted {
+            return Err(DeviceError::Unknown(id.to_owned()));
+        }
+        Ok(self.generation())
     }
 
     /// Turns sharing the clipboard or files with a trusted device off or
-    /// on again.
+    /// on again. Returns the generation of the trusted devices that has it.
     pub(crate) fn set_sharing(
         &self,
         id: &str,
         clipboard_off: bool,
         files_off: bool,
-    ) -> Result<(), DeviceError> {
-        if self.peer(id).is_none() {
-            return Err(DeviceError::Unknown(id.to_owned()));
-        }
+    ) -> Result<u64, DeviceError> {
+        let mut trusted = false;
+        // Trusted as of the change itself, under the lock: unpaired just
+        // before, it leaves no entry behind.
         self.update(|stored| {
+            trusted = self.is_trusted(id);
+            if !trusted {
+                return false;
+            }
             let before = stored.device_sharing.clone();
             stored.device_sharing.retain(|s| s.id != id);
             if clipboard_off || files_off {
@@ -358,7 +469,10 @@ impl Directory {
             }
             stored.device_sharing != before
         });
-        Ok(())
+        if !trusted {
+            return Err(DeviceError::Unknown(id.to_owned()));
+        }
+        Ok(self.generation())
     }
 
     /// A paired device introduced itself under a new name.
@@ -731,10 +845,11 @@ impl Directory {
     fn publish(&self, stored: &DevicesFile) {
         let peers = self.compose(stored);
         self.peers.send_if_modified(|current| {
-            if **current == peers {
+            if *current.list == peers {
                 false
             } else {
-                *current = Arc::new(peers);
+                current.list = Arc::new(peers);
+                current.generation += 1;
                 true
             }
         });
@@ -756,6 +871,9 @@ impl Directory {
             if let Some(sharing) = stored.device_sharing.iter().find(|s| s.id == peer.id) {
                 peer.clipboard_off = sharing.clipboard_off;
                 peer.files_off = sharing.files_off;
+            }
+            if let Some(&speed) = stored.cursor_speed.get(&peer.id) {
+                peer.cursor_speed = speed;
             }
         }
         peers
@@ -786,9 +904,37 @@ impl Directory {
                 side: d.side,
                 clipboard_off: false,
                 files_off: false,
+                cursor_speed: CursorSpeed::NORMAL,
             });
         }
         peers
+    }
+}
+
+/// Forgets the name, cursor speed and sharing choices given here for `id`.
+fn forget_choices(stored: &mut DevicesFile, id: &str) {
+    stored.aliases.remove(id);
+    stored.cursor_speed.remove(id);
+    stored.device_sharing.retain(|s| s.id != id);
+}
+
+/// Moves the name, cursor speed and sharing choices given here for `from`
+/// to `to`, in place of any `to` had.
+fn move_choices(stored: &mut DevicesFile, from: &str, to: &str) {
+    if let Some(alias) = stored.aliases.remove(from) {
+        stored.aliases.insert(to.to_owned(), alias);
+    }
+    if let Some(speed) = stored.cursor_speed.remove(from) {
+        stored.cursor_speed.insert(to.to_owned(), speed);
+    }
+    if stored.device_sharing.iter().any(|s| s.id == from) {
+        stored.device_sharing.retain(|s| s.id != to);
+        for sharing in &mut stored.device_sharing {
+            if sharing.id == from {
+                sharing.id = to.to_owned();
+            }
+        }
+        stored.device_sharing.sort_by(|a, b| a.id.cmp(&b.id));
     }
 }
 
@@ -1072,6 +1218,171 @@ mod tests {
         assert_eq!(peers.len(), 2);
         assert_eq!(directory.peer("mini").unwrap().name, "Studio");
         assert_eq!(directory.peer("win").unwrap().origin, Origin::Configured);
+    }
+
+    #[test]
+    fn a_cursor_speed_is_kept_for_a_trusted_device_until_it_is_unpaired() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("devices.toml");
+        let directory = Directory::new(&config(), Some(file.clone()), DevicesFile::default());
+        directory.add_paired(paired("mini", 2));
+        let percent = |d: &Directory, id: &str| d.peer(id).unwrap().cursor_speed.percent();
+        assert_eq!(percent(&directory, "mini"), 100);
+        let (_, before) = directory.peers_now();
+        let generation = directory.set_speed("mini", 150).unwrap();
+        assert!(generation > before);
+        let (peers, now) = directory.peers_now();
+        assert_eq!(now, generation);
+        assert_eq!(name_of(&peers, "mini").as_deref(), Some("MINI"));
+        assert_eq!(percent(&directory, "mini"), 150);
+        assert_eq!(
+            DevicesFile::load(&file).unwrap().cursor_speed["mini"].percent(),
+            150
+        );
+        // The same speed again changes nothing.
+        assert_eq!(directory.set_speed("mini", 150).unwrap(), generation);
+        // A device in the configuration file too.
+        directory.set_speed("win", 60).unwrap();
+        assert_eq!(percent(&directory, "win"), 60);
+        for wrong in [0, 40, 155, 310] {
+            assert!(matches!(
+                directory.set_speed("mini", wrong),
+                Err(DeviceError::InvalidSpeed)
+            ));
+        }
+        assert_eq!(percent(&directory, "mini"), 150);
+        // Not this device, nor one it does not trust.
+        for id in ["mac", "ghost"] {
+            assert!(matches!(
+                directory.set_speed(id, 150),
+                Err(DeviceError::Unknown(_))
+            ));
+        }
+        // The speed is looked at first, as a name is.
+        assert!(matches!(
+            directory.set_speed("ghost", 155),
+            Err(DeviceError::InvalidSpeed)
+        ));
+        // The normal speed has no entry.
+        directory.set_speed("win", 100).unwrap();
+        assert!(
+            !DevicesFile::load(&file)
+                .unwrap()
+                .cursor_speed
+                .contains_key("win")
+        );
+
+        // Kept across restarts.
+        let stored = DevicesFile::load(&file).unwrap();
+        let directory = Directory::new(&config(), None, stored);
+        assert_eq!(percent(&directory, "mini"), 150);
+
+        // Paired again, it keeps its speed; unpaired, it is gone.
+        directory.set_speed("mini", 200).unwrap();
+        directory.add_paired(PairedDevice {
+            name: "Studio".to_owned(),
+            ..paired("mini", 2)
+        });
+        assert_eq!(percent(&directory, "mini"), 200);
+        directory.remove_paired("mini").unwrap();
+        directory.add_paired(paired("mini", 2));
+        assert_eq!(percent(&directory, "mini"), 100);
+    }
+
+    #[test]
+    fn a_speed_left_for_a_device_no_longer_trusted_can_be_cleared() {
+        let stored = DevicesFile {
+            cursor_speed: [("gone".to_owned(), CursorSpeed::from_percent(150).unwrap())].into(),
+            ..DevicesFile::default()
+        };
+        let directory = Directory::new(&config(), None, stored);
+        // Only the normal speed, which clears it.
+        assert!(matches!(
+            directory.set_speed("gone", 200),
+            Err(DeviceError::Unknown(_))
+        ));
+        directory.set_speed("gone", 100).unwrap();
+        assert!(directory.stored.lock().unwrap().cursor_speed.is_empty());
+        // Once cleared, it is a device like any other not trusted.
+        assert!(matches!(
+            directory.set_speed("gone", 100),
+            Err(DeviceError::Unknown(_))
+        ));
+    }
+
+    #[test]
+    fn a_device_paired_again_under_another_id_takes_its_choices_along() {
+        let directory = Directory::new(&config(), None, DevicesFile::default());
+        directory.add_paired(paired("mini", 2));
+        directory.set_speed("mini", 150).unwrap();
+        directory.set_alias("mini", "Studio").unwrap();
+        directory.set_sharing("mini", true, false).unwrap();
+        // The same device, now calling itself "studio".
+        directory.add_paired(PairedDevice {
+            id: "studio".to_owned(),
+            ..paired("mini", 2)
+        });
+        let studio = directory.peer("studio").unwrap();
+        assert_eq!(studio.cursor_speed.percent(), 150);
+        assert_eq!(studio.name, "Studio");
+        assert!(studio.clipboard_off && !studio.files_off);
+        let stored = directory.stored.lock().unwrap().clone();
+        assert!(!stored.cursor_speed.contains_key("mini"));
+        assert!(!stored.aliases.contains_key("mini"));
+        assert!(stored.device_sharing.iter().all(|s| s.id != "mini"));
+        // Another device that comes as "mini" starts afresh.
+        directory.add_paired(paired("mini", 7));
+        let mini = directory.peer("mini").unwrap();
+        assert_eq!(mini.cursor_speed, CursorSpeed::NORMAL);
+        assert_eq!(mini.name, "MINI");
+        assert!(!mini.clipboard_off);
+    }
+
+    #[test]
+    fn a_device_paired_under_an_id_left_from_the_configuration_file_starts_afresh() {
+        // "laptop" was listed in the configuration file, given a name, a
+        // speed and its files turned off here, then taken out of the file:
+        // what was chosen for it stays until the file is edited.
+        let stored = DevicesFile {
+            aliases: [("laptop".to_owned(), "Old laptop".to_owned())].into(),
+            cursor_speed: [("laptop".to_owned(), CursorSpeed::from_percent(200).unwrap())].into(),
+            device_sharing: vec![DeviceSharing {
+                id: "laptop".to_owned(),
+                clipboard_off: false,
+                files_off: true,
+            }],
+            ..DevicesFile::default()
+        };
+        let directory = Directory::new(&config(), None, stored);
+        // Another computer pairs as "laptop": none of that is its.
+        directory.add_paired(paired("laptop", 9));
+        let laptop = directory.peer("laptop").unwrap();
+        assert_eq!(laptop.name, "LAPTOP");
+        assert_eq!(laptop.cursor_speed, CursorSpeed::NORMAL);
+        assert!(!laptop.files_off);
+        let stored = directory.stored.lock().unwrap().clone();
+        assert!(stored.aliases.is_empty() && stored.cursor_speed.is_empty());
+        assert!(stored.device_sharing.is_empty());
+    }
+
+    #[test]
+    fn another_device_paired_under_an_id_takes_nothing_of_the_one_before() {
+        let directory = Directory::new(&config(), None, DevicesFile::default());
+        directory.add_paired(paired("mini", 2));
+        directory.set_speed("mini", 150).unwrap();
+        directory.set_alias("mini", "Studio").unwrap();
+        directory.set_sharing("mini", false, true).unwrap();
+        // A different computer, under the same id.
+        directory.add_paired(paired("mini", 8));
+        let mini = directory.peer("mini").unwrap();
+        assert_eq!(mini.fingerprint, fp(8));
+        assert_eq!(mini.cursor_speed, CursorSpeed::NORMAL);
+        assert_eq!(mini.name, "MINI");
+        assert!(!mini.files_off);
+        // The same one again keeps what it has.
+        directory.set_speed("mini", 60).unwrap();
+        directory.add_paired(paired("mini", 8));
+        assert_eq!(directory.peer("mini").unwrap().cursor_speed.percent(), 60);
     }
 
     #[test]

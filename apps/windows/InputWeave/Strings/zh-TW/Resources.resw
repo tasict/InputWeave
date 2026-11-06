@@ -801,6 +801,15 @@
   <data name="InspectorSharingHint" xml:space="preserve">
     <value>只有這台電腦停止，不會通知對方。</value>
   </data>
+  <data name="InspectorCursorSpeed" xml:space="preserve">
+    <value>游標速度</value>
+  </data>
+  <data name="InspectorCursorSpeedHint" xml:space="preserve">
+    <value>游標在「{0}」上時，滑鼠移動乘上這個倍率。只在這台控制它的時候套用，遊戲用的相對滑鼠不受影響。</value>
+  </data>
+  <data name="InspectorCursorSpeedReset" xml:space="preserve">
+    <value>重設</value>
+  </data>
   <data name="DeviceFilesOff" xml:space="preserve">
     <value>已關閉和「{0}」互傳檔案。</value>
   </data>

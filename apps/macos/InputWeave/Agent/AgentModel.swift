@@ -504,6 +504,19 @@ final class AgentModel {
         }
     }
 
+    /// Makes the cursor move faster or slower on another computer while
+    /// this Mac controls it, in percent of how the mouse moves it here; only
+    /// this Mac uses it. A refusal's code says why ("invalid_speed",
+    /// "unknown_device").
+    func setDeviceSpeed(_ deviceID: String, percent: Int) async throws {
+        var set = Inputweave_App_V1_SetDeviceSpeed()
+        set.deviceID = deviceID
+        set.percent = UInt32(clamping: percent)
+        if case .status(let status) = try await request(.setDeviceSpeed(set)) {
+            self.status = status
+        }
+    }
+
     /// Moves devices' desktop origins on the shared canvas.
     func move(_ positions: [(id: String, x: Double, y: Double)]) async throws {
         var set = Inputweave_App_V1_SetArrangement()

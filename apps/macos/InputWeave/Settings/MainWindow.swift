@@ -157,6 +157,7 @@ struct DeviceInspector: View {
                     Text("Shown once it connects.").foregroundStyle(.secondary)
                 }
             }
+            CursorSpeedSection(deviceID: deviceID)
             DeviceSharingSection(deviceID: deviceID)
             if let status, status.paired {
                 Section {

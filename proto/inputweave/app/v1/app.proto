@@ -331,6 +331,22 @@ message SetDeviceSharing {
   bool files_off = 3;
 }
 
+// Makes the cursor move faster or slower on another device than the mouse
+// moves it here: while this device controls it, the part of an ordinary
+// movement the cursor makes there is multiplied by `percent` / 100;
+// relative movements (SetRelativeMouse) are not. 100 by default,
+// remembered (for a paired device, until it is unpaired); the device
+// itself and other devices are not told. Works for paired devices and
+// those in the configuration file; 100 also clears a speed kept for a
+// device no longer trusted. Answered with Status, once it has the change
+// (a later one may have replaced it); refused with "invalid_speed" for a
+// percent other than 50 to 300 in steps of 10, and "unknown_device" as
+// RenameDevice is.
+message SetDeviceSpeed {
+  string device_id = 1;
+  uint32 percent = 2;
+}
+
 // Lets other devices control this Mac at the login window, or stops them;
 // off by default, remembered. Once it is on, the agent the installer sets
 // up for the login window runs as this device the next time the login
@@ -606,6 +622,7 @@ message ClientMessage {
     SetLicenseKey set_license_key = 47;
     RecordLicenseResult record_license_result = 48;
     RemoveLicense remove_license = 49;
+    SetDeviceSpeed set_device_speed = 50;
   }
 }
 
@@ -708,6 +725,9 @@ message DeviceStatus {
   // the cursor stays off it. False while offline, and from devices that do
   // not say.
   bool sharing_paused = 16;
+  // How fast the cursor moves on it, in percent; see SetDeviceSpeed. 50 to
+  // 300; 0 from agents before cursor speeds, which apps then do not offer.
+  uint32 speed_percent = 17;
 }
 
 // Why the keyboard and mouse came back to this device.

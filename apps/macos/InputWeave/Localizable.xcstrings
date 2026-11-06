@@ -871,6 +871,16 @@
         }
       }
     },
+    "Cursor speed": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "游標速度"
+          }
+        }
+      }
+    },
     "Decline": {
       "localizations": {
         "zh-Hant": {
@@ -2471,6 +2481,16 @@
         }
       }
     },
+    "Reset": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "重設"
+          }
+        }
+      }
+    },
     "Reset Shortcuts": {
       "localizations": {
         "zh-Hant": {
@@ -3837,6 +3857,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "按住 %@ 時"
+          }
+        }
+      }
+    },
+    "While the cursor is on %@, mouse movement is multiplied by this. It applies only when this computer controls it, and not to relative mouse for games.": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "游標在「%@」上時，滑鼠移動乘上這個倍率。只在這台控制它的時候套用，遊戲用的相對滑鼠不受影響。"
           }
         }
       }

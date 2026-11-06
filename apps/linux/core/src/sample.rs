@@ -38,6 +38,7 @@ fn device(
         jump_slot: slot,
         reported_name: name.into(),
         lock_screen_input: true,
+        speed_percent: 100,
         ..Default::default()
     }
 }

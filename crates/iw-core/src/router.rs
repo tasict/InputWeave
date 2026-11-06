@@ -10,6 +10,15 @@
 //! then asks for the cursor to be shown; that changes nothing about where
 //! input goes.
 //!
+//! On a remote device the cursor moves at that device's speed
+//! (`Router::set_speeds`): the part of a movement it makes there is scaled
+//! by that speed. A movement that crosses an edge goes at the speed of the
+//! device it starts on until the crossing and at the speed of the device it
+//! enters after it (`Layout::step_at`): from this machine to another, the
+//! part here moves as the mouse does and the rest at the other's speed;
+//! back here, the part left after the crossing moves as the mouse does
+//! again. Relative movements are never scaled.
+//!
 //! Hotkeys (`Hotkeys`) take control back, lock the cursor to the device it
 //! is on, or ask for the cursor on the device with a number
 //! (`Action::Jump`); their keys are never forwarded. With a switch
@@ -49,6 +58,7 @@ use crate::hotkey::{Hotkeys, Modifier};
 use crate::input::{Button, InputEvent};
 use crate::layout::{Crossing, DeviceId, EdgePolicy, Exit, Layout};
 use crate::shake::ShakeDetector;
+use crate::speed::CursorSpeed;
 
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct RouterConfig {
@@ -425,6 +435,9 @@ pub struct Router {
     /// Connected devices input cannot reach now, and why.
     unreachable: HashMap<DeviceId, Unreachable>,
     remaps: HashMap<DeviceId, ModifierRemap>,
+    /// How fast the cursor moves on remote devices; one left out moves at
+    /// the normal speed.
+    speeds: HashMap<DeviceId, CursorSpeed>,
     sharing: bool,
     /// The cursor stays on the device it is on.
     locked: bool,
@@ -476,6 +489,7 @@ impl Router {
             connected: HashSet::new(),
             unreachable: HashMap::new(),
             remaps: HashMap::new(),
+            speeds: HashMap::new(),
             sharing: true,
             locked: false,
             state: State::Local,
@@ -692,8 +706,17 @@ impl Router {
         self.push.is_some()
     }
 
-    pub fn set_remap(&mut self, device: DeviceId, remap: ModifierRemap) {
-        self.remaps.insert(device, remap);
+    /// Replaces every device's key remapping with `remaps`; a device left
+    /// out gets none.
+    pub fn set_remaps(&mut self, remaps: impl IntoIterator<Item = (DeviceId, ModifierRemap)>) {
+        self.remaps = remaps.into_iter().collect();
+    }
+
+    /// How fast the cursor moves on each device from the next movement on,
+    /// replacing what was given before; a device left out moves at the
+    /// normal speed, and a speed for this machine changes nothing.
+    pub fn set_speeds(&mut self, speeds: impl IntoIterator<Item = (DeviceId, CursorSpeed)>) {
+        self.speeds = speeds.into_iter().collect();
     }
 
     /// Changes how the cursor crosses edges from now on.
@@ -1107,12 +1130,14 @@ impl Router {
                     return Vec::new();
                 };
                 let from = local.to_canvas(position);
-                let Some(step) =
-                    self.layout
-                        .step(&self.local, from, delta, &self.config.edge, |d| {
-                            self.can_enter(d)
-                        })
-                else {
+                let Some((step, _)) = self.layout.step_at(
+                    &self.local,
+                    from,
+                    delta,
+                    &self.config.edge,
+                    |d| self.can_enter(d),
+                    |d| self.speed_on(d),
+                ) else {
                     return Vec::new();
                 };
                 if step.device == self.local {
@@ -1137,12 +1162,16 @@ impl Router {
                 actions
             }
             State::Remote { device, cursor } => {
-                let Some(step) = self
-                    .layout
-                    .step(&device, cursor, delta, &self.config.edge, |d| {
-                        can_cross && (*d == self.local || self.can_enter(d))
-                    })
-                else {
+                // `delta` as the cursor moves here, at this device's speed;
+                // so it also slides along an edge it pushes against.
+                let Some((step, delta)) = self.layout.step_at(
+                    &device,
+                    cursor,
+                    delta,
+                    &self.config.edge,
+                    |d| can_cross && (*d == self.local || self.can_enter(d)),
+                    |d| self.speed_on(d),
+                ) else {
                     return Vec::new();
                 };
                 if step.device == device {
@@ -1453,6 +1482,20 @@ impl Router {
         self.remaps.get(device).copied().unwrap_or_default()
     }
 
+    fn speed_of(&self, device: &DeviceId) -> CursorSpeed {
+        self.speeds.get(device).copied().unwrap_or_default()
+    }
+
+    /// How fast the cursor moves on `device`; on this machine, as the mouse
+    /// moves it.
+    fn speed_on(&self, device: &DeviceId) -> CursorSpeed {
+        if *device == self.local {
+            CursorSpeed::NORMAL
+        } else {
+            self.speed_of(device)
+        }
+    }
+
     fn to_local_of(&self, device: &DeviceId, canvas: Point) -> Point {
         self.layout
             .device(device)
@@ -1708,6 +1751,167 @@ mod tests {
         );
     }
 
+    /// The speed of `percent`, which is one.
+    fn speed(percent: u32) -> CursorSpeed {
+        CursorSpeed::from_percent(percent).unwrap()
+    }
+
+    #[test]
+    fn the_cursor_moves_at_the_speed_of_the_device_it_is_on() {
+        let mut r = router();
+        r.set_speeds([(id("win"), speed(200)), (id("mini"), speed(50))]);
+        // Of the 5 that leave this machine, 1 is here, as the mouse moves;
+        // the other 4 go twice as far on the PC.
+        assert_eq!(
+            enter_win(&mut r)[1],
+            Action::Enter {
+                device: id("win"),
+                position: Point::new(8.0, 900.0),
+                modifiers: vec![],
+                buttons: vec![],
+            }
+        );
+        assert_eq!(
+            motion(&mut r, (0.0, 0.0), (10.0, 10.0)),
+            vec![Action::Motion {
+                device: id("win"),
+                position: Point::new(28.0, 920.0),
+            }]
+        );
+        // Changed while the cursor is there, from the next movement on.
+        r.set_speeds([(id("win"), speed(150))]);
+        assert_eq!(
+            motion(&mut r, (0.0, 0.0), (-4.0, 2.0)),
+            vec![Action::Motion {
+                device: id("win"),
+                position: Point::new(22.0, 923.0),
+            }]
+        );
+        r.set_speeds([(id("win"), CursorSpeed::NORMAL)]);
+        assert_eq!(
+            motion(&mut r, (0.0, 0.0), (2.0, 0.0)),
+            vec![Action::Motion {
+                device: id("win"),
+                position: Point::new(24.0, 923.0),
+            }]
+        );
+    }
+
+    #[test]
+    fn a_crossing_between_two_fast_devices_goes_at_each_ones_speed() {
+        let mut r = router();
+        enter_win(&mut r);
+        r.set_speeds([(id("win"), speed(200)), (id("mini"), speed(50))]);
+        // Twice as far: to canvas (2000, 5), as `hops_directly_between_remote_devices`
+        // gets there at the normal speed.
+        motion(&mut r, (0.0, 0.0), (242.0, -447.5));
+        assert_eq!(
+            *r.state(),
+            State::Remote {
+                device: id("win"),
+                cursor: Point::new(2000.0, 5.0),
+            }
+        );
+        // Up by 5: twice as far on the PC, so half of it takes the cursor to
+        // the PC's top edge; the other half goes half as far on the mini.
+        assert_eq!(
+            motion(&mut r, (0.0, 0.0), (0.0, -5.0)),
+            vec![
+                Action::Leave { device: id("win") },
+                Action::Enter {
+                    device: id("mini"),
+                    position: Point::new(488.0, 1078.75),
+                    modifiers: vec![],
+                    buttons: vec![],
+                },
+            ]
+        );
+        // On the mini, at the mini's.
+        assert_eq!(
+            motion(&mut r, (0.0, 0.0), (10.0, -10.0)),
+            vec![Action::Motion {
+                device: id("mini"),
+                position: Point::new(493.0, 1073.75),
+            }]
+        );
+    }
+
+    #[test]
+    fn back_on_this_machine_the_cursor_moves_as_the_mouse_does() {
+        let mut r = router();
+        // A speed for this machine changes nothing.
+        r.set_speeds([(id("mac"), speed(300))]);
+        enter_win(&mut r);
+        r.set_speeds([(id("mac"), speed(300)), (id("win"), speed(300))]);
+        // 4 inside the PC, a flick of 20 to the left: three times as far on
+        // the PC, so 4/3 of it takes the cursor to the seam, and the other
+        // 56/3 go on here as the mouse moves.
+        let actions = motion(&mut r, (0.0, 0.0), (-20.0, 0.0));
+        let [Action::Leave { device }, Action::Ungrab { warp_to }] = actions.as_slice() else {
+            panic!("{actions:?}");
+        };
+        assert_eq!(*device, id("win"));
+        assert!(
+            (warp_to.x - (1512.0 - 56.0 / 3.0)).abs() < 1e-9 && warp_to.y == 500.0,
+            "{warp_to:?}"
+        );
+        assert_eq!(*r.state(), State::Local);
+        // Here it moves as the mouse does; crossing again, the part beyond
+        // the seam goes at the PC's speed.
+        assert!(motion(&mut r, (1508.0, 500.0), (3.0, 0.0)).is_empty());
+        assert_eq!(
+            motion(&mut r, (1511.0, 500.0), (5.0, 0.0))[1],
+            Action::Enter {
+                device: id("win"),
+                position: Point::new(12.0, 900.0),
+                modifiers: vec![],
+                buttons: vec![],
+            }
+        );
+    }
+
+    #[test]
+    fn speeds_given_together_replace_the_earlier_ones() {
+        let mut r = router();
+        r.set_speeds([(id("win"), speed(200))]);
+        // The PC left out: back to the normal speed.
+        r.set_speeds([(id("mini"), speed(50)), (id("mac"), CursorSpeed::NORMAL)]);
+        enter_win(&mut r);
+        assert_eq!(
+            motion(&mut r, (0.0, 0.0), (10.0, 10.0)),
+            vec![Action::Motion {
+                device: id("win"),
+                position: Point::new(14.0, 910.0),
+            }]
+        );
+    }
+
+    #[test]
+    fn relative_movements_go_at_the_speed_of_the_mouse() {
+        let mut r = relative_router();
+        r.set_speeds([(id("win"), speed(250))]);
+        enter_win(&mut r);
+        r.set_relative(true).unwrap();
+        // Games scale movements themselves.
+        assert_eq!(
+            motion(&mut r, (0.0, 0.0), (-6.0, 3.5)),
+            vec![moved_by(-6.0, 3.5)]
+        );
+        r.set_relative(false).unwrap();
+        handle(
+            &mut r,
+            Event::PointerAt(id("win"), Point::new(100.0, 800.0)),
+        );
+        // Out of relative mode, positions go at the PC's speed again.
+        assert_eq!(
+            motion(&mut r, (0.0, 0.0), (2.0, 0.0)),
+            vec![Action::Motion {
+                device: id("win"),
+                position: Point::new(105.0, 800.0),
+            }]
+        );
+    }
+
     /// The Mac of [`staggered`], with both computers to its right connected.
     fn staggered_router(config: RouterConfig) -> Router {
         let now = Instant::now();
@@ -1778,12 +1982,12 @@ mod tests {
     #[test]
     fn keys_are_forwarded_only_while_remote_and_remapped() {
         let mut r = router();
-        r.set_remap(
+        r.set_remaps([(
             id("win"),
             ModifierRemap {
                 swap_gui_and_control: true,
             },
-        );
+        )]);
         assert!(key(&mut r, usage::C, true).is_empty());
         key(&mut r, usage::C, false);
 

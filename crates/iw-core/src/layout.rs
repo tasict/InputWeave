@@ -16,6 +16,7 @@ use std::fmt;
 
 use crate::geometry::{EPSILON, Point, Rect, approx_eq};
 use crate::hotkey::{JUMP_SLOTS, Modifier};
+use crate::speed::CursorSpeed;
 
 /// How far short of a display's exclusive far end the cursor enters it,
 /// when it slides along an edge to get there.
@@ -440,26 +441,54 @@ impl Layout {
         policy: &EdgePolicy,
         can_enter: impl Fn(&DeviceId) -> bool,
     ) -> Option<Step> {
+        self.step_at(current, from, delta, policy, can_enter, |_| {
+            CursorSpeed::NORMAL
+        })
+        .map(|(step, _)| step)
+    }
+
+    /// Like [`step`](Self::step), with the pointer moving at `speed(device)`
+    /// on each device (`CursorSpeed::apply`): on `current` until it crosses,
+    /// and on the device it enters for the rest of `delta`. Also returns
+    /// `delta` as the pointer moves on `current`.
+    pub fn step_at(
+        &self,
+        current: &DeviceId,
+        from: Point,
+        delta: Point,
+        policy: &EdgePolicy,
+        can_enter: impl Fn(&DeviceId) -> bool,
+        speed: impl Fn(&DeviceId) -> CursorSpeed,
+    ) -> Option<(Step, Point)> {
+        let here = speed(current);
+        let delta = here.apply(delta);
+        // How much farther, or less far, what is left of the movement goes
+        // on the device entered than it would have here; a speed is never
+        // 0, so this always has a meaning.
+        let beyond = |entered: &DeviceId| speed(entered).factor() / here.factor();
         let device = self.device(current)?;
         let (display, source) = device.nearest_display(from)?;
         let from = source.clamp(from);
         let target = from + delta;
 
         if device.canvas_bounds().any(|r| r.contains(target)) {
-            return Some(Step {
+            let step = Step {
                 device: current.clone(),
                 position: target,
                 crossing: None,
-            });
+            };
+            return Some((step, delta));
         }
-        Some(
-            self.cross(device, display, source, from, delta, policy, can_enter)
-                .unwrap_or_else(|| Step {
-                    device: current.clone(),
-                    position: source.clamp(target),
-                    crossing: None,
-                }),
-        )
+        let step = self
+            .cross(
+                device, display, source, from, delta, policy, can_enter, beyond,
+            )
+            .unwrap_or_else(|| Step {
+                device: current.clone(),
+                position: source.clamp(target),
+                crossing: None,
+            });
+        Some((step, delta))
     }
 
     /// Where a pointer moving from `from` on display `source` of `current` by
@@ -474,8 +503,9 @@ impl Layout {
     /// pointer stays: its system keeps a wall there, and the pointer never
     /// skips past this device's own display to a farther device. Otherwise
     /// the pointer enters at the nearest point of that edge and carries on
-    /// with the part of `delta` past the crossing, so a gap is skipped. Where
-    /// the edges touch, that is right where the path goes.
+    /// with the part of `delta` past the crossing, `beyond(device)` times as
+    /// far, so a gap is skipped. Where the edges touch and `beyond` is 1,
+    /// that is right where the path goes, to the bit.
     #[allow(clippy::too_many_arguments)]
     fn cross(
         &self,
@@ -486,6 +516,7 @@ impl Layout {
         delta: Point,
         policy: &EdgePolicy,
         can_enter: impl Fn(&DeviceId) -> bool,
+        beyond: impl Fn(&DeviceId) -> f64,
     ) -> Option<Step> {
         let (t, edge) = exit(source, from, delta)?;
         let crossing = Point::new(from.x + delta.x * t, from.y + delta.y * t);
@@ -509,7 +540,10 @@ impl Layout {
         }
         // The facing point plus what is left of `delta`, put this way so that
         // where the edges touch it is exactly where the path goes.
-        let entry = from + delta + offset;
+        // What is past the crossing goes `beyond` times as far: `beyond - 1`
+        // times it more, which is nothing at all when `beyond` is 1.
+        let rest = from + delta - crossing;
+        let entry = from + delta + offset + rest.scaled(beyond(&device.id) - 1.0);
         let position = if device.canvas_bounds().any(|r| r.contains(entry)) {
             entry
         } else {

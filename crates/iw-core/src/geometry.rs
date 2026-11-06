@@ -23,6 +23,12 @@ impl Point {
     pub const fn new(x: f64, y: f64) -> Self {
         Self { x, y }
     }
+
+    /// This point, or movement, `factor` times as far from the origin;
+    /// exactly as it is for 1, since multiplying by 1 is exact.
+    pub fn scaled(self, factor: f64) -> Point {
+        Point::new(self.x * factor, self.y * factor)
+    }
 }
 
 impl Add for Point {
@@ -109,6 +115,14 @@ pub fn approx_eq(a: f64, b: f64) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn scaling_keeps_a_point_as_it_is_for_one() {
+        let p = Point::new(0.1, -7.3);
+        assert_eq!(p.scaled(1.0), p);
+        assert_eq!(p.scaled(2.0), Point::new(0.2, -14.6));
+        assert_eq!(Point::new(3.0, 6.0).scaled(1.0 / 3.0), Point::new(1.0, 2.0));
+    }
 
     #[test]
     fn contains_is_half_open() {

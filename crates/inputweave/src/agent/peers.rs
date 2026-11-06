@@ -138,7 +138,7 @@ pub(crate) async fn dial_all(ctx: Arc<PeerContext>) {
     let mut peers = ctx.directory.watch_peers();
     let mut loops: HashMap<String, AbortOnDrop> = HashMap::new();
     loop {
-        let current = peers.borrow_and_update().clone();
+        let current = peers.borrow_and_update().list.clone();
         loops.retain(|_, task| !task.0.is_finished());
         for peer in current.iter().filter(|p| ctx.dials(&p.id)) {
             loops.entry(peer.id.clone()).or_insert_with(|| {

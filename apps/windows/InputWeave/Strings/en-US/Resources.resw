@@ -866,6 +866,16 @@
   <data name="InspectorSharingHint" xml:space="preserve">
     <value>Only this computer stops; the other computer is not told.</value>
   </data>
+  <data name="InspectorCursorSpeed" xml:space="preserve">
+    <value>Cursor speed</value>
+  </data>
+  <data name="InspectorCursorSpeedHint" xml:space="preserve">
+    <value>While the cursor is on {0}, mouse movement is multiplied by this. It applies only when this computer controls it, and not to relative mouse for games.</value>
+    <comment>Under the cursor speed slider in the inspector of another computer. {0} is its name.</comment>
+  </data>
+  <data name="InspectorCursorSpeedReset" xml:space="preserve">
+    <value>Reset</value>
+  </data>
   <data name="DeviceFilesOff" xml:space="preserve">
     <value>Files with “{0}” are turned off.</value>
     <comment>{0} is a computer's name.</comment>

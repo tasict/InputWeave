@@ -374,6 +374,7 @@ pub async fn start(
         )
     };
     let (status_tx, status_rx) = watch::channel(initial);
+    let (peers_applied_tx, peers_applied_rx) = watch::channel(0);
     let (arrangement_tx, arrangement_rx) = watch::channel(Arrangement::default());
     let (located_tx, located_rx) = watch::channel(None);
     let (identified_tx, identified_rx) = watch::channel(None);
@@ -445,6 +446,7 @@ pub async fn start(
             ipc::IpcContext {
                 engine: engine_tx.clone(),
                 status: status_rx.clone(),
+                peers_applied: peers_applied_rx.clone(),
                 arrangement: arrangement_rx.clone(),
                 located: located_rx.clone(),
                 identified: identified_rx.clone(),
@@ -502,6 +504,7 @@ pub async fn start(
         license_unavailable,
         license_reread: options.license_reread.unwrap_or(engine::LICENSE_REREAD),
         status: status_tx,
+        peers_applied: peers_applied_tx,
         arrangement: arrangement_tx,
         located: located_tx,
         identified: identified_tx,
@@ -1450,13 +1453,20 @@ impl AgentHandle {
 
     /// Swaps ⌘ and Ctrl in keys sent to a paired device, or stops doing so.
     pub fn set_swap_gui_and_control(&self, id: &str, swap: bool) -> Result<(), DeviceError> {
-        self.directory.set_swap(id, swap)
+        self.directory.set_swap(id, swap).map(|_| ())
     }
 
     /// Names a trusted device on this device only, or with an empty name
     /// shows its own name again.
     pub fn rename_device(&self, id: &str, name: &str) -> Result<(), DeviceError> {
-        self.directory.set_alias(id, name)
+        self.directory.set_alias(id, name).map(|_| ())
+    }
+
+    /// Makes the cursor move faster or slower on a trusted device, in
+    /// percent of how the mouse moves it here; remembered until it is
+    /// unpaired.
+    pub fn set_device_speed(&self, id: &str, percent: u32) -> Result<(), DeviceError> {
+        self.directory.set_speed(id, percent).map(|_| ())
     }
 
     /// Stops sharing the clipboard or files with a trusted device, or
@@ -1467,7 +1477,9 @@ impl AgentHandle {
         clipboard_off: bool,
         files_off: bool,
     ) -> Result<(), DeviceError> {
-        self.directory.set_sharing(id, clipboard_off, files_off)
+        self.directory
+            .set_sharing(id, clipboard_off, files_off)
+            .map(|_| ())
     }
 
     /// Starts sending files and folders to a device, as a batch; returns

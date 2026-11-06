@@ -1727,6 +1727,31 @@ nonisolated struct Inputweave_App_V1_SetDeviceSharing: Sendable {
   init() {}
 }
 
+/// Makes the cursor move faster or slower on another device than the mouse
+/// moves it here: while this device controls it, the part of an ordinary
+/// movement the cursor makes there is multiplied by `percent` / 100;
+/// relative movements (SetRelativeMouse) are not. 100 by default,
+/// remembered (for a paired device, until it is unpaired); the device
+/// itself and other devices are not told. Works for paired devices and
+/// those in the configuration file; 100 also clears a speed kept for a
+/// device no longer trusted. Answered with Status, once it has the change
+/// (a later one may have replaced it); refused with "invalid_speed" for a
+/// percent other than 50 to 300 in steps of 10, and "unknown_device" as
+/// RenameDevice is.
+nonisolated struct Inputweave_App_V1_SetDeviceSpeed: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  var deviceID: String = String()
+
+  var percent: UInt32 = 0
+
+  var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  init() {}
+}
+
 /// Lets other devices control this Mac at the login window, or stops them;
 /// off by default, remembered. Once it is on, the agent the installer sets
 /// up for the login window runs as this device the next time the login
@@ -2520,6 +2545,14 @@ nonisolated struct Inputweave_App_V1_ClientMessage: Sendable {
     set {command = .removeLicense(newValue)}
   }
 
+  var setDeviceSpeed: Inputweave_App_V1_SetDeviceSpeed {
+    get {
+      if case .setDeviceSpeed(let v)? = command {return v}
+      return Inputweave_App_V1_SetDeviceSpeed()
+    }
+    set {command = .setDeviceSpeed(newValue)}
+  }
+
   var unknownFields = SwiftProtobuf.UnknownStorage()
 
   nonisolated enum OneOf_Command: Equatable, Sendable {
@@ -2571,6 +2604,7 @@ nonisolated struct Inputweave_App_V1_ClientMessage: Sendable {
     case setLicenseKey(Inputweave_App_V1_SetLicenseKey)
     case recordLicenseResult(Inputweave_App_V1_RecordLicenseResult)
     case removeLicense(Inputweave_App_V1_RemoveLicense)
+    case setDeviceSpeed(Inputweave_App_V1_SetDeviceSpeed)
 
   }
 
@@ -2601,72 +2635,129 @@ nonisolated struct Inputweave_App_V1_PermissionStatus: Sendable {
   init() {}
 }
 
-nonisolated struct Inputweave_App_V1_DeviceStatus: Sendable {
+nonisolated struct Inputweave_App_V1_DeviceStatus: @unchecked Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
   // methods supported on all messages.
 
-  var id: String = String()
+  var id: String {
+    get {_storage._id}
+    set {_uniqueStorage()._id = newValue}
+  }
 
   /// The name this device's user gave it (RenameDevice), or else its own.
-  var name: String = String()
+  var name: String {
+    get {_storage._name}
+    set {_uniqueStorage()._name = newValue}
+  }
 
-  var state: Inputweave_App_V1_ConnectionState = .unspecified
+  var state: Inputweave_App_V1_ConnectionState {
+    get {_storage._state}
+    set {_uniqueStorage()._state = newValue}
+  }
 
   /// Paired, rather than listed in the agent's configuration file; only
   /// paired devices can be unpaired or have their options changed.
-  var paired: Bool = false
+  var paired: Bool {
+    get {_storage._paired}
+    set {_uniqueStorage()._paired = newValue}
+  }
 
   /// "macos", "windows", "linux" or empty.
-  var os: String = String()
+  var os: String {
+    get {_storage._os}
+    set {_uniqueStorage()._os = newValue}
+  }
 
   /// ⌘ and Ctrl are swapped in keys sent to this device.
-  var swapGuiAndControl: Bool = false
+  var swapGuiAndControl: Bool {
+    get {_storage._swapGuiAndControl}
+    set {_uniqueStorage()._swapGuiAndControl = newValue}
+  }
 
   /// Round-trip time to the device in milliseconds, rounded up; 0 while it
   /// is offline or not yet measured. Refreshed every few seconds.
-  var rttMs: UInt32 = 0
+  var rttMs: UInt32 {
+    get {_storage._rttMs}
+    set {_uniqueStorage()._rttMs = newValue}
+  }
 
   /// See ArrangedDevice.jump_slot.
-  var jumpSlot: UInt32 = 0
+  var jumpSlot: UInt32 {
+    get {_storage._jumpSlot}
+    set {_uniqueStorage()._jumpSlot = newValue}
+  }
 
   /// The name the device gives itself, or that the configuration file
   /// gives it; `name` differs while this device's user has renamed it.
   /// Empty from agents before RenameDevice.
-  var reportedName: String = String()
+  var reportedName: String {
+    get {_storage._reportedName}
+    set {_uniqueStorage()._reportedName = newValue}
+  }
 
   /// See SetDeviceSharing.
-  var clipboardOff: Bool = false
+  var clipboardOff: Bool {
+    get {_storage._clipboardOff}
+    set {_uniqueStorage()._clipboardOff = newValue}
+  }
 
-  var filesOff: Bool = false
+  var filesOff: Bool {
+    get {_storage._filesOff}
+    set {_uniqueStorage()._filesOff = newValue}
+  }
 
   /// The device's screen is locked, as it last said; false while it is
   /// offline, and from agents before this field.
-  var screenLocked: Bool = false
+  var screenLocked: Bool {
+    get {_storage._screenLocked}
+    set {_uniqueStorage()._screenLocked = newValue}
+  }
 
   /// Input from here reaches its lock screen, as it last said (see
   /// Status.lock_screen_input); true for agents that do not say. While it is
   /// locked and says no, the cursor does not go there. False while offline.
-  var lockScreenInput: Bool = false
+  var lockScreenInput: Bool {
+    get {_storage._lockScreenInput}
+    set {_uniqueStorage()._lockScreenInput = newValue}
+  }
 
   /// An app on it holds the pointer, as it last said (PointerCaptured); false
   /// while offline, and from devices that do not say.
-  var pointerCaptured: Bool = false
+  var pointerCaptured: Bool {
+    get {_storage._pointerCaptured}
+    set {_uniqueStorage()._pointerCaptured = newValue}
+  }
 
   /// No input from here reaches it now, as it last said: a Linux Wayland
   /// desktop that has not allowed remote control, or a Mac without the
   /// Accessibility permission. The cursor stays off it. False while offline,
   /// and from devices that do not say.
-  var inputUnavailable: Bool = false
+  var inputUnavailable: Bool {
+    get {_storage._inputUnavailable}
+    set {_uniqueStorage()._inputUnavailable = newValue}
+  }
 
   /// It paused sharing: it neither controls others nor is controlled, and
   /// the cursor stays off it. False while offline, and from devices that do
   /// not say.
-  var sharingPaused: Bool = false
+  var sharingPaused: Bool {
+    get {_storage._sharingPaused}
+    set {_uniqueStorage()._sharingPaused = newValue}
+  }
+
+  /// How fast the cursor moves on it, in percent; see SetDeviceSpeed. 50 to
+  /// 300; 0 from agents before cursor speeds, which apps then do not offer.
+  var speedPercent: UInt32 {
+    get {_storage._speedPercent}
+    set {_uniqueStorage()._speedPercent = newValue}
+  }
 
   var unknownFields = SwiftProtobuf.UnknownStorage()
 
   init() {}
+
+  fileprivate var _storage = _StorageClass.defaultInstance
 }
 
 nonisolated struct Inputweave_App_V1_Status: @unchecked Sendable {
@@ -5343,6 +5434,41 @@ nonisolated extension Inputweave_App_V1_SetDeviceSharing: SwiftProtobuf.Message,
   }
 }
 
+nonisolated extension Inputweave_App_V1_SetDeviceSpeed: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  static let protoMessageName: String = _protobuf_package + ".SetDeviceSpeed"
+  static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}device_id\0\u{1}percent\0")
+
+  mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeSingularStringField(value: &self.deviceID) }()
+      case 2: try { try decoder.decodeSingularUInt32Field(value: &self.percent) }()
+      default: break
+      }
+    }
+  }
+
+  func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    if !self.deviceID.isEmpty {
+      try visitor.visitSingularStringField(value: self.deviceID, fieldNumber: 1)
+    }
+    if self.percent != 0 {
+      try visitor.visitSingularUInt32Field(value: self.percent, fieldNumber: 2)
+    }
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  static func ==(lhs: Inputweave_App_V1_SetDeviceSpeed, rhs: Inputweave_App_V1_SetDeviceSpeed) -> Bool {
+    if lhs.deviceID != rhs.deviceID {return false}
+    if lhs.percent != rhs.percent {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
 nonisolated extension Inputweave_App_V1_SetLoginWindowAccess: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   static let protoMessageName: String = _protobuf_package + ".SetLoginWindowAccess"
   static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}on\0")
@@ -5931,7 +6057,7 @@ nonisolated extension Inputweave_App_V1_RemoveLicense: SwiftProtobuf.Message, Sw
 
 nonisolated extension Inputweave_App_V1_ClientMessage: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   static let protoMessageName: String = _protobuf_package + ".ClientMessage"
-  static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}request_id\0\u{1}hello\0\u{3}get_status\0\u{3}set_sharing\0\u{3}start_pairing\0\u{3}submit_pairing_code\0\u{3}cancel_pairing\0\u{1}unpair\0\u{3}get_nearby\0\u{3}get_pairing\0\u{3}get_arrangement\0\u{3}set_arrangement\0\u{3}set_device_name\0\u{3}set_device_options\0\u{3}set_clipboard_sync\0\u{3}send_files\0\u{3}cancel_transfer\0\u{3}answer_file_offer\0\u{3}get_transfers\0\u{3}set_file_settings\0\u{3}get_diagnostics\0\u{3}set_locked\0\u{3}jump_to\0\u{3}set_edge_options\0\u{3}set_preview_sharing\0\u{3}remove_transfer\0\u{3}clear_transfers\0\u{3}begin_drag\0\u{3}end_drag\0\u{3}accept_drag\0\u{3}decline_drag\0\u{3}set_hotkeys\0\u{3}set_switch_modifier\0\u{3}identify_screens\0\u{3}rename_device\0\u{3}set_device_sharing\0\u{3}set_login_window_access\0\u{3}clipboard_files_placed\0\u{3}paste_clipboard_files\0\u{3}clipboard_files_gone\0\u{3}clipboard_files_place\0\u{3}user_quit_app\0\u{3}set_relative_mouse\0\u{3}set_relative_auto\0\u{3}request_folder_access\0\u{3}request_permission\0\u{3}set_license_key\0\u{3}record_license_result\0\u{3}remove_license\0")
+  static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}request_id\0\u{1}hello\0\u{3}get_status\0\u{3}set_sharing\0\u{3}start_pairing\0\u{3}submit_pairing_code\0\u{3}cancel_pairing\0\u{1}unpair\0\u{3}get_nearby\0\u{3}get_pairing\0\u{3}get_arrangement\0\u{3}set_arrangement\0\u{3}set_device_name\0\u{3}set_device_options\0\u{3}set_clipboard_sync\0\u{3}send_files\0\u{3}cancel_transfer\0\u{3}answer_file_offer\0\u{3}get_transfers\0\u{3}set_file_settings\0\u{3}get_diagnostics\0\u{3}set_locked\0\u{3}jump_to\0\u{3}set_edge_options\0\u{3}set_preview_sharing\0\u{3}remove_transfer\0\u{3}clear_transfers\0\u{3}begin_drag\0\u{3}end_drag\0\u{3}accept_drag\0\u{3}decline_drag\0\u{3}set_hotkeys\0\u{3}set_switch_modifier\0\u{3}identify_screens\0\u{3}rename_device\0\u{3}set_device_sharing\0\u{3}set_login_window_access\0\u{3}clipboard_files_placed\0\u{3}paste_clipboard_files\0\u{3}clipboard_files_gone\0\u{3}clipboard_files_place\0\u{3}user_quit_app\0\u{3}set_relative_mouse\0\u{3}set_relative_auto\0\u{3}request_folder_access\0\u{3}request_permission\0\u{3}set_license_key\0\u{3}record_license_result\0\u{3}remove_license\0\u{3}set_device_speed\0")
 
   mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -6564,6 +6690,19 @@ nonisolated extension Inputweave_App_V1_ClientMessage: SwiftProtobuf.Message, Sw
           self.command = .removeLicense(v)
         }
       }()
+      case 50: try {
+        var v: Inputweave_App_V1_SetDeviceSpeed?
+        var hadOneofValue = false
+        if let current = self.command {
+          hadOneofValue = true
+          if case .setDeviceSpeed(let m) = current {v = m}
+        }
+        try decoder.decodeSingularMessageField(value: &v)
+        if let v = v {
+          if hadOneofValue {try decoder.handleConflictingOneOf()}
+          self.command = .setDeviceSpeed(v)
+        }
+      }()
       default: break
       }
     }
@@ -6770,6 +6909,10 @@ nonisolated extension Inputweave_App_V1_ClientMessage: SwiftProtobuf.Message, Sw
       guard case .removeLicense(let v)? = self.command else { preconditionFailure() }
       try visitor.visitSingularMessageField(value: v, fieldNumber: 49)
     }()
+    case .setDeviceSpeed?: try {
+      guard case .setDeviceSpeed(let v)? = self.command else { preconditionFailure() }
+      try visitor.visitSingularMessageField(value: v, fieldNumber: 50)
+    }()
     case nil: break
     }
     try unknownFields.traverse(visitor: &visitor)
@@ -6835,104 +6978,177 @@ nonisolated extension Inputweave_App_V1_PermissionStatus: SwiftProtobuf.Message,
 
 nonisolated extension Inputweave_App_V1_DeviceStatus: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   static let protoMessageName: String = _protobuf_package + ".DeviceStatus"
-  static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}id\0\u{1}name\0\u{1}state\0\u{1}paired\0\u{1}os\0\u{3}swap_gui_and_control\0\u{3}rtt_ms\0\u{3}jump_slot\0\u{3}reported_name\0\u{3}clipboard_off\0\u{3}files_off\0\u{3}screen_locked\0\u{3}lock_screen_input\0\u{3}pointer_captured\0\u{3}input_unavailable\0\u{3}sharing_paused\0")
+  static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}id\0\u{1}name\0\u{1}state\0\u{1}paired\0\u{1}os\0\u{3}swap_gui_and_control\0\u{3}rtt_ms\0\u{3}jump_slot\0\u{3}reported_name\0\u{3}clipboard_off\0\u{3}files_off\0\u{3}screen_locked\0\u{3}lock_screen_input\0\u{3}pointer_captured\0\u{3}input_unavailable\0\u{3}sharing_paused\0\u{3}speed_percent\0")
+
+  fileprivate class _StorageClass {
+    var _id: String = String()
+    var _name: String = String()
+    var _state: Inputweave_App_V1_ConnectionState = .unspecified
+    var _paired: Bool = false
+    var _os: String = String()
+    var _swapGuiAndControl: Bool = false
+    var _rttMs: UInt32 = 0
+    var _jumpSlot: UInt32 = 0
+    var _reportedName: String = String()
+    var _clipboardOff: Bool = false
+    var _filesOff: Bool = false
+    var _screenLocked: Bool = false
+    var _lockScreenInput: Bool = false
+    var _pointerCaptured: Bool = false
+    var _inputUnavailable: Bool = false
+    var _sharingPaused: Bool = false
+    var _speedPercent: UInt32 = 0
+
+      // This property is used as the initial default value for new instances of the type.
+      // The type itself is protecting the reference to its storage via CoW semantics.
+      // This will force a copy to be made of this reference when the first mutation occurs;
+      // hence, it is safe to mark this as `nonisolated(unsafe)`.
+      static nonisolated(unsafe) let defaultInstance = _StorageClass()
+
+    private init() {}
+
+    init(copying source: _StorageClass) {
+      _id = source._id
+      _name = source._name
+      _state = source._state
+      _paired = source._paired
+      _os = source._os
+      _swapGuiAndControl = source._swapGuiAndControl
+      _rttMs = source._rttMs
+      _jumpSlot = source._jumpSlot
+      _reportedName = source._reportedName
+      _clipboardOff = source._clipboardOff
+      _filesOff = source._filesOff
+      _screenLocked = source._screenLocked
+      _lockScreenInput = source._lockScreenInput
+      _pointerCaptured = source._pointerCaptured
+      _inputUnavailable = source._inputUnavailable
+      _sharingPaused = source._sharingPaused
+      _speedPercent = source._speedPercent
+    }
+  }
+
+  fileprivate mutating func _uniqueStorage() -> _StorageClass {
+    if !isKnownUniquelyReferenced(&_storage) {
+      _storage = _StorageClass(copying: _storage)
+    }
+    return _storage
+  }
 
   mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
-    while let fieldNumber = try decoder.nextFieldNumber() {
-      // The use of inline closures is to circumvent an issue where the compiler
-      // allocates stack space for every case branch when no optimizations are
-      // enabled. https://github.com/apple/swift-protobuf/issues/1034
-      switch fieldNumber {
-      case 1: try { try decoder.decodeSingularStringField(value: &self.id) }()
-      case 2: try { try decoder.decodeSingularStringField(value: &self.name) }()
-      case 3: try { try decoder.decodeSingularEnumField(value: &self.state) }()
-      case 4: try { try decoder.decodeSingularBoolField(value: &self.paired) }()
-      case 5: try { try decoder.decodeSingularStringField(value: &self.os) }()
-      case 6: try { try decoder.decodeSingularBoolField(value: &self.swapGuiAndControl) }()
-      case 7: try { try decoder.decodeSingularUInt32Field(value: &self.rttMs) }()
-      case 8: try { try decoder.decodeSingularUInt32Field(value: &self.jumpSlot) }()
-      case 9: try { try decoder.decodeSingularStringField(value: &self.reportedName) }()
-      case 10: try { try decoder.decodeSingularBoolField(value: &self.clipboardOff) }()
-      case 11: try { try decoder.decodeSingularBoolField(value: &self.filesOff) }()
-      case 12: try { try decoder.decodeSingularBoolField(value: &self.screenLocked) }()
-      case 13: try { try decoder.decodeSingularBoolField(value: &self.lockScreenInput) }()
-      case 14: try { try decoder.decodeSingularBoolField(value: &self.pointerCaptured) }()
-      case 15: try { try decoder.decodeSingularBoolField(value: &self.inputUnavailable) }()
-      case 16: try { try decoder.decodeSingularBoolField(value: &self.sharingPaused) }()
-      default: break
+    _ = _uniqueStorage()
+    try withExtendedLifetime(_storage) { (_storage: _StorageClass) in
+      while let fieldNumber = try decoder.nextFieldNumber() {
+        // The use of inline closures is to circumvent an issue where the compiler
+        // allocates stack space for every case branch when no optimizations are
+        // enabled. https://github.com/apple/swift-protobuf/issues/1034
+        switch fieldNumber {
+        case 1: try { try decoder.decodeSingularStringField(value: &_storage._id) }()
+        case 2: try { try decoder.decodeSingularStringField(value: &_storage._name) }()
+        case 3: try { try decoder.decodeSingularEnumField(value: &_storage._state) }()
+        case 4: try { try decoder.decodeSingularBoolField(value: &_storage._paired) }()
+        case 5: try { try decoder.decodeSingularStringField(value: &_storage._os) }()
+        case 6: try { try decoder.decodeSingularBoolField(value: &_storage._swapGuiAndControl) }()
+        case 7: try { try decoder.decodeSingularUInt32Field(value: &_storage._rttMs) }()
+        case 8: try { try decoder.decodeSingularUInt32Field(value: &_storage._jumpSlot) }()
+        case 9: try { try decoder.decodeSingularStringField(value: &_storage._reportedName) }()
+        case 10: try { try decoder.decodeSingularBoolField(value: &_storage._clipboardOff) }()
+        case 11: try { try decoder.decodeSingularBoolField(value: &_storage._filesOff) }()
+        case 12: try { try decoder.decodeSingularBoolField(value: &_storage._screenLocked) }()
+        case 13: try { try decoder.decodeSingularBoolField(value: &_storage._lockScreenInput) }()
+        case 14: try { try decoder.decodeSingularBoolField(value: &_storage._pointerCaptured) }()
+        case 15: try { try decoder.decodeSingularBoolField(value: &_storage._inputUnavailable) }()
+        case 16: try { try decoder.decodeSingularBoolField(value: &_storage._sharingPaused) }()
+        case 17: try { try decoder.decodeSingularUInt32Field(value: &_storage._speedPercent) }()
+        default: break
+        }
       }
     }
   }
 
   func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
-    if !self.id.isEmpty {
-      try visitor.visitSingularStringField(value: self.id, fieldNumber: 1)
-    }
-    if !self.name.isEmpty {
-      try visitor.visitSingularStringField(value: self.name, fieldNumber: 2)
-    }
-    if self.state != .unspecified {
-      try visitor.visitSingularEnumField(value: self.state, fieldNumber: 3)
-    }
-    if self.paired != false {
-      try visitor.visitSingularBoolField(value: self.paired, fieldNumber: 4)
-    }
-    if !self.os.isEmpty {
-      try visitor.visitSingularStringField(value: self.os, fieldNumber: 5)
-    }
-    if self.swapGuiAndControl != false {
-      try visitor.visitSingularBoolField(value: self.swapGuiAndControl, fieldNumber: 6)
-    }
-    if self.rttMs != 0 {
-      try visitor.visitSingularUInt32Field(value: self.rttMs, fieldNumber: 7)
-    }
-    if self.jumpSlot != 0 {
-      try visitor.visitSingularUInt32Field(value: self.jumpSlot, fieldNumber: 8)
-    }
-    if !self.reportedName.isEmpty {
-      try visitor.visitSingularStringField(value: self.reportedName, fieldNumber: 9)
-    }
-    if self.clipboardOff != false {
-      try visitor.visitSingularBoolField(value: self.clipboardOff, fieldNumber: 10)
-    }
-    if self.filesOff != false {
-      try visitor.visitSingularBoolField(value: self.filesOff, fieldNumber: 11)
-    }
-    if self.screenLocked != false {
-      try visitor.visitSingularBoolField(value: self.screenLocked, fieldNumber: 12)
-    }
-    if self.lockScreenInput != false {
-      try visitor.visitSingularBoolField(value: self.lockScreenInput, fieldNumber: 13)
-    }
-    if self.pointerCaptured != false {
-      try visitor.visitSingularBoolField(value: self.pointerCaptured, fieldNumber: 14)
-    }
-    if self.inputUnavailable != false {
-      try visitor.visitSingularBoolField(value: self.inputUnavailable, fieldNumber: 15)
-    }
-    if self.sharingPaused != false {
-      try visitor.visitSingularBoolField(value: self.sharingPaused, fieldNumber: 16)
+    try withExtendedLifetime(_storage) { (_storage: _StorageClass) in
+      if !_storage._id.isEmpty {
+        try visitor.visitSingularStringField(value: _storage._id, fieldNumber: 1)
+      }
+      if !_storage._name.isEmpty {
+        try visitor.visitSingularStringField(value: _storage._name, fieldNumber: 2)
+      }
+      if _storage._state != .unspecified {
+        try visitor.visitSingularEnumField(value: _storage._state, fieldNumber: 3)
+      }
+      if _storage._paired != false {
+        try visitor.visitSingularBoolField(value: _storage._paired, fieldNumber: 4)
+      }
+      if !_storage._os.isEmpty {
+        try visitor.visitSingularStringField(value: _storage._os, fieldNumber: 5)
+      }
+      if _storage._swapGuiAndControl != false {
+        try visitor.visitSingularBoolField(value: _storage._swapGuiAndControl, fieldNumber: 6)
+      }
+      if _storage._rttMs != 0 {
+        try visitor.visitSingularUInt32Field(value: _storage._rttMs, fieldNumber: 7)
+      }
+      if _storage._jumpSlot != 0 {
+        try visitor.visitSingularUInt32Field(value: _storage._jumpSlot, fieldNumber: 8)
+      }
+      if !_storage._reportedName.isEmpty {
+        try visitor.visitSingularStringField(value: _storage._reportedName, fieldNumber: 9)
+      }
+      if _storage._clipboardOff != false {
+        try visitor.visitSingularBoolField(value: _storage._clipboardOff, fieldNumber: 10)
+      }
+      if _storage._filesOff != false {
+        try visitor.visitSingularBoolField(value: _storage._filesOff, fieldNumber: 11)
+      }
+      if _storage._screenLocked != false {
+        try visitor.visitSingularBoolField(value: _storage._screenLocked, fieldNumber: 12)
+      }
+      if _storage._lockScreenInput != false {
+        try visitor.visitSingularBoolField(value: _storage._lockScreenInput, fieldNumber: 13)
+      }
+      if _storage._pointerCaptured != false {
+        try visitor.visitSingularBoolField(value: _storage._pointerCaptured, fieldNumber: 14)
+      }
+      if _storage._inputUnavailable != false {
+        try visitor.visitSingularBoolField(value: _storage._inputUnavailable, fieldNumber: 15)
+      }
+      if _storage._sharingPaused != false {
+        try visitor.visitSingularBoolField(value: _storage._sharingPaused, fieldNumber: 16)
+      }
+      if _storage._speedPercent != 0 {
+        try visitor.visitSingularUInt32Field(value: _storage._speedPercent, fieldNumber: 17)
+      }
     }
     try unknownFields.traverse(visitor: &visitor)
   }
 
   static func ==(lhs: Inputweave_App_V1_DeviceStatus, rhs: Inputweave_App_V1_DeviceStatus) -> Bool {
-    if lhs.id != rhs.id {return false}
-    if lhs.name != rhs.name {return false}
-    if lhs.state != rhs.state {return false}
-    if lhs.paired != rhs.paired {return false}
-    if lhs.os != rhs.os {return false}
-    if lhs.swapGuiAndControl != rhs.swapGuiAndControl {return false}
-    if lhs.rttMs != rhs.rttMs {return false}
-    if lhs.jumpSlot != rhs.jumpSlot {return false}
-    if lhs.reportedName != rhs.reportedName {return false}
-    if lhs.clipboardOff != rhs.clipboardOff {return false}
-    if lhs.filesOff != rhs.filesOff {return false}
-    if lhs.screenLocked != rhs.screenLocked {return false}
-    if lhs.lockScreenInput != rhs.lockScreenInput {return false}
-    if lhs.pointerCaptured != rhs.pointerCaptured {return false}
-    if lhs.inputUnavailable != rhs.inputUnavailable {return false}
-    if lhs.sharingPaused != rhs.sharingPaused {return false}
+    if lhs._storage !== rhs._storage {
+      let storagesAreEqual: Bool = withExtendedLifetime((lhs._storage, rhs._storage)) { (_args: (_StorageClass, _StorageClass)) in
+        let _storage = _args.0
+        let rhs_storage = _args.1
+        if _storage._id != rhs_storage._id {return false}
+        if _storage._name != rhs_storage._name {return false}
+        if _storage._state != rhs_storage._state {return false}
+        if _storage._paired != rhs_storage._paired {return false}
+        if _storage._os != rhs_storage._os {return false}
+        if _storage._swapGuiAndControl != rhs_storage._swapGuiAndControl {return false}
+        if _storage._rttMs != rhs_storage._rttMs {return false}
+        if _storage._jumpSlot != rhs_storage._jumpSlot {return false}
+        if _storage._reportedName != rhs_storage._reportedName {return false}
+        if _storage._clipboardOff != rhs_storage._clipboardOff {return false}
+        if _storage._filesOff != rhs_storage._filesOff {return false}
+        if _storage._screenLocked != rhs_storage._screenLocked {return false}
+        if _storage._lockScreenInput != rhs_storage._lockScreenInput {return false}
+        if _storage._pointerCaptured != rhs_storage._pointerCaptured {return false}
+        if _storage._inputUnavailable != rhs_storage._inputUnavailable {return false}
+        if _storage._sharingPaused != rhs_storage._sharingPaused {return false}
+        if _storage._speedPercent != rhs_storage._speedPercent {return false}
+        return true
+      }
+      if !storagesAreEqual {return false}
+    }
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }

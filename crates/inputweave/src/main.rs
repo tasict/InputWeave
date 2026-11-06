@@ -178,8 +178,9 @@ enum CtlCommand {
         clear: bool,
     },
     /// Stop sharing the clipboard or files with a device, or share them
-    /// again; without options, show the device. Only this device stops;
-    /// the other one is not told.
+    /// again, or change how fast the cursor moves on it; without options,
+    /// show the device. Only this device changes; the other one is not
+    /// told.
     Device {
         /// A device id as `ctl status` lists it.
         device: String,
@@ -189,6 +190,12 @@ enum CtlCommand {
         /// Send files to it and take its files.
         #[arg(long)]
         files: Option<OnOff>,
+        /// How fast the cursor moves on the device while this one controls
+        /// it, in percent of how the mouse moves it here: 50 to 300, in
+        /// steps of 10; 100 is as here. Relative mouse movements are not
+        /// changed.
+        #[arg(long, value_name = "PERCENT")]
+        speed: Option<u32>,
     },
     /// Show how the cursor crosses edges to other devices, or make it
     /// cross only while a modifier is held.
@@ -1092,15 +1099,33 @@ fn ctl(socket: Option<PathBuf>, command: CtlCommand) -> Result<(), String> {
                 device,
                 clipboard,
                 files,
+                speed,
             } => {
                 let mut client = ctl::Client::connect(&socket).await.map_err(fail)?;
-                let mut status = client.status().await.map_err(fail)?;
+                let mut status = None;
+                if let Some(percent) = speed {
+                    status = Some(
+                        client
+                            .set_device_speed(&device, percent)
+                            .await
+                            .map_err(fail)?,
+                    );
+                }
+                // Whatever goes wrong after the speed was set says so.
+                let done = |e: String| match speed {
+                    Some(percent) => format!("cursor speed set to {percent}%, but {e}"),
+                    None => e,
+                };
                 if clipboard.is_some() || files.is_some() {
-                    let current = status
+                    let now = match status.take() {
+                        Some(status) => status,
+                        None => client.status().await.map_err(fail)?,
+                    };
+                    let current = now
                         .devices
                         .iter()
                         .find(|d| d.id == device)
-                        .ok_or_else(|| format!("no trusted device has id {device:?}"))?;
+                        .ok_or_else(|| done(format!("no trusted device has id {device:?}")))?;
                     let off = |choice: Option<OnOff>, now: bool| match choice {
                         Some(OnOff::On) => false,
                         Some(OnOff::Off) => true,
@@ -1108,11 +1133,17 @@ fn ctl(socket: Option<PathBuf>, command: CtlCommand) -> Result<(), String> {
                     };
                     let clipboard_off = off(clipboard, current.clipboard_off);
                     let files_off = off(files, current.files_off);
-                    status = client
-                        .set_device_sharing(&device, clipboard_off, files_off)
-                        .await
-                        .map_err(fail)?;
+                    status = Some(
+                        client
+                            .set_device_sharing(&device, clipboard_off, files_off)
+                            .await
+                            .map_err(|e| done(fail(e)))?,
+                    );
                 }
+                let status = match status {
+                    Some(status) => status,
+                    None => client.status().await.map_err(fail)?,
+                };
                 print!("{}", ctl::format_status(&status));
             }
             CtlCommand::Edge { modifier } => {

@@ -565,6 +565,17 @@ public sealed class AgentModel : IAsyncDisposable
         }).ConfigureAwait(false));
 
     /// <summary>
+    /// Makes the cursor move faster or slower on another computer while this
+    /// one controls it, in percent of how the mouse moves it here; only this
+    /// computer uses it. Refused with "invalid_speed" and "unknown_device".
+    /// </summary>
+    public async Task SetDeviceSpeedAsync(string deviceId, int percent) =>
+        Apply(await RequestAsync(new ClientMessage
+        {
+            SetDeviceSpeed = new SetDeviceSpeed { DeviceId = deviceId, Percent = (uint)Math.Max(percent, 0) },
+        }).ConfigureAwait(false));
+
+    /// <summary>
     /// Moves computers' desktop origins on the shared canvas. The service
     /// refuses positions that make screens overlap, as a whole.
     /// </summary>

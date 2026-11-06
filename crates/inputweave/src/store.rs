@@ -4,13 +4,16 @@
 //! desktop pictures are kept beside it, in `previews/` (see
 //! `agent::previews`).
 //!
-//! Names this device's user gave other devices are in `[aliases]`, and
-//! the clipboard or files turned off with particular devices in
-//! `[[device_sharing]]`, by device id. Both apply to paired devices and
-//! to those listed in the configuration file (`[[peers]]`) alike, and stay
-//! on this device: other devices are not told. Unpairing a device drops
-//! its entries; a device dropped from the configuration file keeps them
-//! until the file is edited.
+//! Names this device's user gave other devices are in `[aliases]`, how
+//! fast the cursor moves on them (in percent, `iw_core::speed`) in
+//! `[cursor_speed]`, and the clipboard or files turned off with particular
+//! devices in `[[device_sharing]]`, by device id. They apply to paired
+//! devices and to those listed in the configuration file (`[[peers]]`)
+//! alike, stay when a device is paired again (moving with it when it comes
+//! back under another id), and stay on this device: other devices are not
+//! told. Unpairing a device drops its entries, and another device paired
+//! under its id starts without them; a device dropped from the
+//! configuration file keeps them until the file is edited.
 //!
 //! ```toml
 //! layout_version = 7
@@ -52,6 +55,9 @@
 //! [aliases]
 //! win = "Study PC"
 //!
+//! [cursor_speed]
+//! win = 150
+//!
 //! [[device_sharing]]
 //! id = "win"
 //! clipboard_off = true
@@ -63,8 +69,10 @@ use std::io::{self, Write};
 use std::net::SocketAddr;
 use std::path::Path;
 
+use iw_core::speed::CursorSpeed;
 use iw_net::Fingerprint;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
+use tracing::warn;
 
 use crate::agent::{Access, UserFolder};
 use crate::config::{ConfigError, DisplayConfig, PlacementConfig};
@@ -137,6 +145,17 @@ pub struct DevicesFile {
     /// in place of the names the devices give themselves.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub aliases: BTreeMap<String, String>,
+    /// How fast the cursor moves on other devices, by device id, written in
+    /// percent of how the mouse moves it here, as set from the UI. A device
+    /// at the normal speed (100) has no entry; one out of range, as edited
+    /// by hand, is dropped as the file is read.
+    #[serde(
+        default,
+        skip_serializing_if = "BTreeMap::is_empty",
+        serialize_with = "speeds_out",
+        deserialize_with = "speeds_in"
+    )]
+    pub cursor_speed: BTreeMap<String, CursorSpeed>,
     /// Devices this one does not share its clipboard or files with. A
     /// device with both on has no entry.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -308,6 +327,40 @@ fn is_zero(n: &u32) -> bool {
     *n == 0
 }
 
+fn speeds_out<S: Serializer>(
+    speeds: &BTreeMap<String, CursorSpeed>,
+    s: S,
+) -> Result<S::Ok, S::Error> {
+    s.collect_map(speeds.iter().map(|(id, speed)| (id, speed.percent())))
+}
+
+/// Each entry on its own: one that is not a speed, as edited by hand (out of
+/// range, negative, a fraction, text), is dropped with a warning, and the
+/// rest of the file is read as usual.
+fn speeds_in<'de, D: Deserializer<'de>>(d: D) -> Result<BTreeMap<String, CursorSpeed>, D::Error> {
+    // Not a table at all: dropped as a whole, the rest of the file read.
+    let entries = match toml::Value::deserialize(d)? {
+        toml::Value::Table(entries) => entries,
+        other => {
+            warn!(value = %other, "dropping cursor speeds that are not a table");
+            return Ok(BTreeMap::new());
+        }
+    };
+    Ok(entries
+        .into_iter()
+        .filter_map(|(id, value)| {
+            let speed = value
+                .as_integer()
+                .and_then(|n| u32::try_from(n).ok())
+                .and_then(CursorSpeed::from_percent);
+            if speed.is_none() {
+                warn!(%id, %value, "dropping a cursor speed that is not one");
+            }
+            Some((id, speed?))
+        })
+        .collect())
+}
+
 fn fingerprint_out<S: Serializer>(fp: &Fingerprint, s: S) -> Result<S::Ok, S::Error> {
     s.collect_str(fp)
 }
@@ -422,6 +475,7 @@ mod tests {
                 y: 0.0,
             }],
             aliases: [("win".to_owned(), "書房的 PC".to_owned())].into(),
+            cursor_speed: [("win".to_owned(), CursorSpeed::from_percent(150).unwrap())].into(),
             device_sharing: vec![DeviceSharing {
                 id: "win".to_owned(),
                 clipboard_off: true,
@@ -461,6 +515,7 @@ mod tests {
         );
         assert!(!d.swap_gui_and_control);
         assert!(file.aliases.is_empty() && file.device_sharing.is_empty());
+        assert!(file.cursor_speed.is_empty());
         assert!(toml::from_str::<DevicesFile>("[[devices]]\nid = \"x\"\n").is_err());
 
         let text =
@@ -475,5 +530,40 @@ mod tests {
                 files_off: true,
             }]
         );
+    }
+
+    #[test]
+    fn cursor_speeds_are_a_table_by_device_id() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("devices.toml");
+        let mut file = sample();
+        file.save(&path).unwrap();
+        let text = std::fs::read_to_string(&path).unwrap();
+        assert!(text.contains("[cursor_speed]\nwin = 150\n"), "{text}");
+        file.cursor_speed.clear();
+        file.save(&path).unwrap();
+        assert!(
+            !std::fs::read_to_string(&path)
+                .unwrap()
+                .contains("cursor_speed")
+        );
+        assert_eq!(DevicesFile::load(&path).unwrap(), file);
+        // One edited out of range, or into something not a number of
+        // percent, is dropped as the file is read; the rest stays.
+        let file: DevicesFile = toml::from_str(
+            "[cursor_speed]\nwin = 200\nmini = 50\nnas = 155\npc = -10\nmac = 150.0\nlaptop = \"fast\"\n",
+        )
+        .unwrap();
+        let percents: Vec<(&str, u32)> = file
+            .cursor_speed
+            .iter()
+            .map(|(id, speed)| (id.as_str(), speed.percent()))
+            .collect();
+        assert_eq!(percents, [("mini", 50), ("win", 200)]);
+        // Not a table: only it goes.
+        let file: DevicesFile =
+            toml::from_str("cursor_speed = 150\n\n[aliases]\nwin = \"PC\"\n").unwrap();
+        assert!(file.cursor_speed.is_empty());
+        assert_eq!(file.aliases["win"], "PC");
     }
 }

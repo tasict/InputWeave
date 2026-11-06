@@ -3604,6 +3604,187 @@ async fn other_devices_can_be_renamed_on_this_one_only() {
 
 #[cfg(unix)]
 #[tokio::test(flavor = "multi_thread")]
+async fn the_cursor_moves_at_the_speed_chosen_for_a_paired_device() {
+    let dir = tempfile::tempdir().unwrap();
+    let socket = dir.path().join("agent.sock");
+    let file = dir.path().join("devices.toml");
+    let key = dir.path().join("identity");
+    let spec = mac();
+    let options = || Options {
+        ipc_socket: Some(socket.clone()),
+        devices_file: Some(file.clone()),
+        ..Options::default()
+    };
+    let win = unpaired(&win(), Identity::generate().unwrap(), None).await;
+    let mac = start_with(
+        &spec,
+        Identity::load_or_generate(&key).unwrap(),
+        &[],
+        &[],
+        options(),
+    )
+    .await;
+    pair(&mac, &win).await;
+    connected(&mac, "win").await;
+    assert_eq!(mac.agent.status().device("win").unwrap().cursor_speed, 100);
+
+    // From the command line, as a user would.
+    let output = run_ctl(&socket, &["device", "win", "--speed", "200"]).await;
+    assert!(output.status.success(), "ctl failed: {output:?}");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("cursor speed 200%"), "{stdout}");
+    assert_eq!(mac.agent.status().device("win").unwrap().cursor_speed, 200);
+    // The PC itself is not told.
+    assert_eq!(win.agent.status().device("mac").unwrap().cursor_speed, 100);
+
+    // Unarranged, the PC is right of the Mac, tops level. Of the 5 that
+    // cross, 1 is on the Mac, as the mouse moves; the other 4 go twice as
+    // far on the PC, as everything after.
+    motion(&mac, (1511.0, 500.0), (5.0, 0.0));
+    wait_injected(&win, Emulated::MoveTo(Point::new(8.0, 500.0))).await;
+    motion(&mac, (0.0, 0.0), (10.0, -3.0));
+    wait_injected(&win, Emulated::MoveTo(Point::new(28.0, 494.0))).await;
+
+    // Over IPC, as the apps do; only speeds the apps offer are taken.
+    let mut client = inputweave::ctl::Client::connect(&socket).await.unwrap();
+    let status = client.set_device_speed("win", 150).await.unwrap();
+    let pc = status.devices.iter().find(|d| d.id == "win").unwrap();
+    assert_eq!(pc.speed_percent, 150);
+    for wrong in [0, 40, 155, 310] {
+        assert_eq!(
+            refusal(client.set_device_speed("win", wrong).await),
+            "invalid_speed",
+            "{wrong}"
+        );
+    }
+    // Not this device, nor one it does not trust.
+    assert_eq!(
+        refusal(client.set_device_speed("mac", 150).await),
+        "unknown_device"
+    );
+    assert_eq!(
+        refusal(client.set_device_speed("ghost", 150).await),
+        "unknown_device"
+    );
+    let output = run_ctl(&socket, &["device", "win", "--speed", "55"]).await;
+    assert!(!output.status.success(), "{output:?}");
+    assert!(
+        String::from_utf8_lossy(&output.stderr).contains("invalid_speed"),
+        "{output:?}"
+    );
+    assert_eq!(mac.agent.status().device("win").unwrap().cursor_speed, 150);
+    // 1.5 times as far from (28, 494).
+    motion(&mac, (0.0, 0.0), (4.0, 2.0));
+    wait_injected(&win, Emulated::MoveTo(Point::new(34.0, 497.0))).await;
+    drop(client);
+    mac.agent.shutdown().await;
+
+    // Kept across a restart.
+    let mac = start_with(
+        &spec,
+        Identity::load_or_generate(&key).unwrap(),
+        &[],
+        &[],
+        options(),
+    )
+    .await;
+    assert_eq!(mac.agent.status().device("win").unwrap().cursor_speed, 150);
+    connected(&mac, "win").await;
+    let output = run_ctl(&socket, &["status"]).await;
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("cursor speed 150%"), "{stdout}");
+
+    // Pairing again with the same device keeps it.
+    pair(&mac, &win).await;
+    let status = connected(&mac, "win").await;
+    assert_eq!(status.device("win").unwrap().cursor_speed, 150);
+
+    // Gone with the pairing: paired again, the PC starts at the normal speed.
+    mac.agent.unpair("win").unwrap();
+    wait_status(&mac, |s| s.device("win").is_none()).await;
+    let saved = inputweave::store::DevicesFile::load(&file).unwrap();
+    assert!(saved.devices.is_empty() && saved.cursor_speed.is_empty());
+    pair(&mac, &win).await;
+    let status = connected(&mac, "win").await;
+    assert_eq!(status.device("win").unwrap().cursor_speed, 100);
+    let output = run_ctl(&socket, &["status"]).await;
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(!stdout.contains("cursor speed"), "{stdout}");
+
+    mac.agent.shutdown().await;
+    win.agent.shutdown().await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_device_in_the_configuration_file_takes_a_cursor_speed_too() {
+    let nodes = desk(&[mac(), win()]).await;
+    let (mac, win) = (&nodes[0], &nodes[1]);
+    assert_eq!(mac.agent.status().device("win").unwrap().cursor_speed, 100);
+    mac_enters_win(mac, win).await;
+    mac.agent.set_device_speed("win", 50).unwrap();
+    assert!(matches!(
+        mac.agent.set_device_speed("win", 45),
+        Err(agent::DeviceError::InvalidSpeed)
+    ));
+    assert!(matches!(
+        mac.agent.set_device_speed("ghost", 50),
+        Err(agent::DeviceError::Unknown(_))
+    ));
+    wait_status(mac, |s| {
+        s.device("win").is_some_and(|d| d.cursor_speed == 50)
+    })
+    .await;
+    // Half as far on the PC, from (4, 900).
+    motion(mac, (0.0, 0.0), (10.0, 6.0));
+    wait_injected(win, Emulated::MoveTo(Point::new(9.0, 903.0))).await;
+
+    for node in nodes {
+        node.agent.shutdown().await;
+    }
+}
+
+#[cfg(unix)]
+#[tokio::test(flavor = "multi_thread")]
+async fn changes_to_a_device_from_two_apps_at_once_are_all_answered() {
+    let dir = tempfile::tempdir().unwrap();
+    let socket = dir.path().join("agent.sock");
+    let nodes = desk_with(&[mac(), win()], ipc_on_mac(&socket)).await;
+    let mac = &nodes[0];
+    let mut one = inputweave::ctl::Client::connect(&socket).await.unwrap();
+    let mut other = inputweave::ctl::Client::connect(&socket).await.unwrap();
+    // Each change may be replaced by the other one before the status shows
+    // it; neither waits for its own value, so neither times out.
+    for round in 0..5 {
+        let (a, b) = tokio::join!(
+            one.set_device_sharing("win", round % 2 == 0, false),
+            other.set_device_sharing("win", false, round % 2 == 0)
+        );
+        a.unwrap();
+        b.unwrap();
+        let (a, b) = tokio::join!(
+            one.set_device_speed("win", 150),
+            other.set_device_speed("win", 200)
+        );
+        a.unwrap();
+        b.unwrap();
+        let (a, b) = tokio::join!(
+            one.rename_device("win", "Studio PC"),
+            other.rename_device("win", "Office PC")
+        );
+        a.unwrap();
+        b.unwrap();
+    }
+    let pc = mac.agent.status().device("win").unwrap().clone();
+    assert!([150, 200].contains(&pc.cursor_speed));
+    assert!(["Studio PC", "Office PC"].contains(&pc.name.as_str()));
+
+    for node in nodes {
+        node.agent.shutdown().await;
+    }
+}
+
+#[cfg(unix)]
+#[tokio::test(flavor = "multi_thread")]
 async fn identifying_the_screens_reaches_every_device_once_a_second() {
     use iw_proto::app::v1::{AgentMessage, agent_message};
 

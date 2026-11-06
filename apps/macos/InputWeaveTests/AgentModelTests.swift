@@ -260,6 +260,18 @@ final class AgentModelTests: XCTestCase {
         XCTAssertEqual(off, "unknown_device")
         try await model.setDeviceSharing("pc", clipboardOff: false, filesOff: false)
         XCTAssertFalse(model.filesOff("pc"))
+
+        // The cursor speed, here for a computer from the configuration file.
+        XCTAssertEqual(CursorSpeed.shown(model.device("pc"), thisDevice: false), 100)
+        try await model.setDeviceSpeed("pc", percent: 150)
+        XCTAssertEqual(model.device("pc")?.speedPercent, 150)
+        let invalid = await refusal { try await model.setDeviceSpeed("pc", percent: 155) }
+        XCTAssertEqual(invalid, "invalid_speed")
+        let unknown = await refusal { try await model.setDeviceSpeed("ghost", percent: 150) }
+        XCTAssertEqual(unknown, "unknown_device")
+        XCTAssertEqual(model.device("pc")?.speedPercent, 150)
+        try await model.setDeviceSpeed("pc", percent: 100)
+        XCTAssertEqual(model.device("pc")?.speedPercent, 100)
     }
 
     func testHotkeysJumpNumbersAndSwitchModifier() async throws {

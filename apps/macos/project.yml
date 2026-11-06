@@ -130,6 +130,7 @@ targets:
       - path: InputWeave/Panel/PanelText.swift
       - path: InputWeave/Settings/ConnectionText.swift
       - path: InputWeave/Settings/LoginWindowText.swift
+      - path: InputWeave/Settings/CursorSpeed.swift
       - path: InputWeave/Support/ProblemWatch.swift
       - path: InputWeave/Support/LaunchReveal.swift
       - path: InputWeave/Support/OutdatedService.swift

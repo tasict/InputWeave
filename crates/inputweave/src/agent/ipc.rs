@@ -53,6 +53,9 @@ const ACCEPT_RETRY: Duration = Duration::from_millis(100);
 pub(crate) struct IpcContext {
     pub(crate) engine: mpsc::UnboundedSender<EngineEvent>,
     pub(crate) status: watch::Receiver<Status>,
+    /// The generation of the trusted devices the status shows, updated
+    /// after it (`Directory::peers_now`).
+    pub(crate) peers_applied: watch::Receiver<u64>,
     pub(crate) arrangement: watch::Receiver<Arrangement>,
     /// Where to show the cursor, each time the user shakes the mouse.
     pub(crate) located: watch::Receiver<Option<Point>>,
@@ -377,6 +380,19 @@ async fn paste_clipboard_files(
         }
     }
     response::Result::Status(ctx.status.borrow().to_proto())
+}
+
+/// The status once the engine has the trusted devices as of a change to
+/// them (`Directory::peers_now`), whatever came after it: a later change
+/// from another client may already have replaced this one, so the status
+/// is not waited on for the value asked for. The status that shows those
+/// devices was sent before.
+async fn devices_applied(ctx: &IpcContext, generation: u64) -> response::Result {
+    let mut applied = ctx.peers_applied.clone();
+    match tokio::time::timeout(APPLY_TIMEOUT, applied.wait_for(|g| *g >= generation)).await {
+        Ok(Ok(_)) => response::Result::Status(ctx.status.borrow().to_proto()),
+        _ => error("timeout", "the agent did not apply the change in time"),
+    }
 }
 
 /// The next drag event; none when this client fell behind and missed
@@ -739,54 +755,33 @@ async fn respond(
             }
         }
         Command::SetDeviceOptions(set) => {
-            if let Err(e) = ctx
+            match ctx
                 .directory
                 .set_swap(&set.device_id, set.swap_gui_and_control)
             {
-                return error(e.code(), &e.to_string());
-            }
-            let mut status = ctx.status.clone();
-            let applied = status.wait_for(|s| {
-                s.device(&set.device_id)
-                    .is_some_and(|d| d.swap_gui_and_control == set.swap_gui_and_control)
-            });
-            match tokio::time::timeout(APPLY_TIMEOUT, applied).await {
-                Ok(Ok(current)) => response::Result::Status(current.to_proto()),
-                _ => error("timeout", "the agent did not apply the change in time"),
+                Ok(generation) => devices_applied(ctx, generation).await,
+                Err(e) => error(e.code(), &e.to_string()),
             }
         }
         Command::RenameDevice(rename) => {
-            if let Err(e) = ctx.directory.set_alias(&rename.device_id, &rename.name) {
-                return error(e.code(), &e.to_string());
-            }
-            // The name shown now: the one given, or the device's own.
-            let Some(name) = ctx.directory.peer(&rename.device_id).map(|p| p.name) else {
-                return error("unknown_device", "the device is no longer trusted");
-            };
-            let mut status = ctx.status.clone();
-            let applied =
-                status.wait_for(|s| s.device(&rename.device_id).is_some_and(|d| d.name == name));
-            match tokio::time::timeout(APPLY_TIMEOUT, applied).await {
-                Ok(Ok(current)) => response::Result::Status(current.to_proto()),
-                _ => error("timeout", "the agent did not apply the change in time"),
+            match ctx.directory.set_alias(&rename.device_id, &rename.name) {
+                Ok(generation) => devices_applied(ctx, generation).await,
+                Err(e) => error(e.code(), &e.to_string()),
             }
         }
         Command::SetDeviceSharing(set) => {
-            if let Err(e) =
-                ctx.directory
-                    .set_sharing(&set.device_id, set.clipboard_off, set.files_off)
+            match ctx
+                .directory
+                .set_sharing(&set.device_id, set.clipboard_off, set.files_off)
             {
-                return error(e.code(), &e.to_string());
+                Ok(generation) => devices_applied(ctx, generation).await,
+                Err(e) => error(e.code(), &e.to_string()),
             }
-            let mut status = ctx.status.clone();
-            let applied = status.wait_for(|s| {
-                s.device(&set.device_id).is_some_and(|d| {
-                    d.clipboard_off == set.clipboard_off && d.files_off == set.files_off
-                })
-            });
-            match tokio::time::timeout(APPLY_TIMEOUT, applied).await {
-                Ok(Ok(current)) => response::Result::Status(current.to_proto()),
-                _ => error("timeout", "the agent did not apply the change in time"),
+        }
+        Command::SetDeviceSpeed(set) => {
+            match ctx.directory.set_speed(&set.device_id, set.percent) {
+                Ok(generation) => devices_applied(ctx, generation).await,
+                Err(e) => error(e.code(), &e.to_string()),
             }
         }
         Command::SetLoginWindowAccess(set) => {

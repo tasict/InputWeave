@@ -131,7 +131,7 @@ final class Snapshots: XCTestCase {
 
     static func sampleModel(
         controlling: Bool = false, missing: Bool = false, transfers: Bool = false, locked: Bool = false,
-        pictures: Bool = false, folders: Bool = false, renamed: Bool = false,
+        pictures: Bool = false, folders: Bool = false, renamed: Bool = false, speed: UInt32 = 100,
         hotkeys: Hotkeys = ShortcutText.defaults, switchModifier: SwitchModifier = .none,
         license: LicenseRecord = LicenseRecord()
     ) -> AgentModel {
@@ -154,6 +154,7 @@ final class Snapshots: XCTestCase {
         pc.rttMs = 3
         pc.reportedName = pc.name
         pc.jumpSlot = 3
+        pc.speedPercent = speed
         if renamed {
             // Named on this Mac, with the clipboard turned off with it.
             pc.name = "Studio PC"
@@ -163,6 +164,7 @@ final class Snapshots: XCTestCase {
         mini.id = "mini"; mini.name = "Mac mini"; mini.os = "macos"; mini.paired = true; mini.state = .offline
         mini.reportedName = mini.name
         mini.jumpSlot = 2
+        mini.speedPercent = 100
         status.devices = [pc, mini]
         var accessibility = Inputweave_App_V1_PermissionStatus()
         accessibility.permission = .accessibility
@@ -276,6 +278,18 @@ final class Snapshots: XCTestCase {
         }
         try render("arrangement-renamed-dark", size: CGSize(width: 900, height: 640), dark: true) {
             ArrangementPage(selection: "pc").environment(Self.sampleModel(renamed: true)).environment(service)
+        }
+    }
+
+    /// Another computer the cursor moves faster on: the cursor speed row
+    /// with Reset, between the screens and the sharing switches.
+    func testCursorSpeed() throws {
+        let service = BackgroundService()
+        try render("arrangement-speed", size: CGSize(width: 900, height: 760)) {
+            ArrangementPage(selection: "pc").environment(Self.sampleModel(speed: 150)).environment(service)
+        }
+        try render("arrangement-speed-dark", size: CGSize(width: 900, height: 760), dark: true) {
+            ArrangementPage(selection: "pc").environment(Self.sampleModel(speed: 150)).environment(service)
         }
     }
 

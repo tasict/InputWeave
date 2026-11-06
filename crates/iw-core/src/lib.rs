@@ -14,6 +14,7 @@ pub mod receiver;
 pub mod router;
 pub mod safety;
 pub mod shake;
+pub mod speed;
 
 #[cfg(test)]
 mod test_support;

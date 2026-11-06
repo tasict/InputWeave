@@ -215,6 +215,9 @@ pub const INSPECTOR_CALLS_ITSELF: &str = "InspectorCallsItself";
 pub const INSPECTOR_SYNC_CLIPBOARD: &str = "InspectorSyncClipboard";
 pub const INSPECTOR_SEND_FILES: &str = "InspectorSendFiles";
 pub const INSPECTOR_SHARING_HINT: &str = "InspectorSharingHint";
+pub const INSPECTOR_CURSOR_SPEED: &str = "InspectorCursorSpeed";
+pub const INSPECTOR_CURSOR_SPEED_HINT: &str = "InspectorCursorSpeedHint";
+pub const INSPECTOR_CURSOR_SPEED_RESET: &str = "InspectorCursorSpeedReset";
 pub const DEVICE_FILES_OFF: &str = "DeviceFilesOff";
 pub const DEVICE_FILES_OFF_SHORT: &str = "DeviceFilesOffShort";
 pub const TROUBLE_PROBLEMS: &str = "TroubleProblems";
@@ -670,6 +673,9 @@ pub const ALL: &[&str] = &[
     INSPECTOR_SYNC_CLIPBOARD,
     INSPECTOR_SEND_FILES,
     INSPECTOR_SHARING_HINT,
+    INSPECTOR_CURSOR_SPEED,
+    INSPECTOR_CURSOR_SPEED_HINT,
+    INSPECTOR_CURSOR_SPEED_RESET,
     DEVICE_FILES_OFF,
     DEVICE_FILES_OFF_SHORT,
     TROUBLE_PROBLEMS,

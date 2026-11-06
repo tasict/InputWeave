@@ -57,6 +57,7 @@ fn gtk_behaviour() {
     a_closed_code_window_comes_back(&ui);
     computers_move_snap_and_spring_back(&ui);
     shortcuts_are_recorded_and_refusals_said(&ui);
+    the_cursor_speed_row_sends_and_follows_the_agent(&ui);
     synced_is_said_only_for_changes_while_shown(&ui);
     rows_show_ampersands_and_angle_brackets_as_they_are(&ui);
     the_license_page_follows_the_agent_and_sends_keys(&ui);
@@ -707,6 +708,286 @@ fn the_inspector_updates_in_place(ui: &Rc<Ui>) {
     inspector.update(&model, Some("pc"));
     assert_ne!(inspector.status_row().unwrap(), status);
     window.destroy();
+}
+
+/// The cursor speed row shows the agent's speed, sends the one chosen as
+/// the pointer lets go (never while it is held) or once the keys stop, goes
+/// back to the agent's when refused, and is offered for another computer
+/// whose agent knows speeds.
+fn the_cursor_speed_row_sends_and_follows_the_agent(ui: &Rc<Ui>) {
+    use inputweave_app_core::cursor_speed;
+    use inputweave_app_core::proto::SetDeviceSpeed;
+    ui.agent.record_fixed();
+    let inspector = Inspector::new(ui);
+    // Shorter than the inspector, so its page scrolls.
+    let window = adw::Window::builder()
+        .content(inspector.widget())
+        .title("cursor speed test")
+        .default_width(600)
+        .default_height(600)
+        .build();
+    window.present();
+    settle();
+    let mut model = sample::snapshot(SystemTime::now());
+    model.status.devices[0].speed_percent = 150;
+    inspector.update(&model, Some("mac"));
+    settle();
+    let scale = inspector.speed_scale().expect("a speed for the Mac mini");
+    assert_eq!(scale.value(), 150.0);
+    assert_eq!(inspector.speed_value(), Some(("150%".to_owned(), true)));
+    let speed = |percent| {
+        Command::SetDeviceSpeed(SetDeviceSpeed {
+            device_id: "mac".into(),
+            percent,
+        })
+    };
+
+    // Moved by the keys: in steps of 10, and sent once they stop.
+    let before = ui.agent.sent().len();
+    scale.emit_by_name::<bool>("change-value", &[&gtk::ScrollType::Jump, &203.0]);
+    assert_eq!(scale.value(), 200.0);
+    assert_eq!(inspector.speed_value(), Some(("200%".to_owned(), true)));
+    assert_eq!(ui.agent.sent().len(), before, "not while it moves");
+    settle();
+    settle();
+    assert_eq!(ui.agent.sent()[before..], [speed(200)]);
+    model.status.devices[0].speed_percent = 200;
+    inspector.update(&model, Some("mac"));
+    assert_eq!(scale.value(), 200.0);
+
+    // Dragged: nothing goes while it is held, however long it rests there;
+    // it goes as the pointer lets go.
+    let before = ui.agent.sent().len();
+    inspector.speed_pointer(true);
+    scale.emit_by_name::<bool>("change-value", &[&gtk::ScrollType::Jump, &250.0]);
+    settle();
+    settle();
+    inspector.update(&model, Some("mac"));
+    assert_eq!(inspector.speed_value(), Some(("250%".to_owned(), true)));
+    assert_eq!(ui.agent.sent().len(), before, "not while it is held");
+    inspector.speed_pointer(false);
+    settle();
+    assert_eq!(ui.agent.sent()[before..], [speed(250)]);
+    model.status.devices[0].speed_percent = 250;
+    inspector.update(&model, Some("mac"));
+    assert_eq!(scale.value(), 250.0);
+
+    // A real drag on the X server: the scale's own gestures leave the
+    // press and the release to be seen.
+    let speeds = |from: usize| -> Vec<u32> {
+        ui.agent.sent()[from..]
+            .iter()
+            .filter_map(|c| match c {
+                Command::SetDeviceSpeed(s) => Some(s.percent),
+                _ => None,
+            })
+            .collect()
+    };
+    let (x0, x1, y) = drag_points(&window, &scale);
+    let before = ui.agent.sent().len();
+    xdotool(&[
+        "mousemove",
+        &x0.to_string(),
+        &y.to_string(),
+        "mousedown",
+        "1",
+    ]);
+    settle();
+    xdotool(&["mousemove", &x1.to_string(), &y.to_string()]);
+    settle();
+    settle();
+    assert!(speeds(before).is_empty(), "not while it is held");
+    let dragged = cursor_speed::snapped(scale.value());
+    assert!(dragged > 250, "dragged to {dragged}");
+    xdotool(&["mouseup", "1"]);
+    settle();
+    assert_eq!(speeds(before), [dragged]);
+    model.status.devices[0].speed_percent = dragged;
+    inspector.update(&model, Some("mac"));
+    // Back to 250 the same way, for what follows.
+    let before = ui.agent.sent().len();
+    let (x250, _, _) = drag_points(&window, &scale);
+    xdotool(&["mousemove", &x250.to_string(), &y.to_string(), "click", "1"]);
+    settle();
+    assert_eq!(speeds(before), [cursor_speed::snapped(scale.value())]);
+    model.status.devices[0].speed_percent = cursor_speed::snapped(scale.value());
+    inspector.update(&model, Some("mac"));
+    scale.emit_by_name::<bool>("change-value", &[&gtk::ScrollType::Jump, &250.0]);
+    settle();
+    settle();
+    model.status.devices[0].speed_percent = 250;
+    inspector.update(&model, Some("mac"));
+    assert_eq!(scale.value(), 250.0);
+
+    // The wheel over the slider scrolls the page and leaves the speed.
+    let page = scale
+        .ancestor(gtk::ScrolledWindow::static_type())
+        .and_downcast::<gtk::ScrolledWindow>()
+        .expect("the page scrolls")
+        .vadjustment();
+    assert!(
+        page.upper() > page.page_size(),
+        "the page is taller than the window"
+    );
+    let (x, _, y) = drag_points(&window, &scale);
+    let before = ui.agent.sent().len();
+    let top = page.value();
+    xdotool(&["mousemove", &x.to_string(), &y.to_string()]);
+    settle();
+    xdotool(&["click", "--repeat", "3", "5"]);
+    settle();
+    settle();
+    assert_eq!(scale.value(), 250.0, "the wheel left the speed");
+    assert!(speeds(before).is_empty(), "and sent nothing");
+    assert!(page.value() > top, "the page scrolled");
+    page.set_value(top);
+    settle();
+
+    // Refused: back to what the agent has.
+    ui.agent.refuse_next("invalid_speed");
+    scale.emit_by_name::<bool>("change-value", &[&gtk::ScrollType::Jump, &120.0]);
+    assert_eq!(inspector.speed_value(), Some(("120%".to_owned(), true)));
+    settle();
+    settle();
+    inspector.update(&model, Some("mac"));
+    assert_eq!(scale.value(), 250.0);
+    assert_eq!(inspector.speed_value(), Some(("250%".to_owned(), true)));
+
+    // Reset goes at once.
+    let before = ui.agent.sent().len();
+    inspector.speed_reset().unwrap().emit_clicked();
+    assert_eq!(inspector.speed_value(), Some(("100%".to_owned(), false)));
+    settle();
+    assert_eq!(ui.agent.sent()[before..], [speed(100)]);
+    model.status.devices[0].speed_percent = 100;
+    inspector.update(&model, Some("mac"));
+    assert_eq!(inspector.speed_value(), Some(("100%".to_owned(), false)));
+
+    // Made again for the same computer (another screen came) while what
+    // the keys chose waits: the new row shows it, and it goes once.
+    let sent_speeds = |from: usize| -> Vec<(String, u32)> {
+        ui.agent.sent()[from..]
+            .iter()
+            .filter_map(|c| match c {
+                Command::SetDeviceSpeed(s) => Some((s.device_id.clone(), s.percent)),
+                _ => None,
+            })
+            .collect()
+    };
+    let before = ui.agent.sent().len();
+    scale.emit_by_name::<bool>("change-value", &[&gtk::ScrollType::Jump, &140.0]);
+    let mut rebuilt = model.clone();
+    let mac = std::sync::Arc::make_mut(&mut rebuilt.arrangement)
+        .devices
+        .iter_mut()
+        .find(|d| d.id == "mac")
+        .expect("the Mac mini is arranged");
+    let mut screen = mac.screens[0].clone();
+    screen.id = "second".into();
+    mac.screens.push(screen);
+    inspector.update(&rebuilt, Some("mac"));
+    let scale = inspector.speed_scale().expect("made again");
+    assert_eq!(inspector.speed_value(), Some(("140%".to_owned(), true)));
+    settle();
+    settle();
+    assert_eq!(sent_speeds(before), [("mac".to_owned(), 140)]);
+    rebuilt.status.devices[0].speed_percent = 140;
+    inspector.update(&rebuilt, Some("mac"));
+
+    // Made again while the slider is held: that ends the drag, and what it
+    // was held at goes once; letting go of the new slider sends nothing more.
+    let before = ui.agent.sent().len();
+    inspector.speed_pointer(true);
+    scale.emit_by_name::<bool>("change-value", &[&gtk::ScrollType::Jump, &170.0]);
+    let mac = std::sync::Arc::make_mut(&mut rebuilt.arrangement)
+        .devices
+        .iter_mut()
+        .find(|d| d.id == "mac")
+        .unwrap();
+    let mut screen = mac.screens[0].clone();
+    screen.id = "third".into();
+    mac.screens.push(screen);
+    inspector.update(&rebuilt, Some("mac"));
+    assert_eq!(sent_speeds(before), [("mac".to_owned(), 170)]);
+    let scale = inspector.speed_scale().expect("made again");
+    inspector.speed_pointer(false);
+    settle();
+    assert_eq!(sent_speeds(before), [("mac".to_owned(), 170)]);
+    rebuilt.status.devices[0].speed_percent = 170;
+    inspector.update(&rebuilt, Some("mac"));
+
+    // Another computer shown while a choice waits: it goes at once, for the
+    // computer it was chosen for.
+    let before = ui.agent.sent().len();
+    scale.emit_by_name::<bool>("change-value", &[&gtk::ScrollType::Jump, &160.0]);
+    inspector.update(&rebuilt, Some("pc"));
+    assert_eq!(sent_speeds(before), [("mac".to_owned(), 160)]);
+    settle();
+    settle();
+    assert_eq!(sent_speeds(before), [("mac".to_owned(), 160)]);
+
+    // Unpaired while a choice waits, it goes nowhere; paired again, the
+    // agent's speed shows.
+    inspector.update(&rebuilt, Some("mac"));
+    let scale = inspector.speed_scale().unwrap();
+    let before = ui.agent.sent().len();
+    scale.emit_by_name::<bool>("change-value", &[&gtk::ScrollType::Jump, &210.0]);
+    let mut unpaired = rebuilt.clone();
+    unpaired.status.devices.retain(|d| d.id != "mac");
+    inspector.update(&unpaired, Some("pc"));
+    settle();
+    settle();
+    assert_eq!(sent_speeds(before), []);
+    inspector.update(&rebuilt, Some("mac"));
+    assert_eq!(inspector.speed_value(), Some(("170%".to_owned(), true)));
+
+    // A computer in the configuration file has one too; an agent from
+    // before speeds and this computer have none.
+    model.status.devices[0].paired = false;
+    inspector.update(&model, Some("mac"));
+    assert!(inspector.speed_scale().is_some());
+    model.status.devices[0].speed_percent = 0;
+    inspector.update(&model, Some("mac"));
+    assert!(inspector.speed_scale().is_none());
+    model.status.devices[0].speed_percent = 100;
+    inspector.update(&model, Some("me"));
+    assert!(inspector.speed_scale().is_none());
+    window.destroy();
+}
+
+/// Runs xdotool on this display.
+fn xdotool(args: &[&str]) -> String {
+    let output = std::process::Command::new("xdotool")
+        .args(args)
+        .output()
+        .expect("xdotool, as in the Linux container");
+    assert!(output.status.success(), "xdotool {args:?}: {output:?}");
+    String::from_utf8_lossy(&output.stdout).into_owned()
+}
+
+/// Where on the screen the scale's 150% and 280% are, and its middle's y:
+/// the window's place from the X server, the scale's within it from GTK.
+fn drag_points(window: &adw::Window, scale: &gtk::Scale) -> (i32, i32, i32) {
+    let title = window.title().expect("a title to find it by");
+    let found = xdotool(&["search", "--sync", "--onlyvisible", "--name", &title]);
+    let xid = found.lines().last().expect("the window").to_owned();
+    let geometry = xdotool(&["getwindowgeometry", "--shell", &xid]);
+    let field = |name: &str| -> i32 {
+        geometry
+            .lines()
+            .find_map(|l| l.strip_prefix(name)?.strip_prefix('='))
+            .and_then(|v| v.parse().ok())
+            .unwrap_or_else(|| panic!("no {name} in {geometry}"))
+    };
+    let bounds = scale.compute_bounds(window).expect("the scale is shown");
+    // The slider's middle keeps about its half width from either end.
+    let inset = 10.0;
+    let at = |percent: f32| {
+        let fraction = (percent - 50.0) / 250.0;
+        field("X") + (bounds.x() + inset + (bounds.width() - 2.0 * inset) * fraction) as i32
+    };
+    let y = field("Y") + (bounds.y() + bounds.height() / 2.0) as i32;
+    (at(150.0), at(280.0), y)
 }
 
 fn pairing_codes_spread_and_wrong_ones_clear(ui: &Rc<Ui>) {

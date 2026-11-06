@@ -1,6 +1,6 @@
 //! The inspector beside the device lists (Devices, Arrangement): one
-//! computer's name, system, status and screens, what it shares with this
-//! one, the key swap, and removing it.
+//! computer's name, system, status and screens, how fast the cursor moves
+//! on it, what it shares with this one, the key swap, and removing it.
 //!
 //! Its rows are made again only when what they are changes (another
 //! device, its screens, whether it is paired); otherwise every model
@@ -9,16 +9,20 @@
 
 use std::cell::{Cell, RefCell};
 use std::rc::Rc;
+use std::time::Duration;
 
 use adw::prelude::*;
+use gtk::glib;
+use inputweave_app_core::cursor_speed::{self, Draft};
 use inputweave_app_core::proto::{
-    RenameDevice, SetDeviceOptions, SetDeviceSharing, Unpair, client_message::Command,
+    RenameDevice, SetDeviceOptions, SetDeviceSharing, SetDeviceSpeed, Unpair,
+    client_message::Command,
 };
 use inputweave_app_core::snapshot::Snapshot;
 use inputweave_app_core::text::keys;
 use inputweave_app_core::{device_text, ui};
 
-use super::{EntrySync, Quiet, set_subtitle, set_switch};
+use super::{EntrySync, Quiet, row_button, set_subtitle, set_switch, set_text, value_label};
 use crate::strings::{t, tr};
 use crate::ui::Ui;
 
@@ -31,9 +35,212 @@ struct Rows {
     /// The name could not be changed: the group says so until the next try.
     name_refused: Rc<Cell<bool>>,
     status: adw::ActionRow,
+    speed: Option<SpeedRow>,
     clipboard: Option<adw::SwitchRow>,
     files: Option<adw::SwitchRow>,
     swap: Option<adw::SwitchRow>,
+}
+
+/// How long the keys must leave the slider alone before the speed it shows
+/// is sent.
+const SPEED_SETTLE: Duration = Duration::from_millis(300);
+
+/// The cursor speed row of another computer: a slider from 50% to 300% in
+/// steps of 10, the speed and Reset beside its title, and what it does
+/// under it. The speed under the hand is shown until the agent answers for
+/// it; then the agent's again, so a refused one goes back. A speed is sent
+/// as the pointer lets go of the slider, or once the keys have left it
+/// alone for a moment; never while it is held.
+struct SpeedRow {
+    scale: gtk::Scale,
+    value: gtk::Label,
+    reset: gtk::Button,
+    description: gtk::Label,
+    state: SpeedState,
+}
+
+/// What the speed row's handlers share with it.
+#[derive(Clone)]
+struct SpeedState {
+    ui: std::rc::Weak<Ui>,
+    /// The computer the row is for.
+    device_id: Rc<str>,
+    quiet: Quiet,
+    draft: Rc<Cell<Draft>>,
+    /// The agent's speed for it.
+    agent: Rc<Cell<u32>>,
+    /// Sends a speed chosen with the keys once they have stopped.
+    pending: Rc<RefCell<Option<glib::SourceId>>>,
+}
+
+impl SpeedState {
+    fn change<R>(&self, f: impl FnOnce(&mut Draft, u32) -> R) -> R {
+        let mut draft = self.draft.get();
+        let result = f(&mut draft, self.agent.get());
+        self.draft.set(draft);
+        result
+    }
+
+    /// Stops a speed chosen with the keys from going; whether one was
+    /// waiting.
+    fn cancel_pending(&self) -> bool {
+        match self.pending.borrow_mut().take() {
+            Some(source) => {
+                source.remove();
+                true
+            }
+            None => false,
+        }
+    }
+
+    /// Sends `percent` now; once the agent answers, either way, the row
+    /// shows the agent's speed again (the refresh after every command).
+    fn send(&self, percent: u32) {
+        let Some(ui) = self.ui.upgrade() else { return };
+        let number = self.change(|draft, _| draft.sending(percent));
+        let draft = self.draft.clone();
+        ui.command_then(
+            Command::SetDeviceSpeed(SetDeviceSpeed {
+                device_id: self.device_id.to_string(),
+                percent,
+            }),
+            move |result| {
+                let mut now = draft.get();
+                now.answered(number);
+                draft.set(now);
+                result.is_ok()
+            },
+        );
+    }
+
+    /// The row goes away for good (another computer is shown): what was
+    /// chosen for this one and not sent yet, waiting or still held, goes
+    /// now.
+    fn flush(&self) {
+        let waiting = self.cancel_pending();
+        if (waiting || self.draft.get().editing())
+            && let Some(percent) = self.change(|draft, agent| draft.ended(agent))
+        {
+            self.send(percent);
+        }
+    }
+
+    /// The slider is made again while held: the release may go to the old
+    /// one, so the drag ends here, and the speed it was held at goes.
+    fn end_drag(&self) {
+        if self.draft.get().editing()
+            && let Some(percent) = self.change(|draft, agent| draft.ended(agent))
+        {
+            self.send(percent);
+        }
+    }
+
+    /// Sends `percent` once the slider has been left alone for a moment.
+    fn send_later(&self, percent: u32) {
+        self.cancel_pending();
+        let state = self.clone();
+        let source = glib::timeout_add_local_once(SPEED_SETTLE, move || {
+            state.pending.borrow_mut().take();
+            state.send(percent);
+        });
+        *self.pending.borrow_mut() = Some(source);
+    }
+}
+
+/// The speed row, for its own handlers: weakly, as its widgets hold them.
+#[derive(Clone)]
+struct WeakSpeedRow {
+    scale: glib::WeakRef<gtk::Scale>,
+    value: glib::WeakRef<gtk::Label>,
+    reset: glib::WeakRef<gtk::Button>,
+    description: glib::WeakRef<gtk::Label>,
+    state: SpeedState,
+}
+
+impl WeakSpeedRow {
+    fn upgrade(&self) -> Option<SpeedRow> {
+        Some(SpeedRow {
+            scale: self.scale.upgrade()?,
+            value: self.value.upgrade()?,
+            reset: self.reset.upgrade()?,
+            description: self.description.upgrade()?,
+            state: self.state.clone(),
+        })
+    }
+}
+
+impl SpeedRow {
+    fn downgrade(&self) -> WeakSpeedRow {
+        WeakSpeedRow {
+            scale: self.scale.downgrade(),
+            value: self.value.downgrade(),
+            reset: self.reset.downgrade(),
+            description: self.description.downgrade(),
+            state: self.state.clone(),
+        }
+    }
+
+    /// Shows the speed under the hand, or else the agent's.
+    fn show(&self) {
+        let percent = self.state.draft.get().shown(self.state.agent.get());
+        let label = cursor_speed::label(percent);
+        set_text(&self.value, &label);
+        self.reset.set_visible(cursor_speed::shows_reset(percent));
+        if cursor_speed::snapped(self.scale.value()) != percent {
+            self.state
+                .quiet
+                .run(|| self.scale.set_value(f64::from(percent)));
+        }
+        self.scale
+            .update_property(&[gtk::accessible::Property::ValueText(&label)]);
+    }
+
+    /// The pointer pressed the slider: nothing goes until it lets go.
+    fn pressed(&self) {
+        self.state.cancel_pending();
+        self.state.change(|draft, _| draft.began());
+    }
+
+    /// The pointer let go of the slider: the speed it was let go at goes.
+    fn released(&self) {
+        if !self.state.draft.get().editing() {
+            return;
+        }
+        let send = self.state.change(|draft, agent| draft.ended(agent));
+        self.show();
+        if let Some(percent) = send {
+            self.state.send(percent);
+        }
+    }
+
+    /// The slider moved to `position`: shown at once; moved by the keys, it
+    /// is sent once they have stopped.
+    fn moved(&self, position: f64) {
+        let pending = self.state.change(|draft, agent| {
+            draft.moved(position, agent);
+            draft.pending(agent)
+        });
+        self.show();
+        match pending {
+            Some(percent) => self.state.send_later(percent),
+            None => {
+                self.state.cancel_pending();
+            }
+        }
+    }
+
+    /// Reset: back to the normal speed, sent at once.
+    fn reset(&self) {
+        self.state.cancel_pending();
+        let pending = self.state.change(|draft, agent| {
+            draft.moved(f64::from(cursor_speed::NORMAL), agent);
+            draft.pending(agent)
+        });
+        self.show();
+        if let Some(percent) = pending {
+            self.state.send(percent);
+        }
+    }
 }
 
 pub struct Inspector {
@@ -42,6 +249,9 @@ pub struct Inspector {
     /// What the rows were made for (`structure`).
     built: RefCell<String>,
     rows: RefCell<Option<Rows>>,
+    /// Each computer's cursor speed state, kept while another is shown, so
+    /// coming back to one shows the speed still on its way there.
+    speeds: RefCell<std::collections::HashMap<String, SpeedState>>,
     quiet: Quiet,
     ui: std::rc::Weak<Ui>,
 }
@@ -53,6 +263,7 @@ impl Inspector {
             groups: RefCell::new(Vec::new()),
             built: RefCell::new(String::new()),
             rows: RefCell::new(None),
+            speeds: RefCell::default(),
             quiet: Quiet::default(),
             ui: Rc::downgrade(ui),
         })
@@ -64,13 +275,32 @@ impl Inspector {
 
     /// Shows `id`, or nothing.
     pub fn update(self: &Rc<Self>, model: &Snapshot, id: Option<&str>) {
+        // A computer no longer trusted (unpaired) takes its speed state
+        // along: paired again, it shows the agent's speed.
+        self.speeds.borrow_mut().retain(|device, state| {
+            let kept = model.device(device).is_some();
+            if !kept {
+                state.cancel_pending();
+            }
+            kept
+        });
         let key = id.map(|id| structure(model, id)).unwrap_or_default();
         if *self.built.borrow() != key {
             *self.built.borrow_mut() = key;
             for group in self.groups.borrow_mut().drain(..) {
                 self.page.remove(&group);
             }
-            *self.rows.borrow_mut() = None;
+            // A speed row made again for the same computer carries on with
+            // its state (`speed_state`); leaving a computer, what was chosen
+            // for it and not sent yet goes now.
+            let old = self.rows.borrow_mut().take();
+            if let Some(speed) = old.and_then(|rows| rows.speed) {
+                if id == Some(&*speed.state.device_id) {
+                    speed.state.end_drag();
+                } else {
+                    speed.state.flush();
+                }
+            }
             if let Some(id) = id {
                 let rows = self.build(model, id);
                 *self.rows.borrow_mut() = Some(rows);
@@ -100,6 +330,17 @@ impl Inspector {
             }
         }
         set_subtitle(&rows.status, &tr(&device_text::status(model, id)));
+        if let (Some(speed), Some(agent)) = (&rows.speed, cursor_speed::shown(model, id)) {
+            speed.state.agent.set(agent);
+            let mut draft = speed.state.draft.get();
+            draft.settle(agent);
+            speed.state.draft.set(draft);
+            speed.show();
+            set_text(
+                &speed.description,
+                &tr(&cursor_speed::description(&model.name_of(id))),
+            );
+        }
         if let Some(device) = model.device(id) {
             if let Some(row) = &rows.clipboard {
                 set_switch(&self.quiet, row, !device.clipboard_off);
@@ -116,6 +357,44 @@ impl Inspector {
     #[cfg(test)]
     pub fn status_row(&self) -> Option<adw::ActionRow> {
         self.rows.borrow().as_ref().map(|r| r.status.clone())
+    }
+
+    #[cfg(test)]
+    pub fn speed_scale(&self) -> Option<gtk::Scale> {
+        self.rows
+            .borrow()
+            .as_ref()
+            .and_then(|r| r.speed.as_ref().map(|s| s.scale.clone()))
+    }
+
+    #[cfg(test)]
+    pub fn speed_value(&self) -> Option<(String, bool)> {
+        self.rows.borrow().as_ref().and_then(|r| {
+            r.speed
+                .as_ref()
+                .map(|s| (s.value.text().to_string(), s.reset.is_visible()))
+        })
+    }
+
+    /// Presses (true) or lets go of (false) the speed slider, as the pointer
+    /// does.
+    #[cfg(test)]
+    pub fn speed_pointer(&self, down: bool) {
+        if let Some(speed) = self.rows.borrow().as_ref().and_then(|r| r.speed.as_ref()) {
+            if down {
+                speed.pressed();
+            } else {
+                speed.released();
+            }
+        }
+    }
+
+    #[cfg(test)]
+    pub fn speed_reset(&self) -> Option<gtk::Button> {
+        self.rows
+            .borrow()
+            .as_ref()
+            .and_then(|r| r.speed.as_ref().map(|s| s.reset.clone()))
     }
 
     #[cfg(test)]
@@ -245,6 +524,13 @@ impl Inspector {
         }
         self.add(screens);
 
+        let speed = cursor_speed::shown(model, id).map(|agent| {
+            let group = adw::PreferencesGroup::new();
+            let speed = self.speed_row(&group, id, agent);
+            self.add(group);
+            speed
+        });
+
         let mut rows = Rows {
             id: id.to_owned(),
             name,
@@ -252,6 +538,7 @@ impl Inspector {
             names,
             name_refused,
             status,
+            speed,
             clipboard: None,
             files: None,
             swap: None,
@@ -354,6 +641,161 @@ impl Inspector {
     }
 }
 
+impl Inspector {
+    /// The cursor speed state of `id`, as it was when last shown.
+    fn speed_state(&self, id: &str) -> SpeedState {
+        self.speeds
+            .borrow_mut()
+            .entry(id.to_owned())
+            .or_insert_with(|| SpeedState {
+                ui: self.ui.clone(),
+                device_id: id.into(),
+                quiet: self.quiet.clone(),
+                draft: Rc::default(),
+                agent: Rc::default(),
+                pending: Rc::default(),
+            })
+            .clone()
+    }
+
+    /// Makes the cursor speed row of `id`, whose speed the agent says is
+    /// `agent`, in `group`.
+    fn speed_row(self: &Rc<Self>, group: &adw::PreferencesGroup, id: &str, agent: u32) -> SpeedRow {
+        let title = t(keys::INSPECTOR_CURSOR_SPEED);
+        let heading = gtk::Label::builder()
+            .label(&title)
+            .xalign(0.0)
+            .wrap(true)
+            .build();
+        let description = gtk::Label::builder()
+            .xalign(0.0)
+            .wrap(true)
+            .css_classes(["dim-label", "caption"])
+            .build();
+        let words = gtk::Box::builder()
+            .orientation(gtk::Orientation::Vertical)
+            .spacing(2)
+            .hexpand(true)
+            .valign(gtk::Align::Center)
+            .build();
+        words.append(&heading);
+        words.append(&description);
+        let value = value_label(&cursor_speed::label(agent));
+        let reset = row_button(&t(keys::INSPECTOR_CURSOR_SPEED_RESET));
+        reset.add_css_class("flat");
+        let header = gtk::Box::builder()
+            .orientation(gtk::Orientation::Horizontal)
+            .spacing(12)
+            .build();
+        header.append(&words);
+        header.append(&value);
+        header.append(&reset);
+
+        let adjustment = gtk::Adjustment::new(
+            f64::from(agent),
+            f64::from(cursor_speed::MIN),
+            f64::from(cursor_speed::MAX),
+            f64::from(cursor_speed::STEP),
+            50.0,
+            0.0,
+        );
+        let scale = gtk::Scale::builder()
+            .orientation(gtk::Orientation::Horizontal)
+            .adjustment(&adjustment)
+            .draw_value(false)
+            .round_digits(0)
+            .build();
+        for tick in cursor_speed::TICKS {
+            scale.add_mark(
+                f64::from(tick),
+                gtk::PositionType::Bottom,
+                Some(&cursor_speed::label(tick)),
+            );
+        }
+        scale.update_property(&[gtk::accessible::Property::Label(&title)]);
+        let content = gtk::Box::builder()
+            .orientation(gtk::Orientation::Vertical)
+            .spacing(6)
+            .margin_top(12)
+            .margin_bottom(8)
+            .margin_start(12)
+            .margin_end(12)
+            .build();
+        content.append(&header);
+        content.append(&scale);
+        // A preferences row, so the group puts it in its boxed list.
+        let row = adw::PreferencesRow::builder()
+            .title(&title)
+            .activatable(false)
+            .selectable(false)
+            .child(&content)
+            .build();
+        group.add(&row);
+
+        let speed = SpeedRow {
+            scale: scale.clone(),
+            value,
+            reset: reset.clone(),
+            description,
+            state: self.speed_state(id),
+        };
+        speed.state.agent.set(agent);
+        // Steps of 10, wherever the pointer or the keys put it.
+        scale.connect_change_value(|range, _, position| {
+            range.set_value(f64::from(cursor_speed::snapped(position)));
+            glib::Propagation::Stop
+        });
+        let row = speed.downgrade();
+        scale.connect_value_changed(move |scale| {
+            if row.state.quiet.is_set() {
+                return;
+            }
+            if let Some(speed) = row.upgrade() {
+                speed.moved(scale.value());
+            }
+        });
+        // The pointer pressing and letting go, seen before the scale's own
+        // gestures take them: GTK's scale has no signal for either.
+        let pointer = gtk::EventControllerLegacy::new();
+        pointer.set_propagation_phase(gtk::PropagationPhase::Capture);
+        let row = speed.downgrade();
+        pointer.connect_event(move |_, event| {
+            use gtk::gdk::EventType;
+            if let Some(speed) = row.upgrade() {
+                match event.event_type() {
+                    EventType::ButtonPress | EventType::TouchBegin => speed.pressed(),
+                    EventType::ButtonRelease | EventType::TouchEnd | EventType::TouchCancel => {
+                        speed.released()
+                    }
+                    _ => {}
+                }
+            }
+            glib::Propagation::Proceed
+        });
+        scale.add_controller(pointer);
+        // The wheel and the touchpad scroll the page, never the speed: the
+        // scale's own scroll handling is turned off, so scrolling over it
+        // goes on to the page as anywhere else.
+        let controllers = scale.observe_controllers();
+        for i in 0..controllers.n_items() {
+            if let Some(scroll) = controllers
+                .item(i)
+                .and_downcast::<gtk::EventControllerScroll>()
+            {
+                scroll.set_propagation_phase(gtk::PropagationPhase::None);
+            }
+        }
+        let row = speed.downgrade();
+        reset.connect_clicked(move |_| {
+            if let Some(speed) = row.upgrade() {
+                speed.reset();
+            }
+        });
+        speed.show();
+        speed
+    }
+}
+
 fn os_of(model: &Snapshot, id: &str) -> String {
     model
         .device(id)
@@ -381,10 +823,11 @@ fn structure(model: &Snapshot, id: &str) -> String {
         })
         .unwrap_or_default();
     format!(
-        "{id}|{}|{:?}|{}|{}",
+        "{id}|{}|{:?}|{}|{}|{}",
         id == model.this_device_id(),
         model.device(id).map(|d| d.paired),
         os_of(model, id),
         screens.join(","),
+        cursor_speed::shown(model, id).is_some(),
     )
 }
