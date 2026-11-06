@@ -311,6 +311,7 @@ The names are a contract: the feeds, the package repository and the website's do
 | `inputweave_<previous>_amd64.deb`, `inputweave_<previous>_arm64.deb` | the previous release's Linux packages, carried over (12.4) |
 | `appcast.xml` | Sparkle's feed for macOS |
 | `update-windows.json` | the Windows app's feed (12.3) |
+| other installers, each with a feed of its own | given to the release script with `--extra-installer FILE:FEED`: published as they are, signed with the same key as the MSI, and described by `FEED` in `update-windows.json`'s form (12.3), its `url` under `/download/v<v>/`; the website's download page does not list them |
 | `InRelease`, `Release`, `Release.gpg`, `Packages`, `Packages.gz` | the APT flat repository (12.4) |
 | `SHA256SUMS` | the SHA-256 of every other file |
 

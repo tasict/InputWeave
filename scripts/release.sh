@@ -20,6 +20,14 @@
 # Signatures and checksums are made over the files as they are uploaded.
 # The release notes come from docs/release-notes/<v>.md.
 #
+# --extra-installer FILE:FEED (any number of times) publishes another
+# installer of this version with the release, as it is: it is signed with
+# the same Ed25519 key as the Windows installer, and FEED (a .json name)
+# describes it in update-windows.json's form, its url under
+# <site>/download/v<v>/, so a program that updates itself the Windows
+# app's way can read <site>/latest/FEED. Both are in SHA256SUMS. The
+# website's download page lists only the installers above.
+#
 # The apps, the feeds and the .deb's package source name only the website's
 # stable addresses (--site): <site>/latest/<file> for the latest release's
 # files, <site>/download/v<v>/<file> for one release's and
@@ -69,6 +77,9 @@
 #   --target REF          the commit or branch the tag is made on when it
 #                         does not exist yet (default main)
 #   --dist DIR            where the installers are (default dist/)
+#   --extra-installer FILE:FEED
+#                         another installer and the feed written for it
+#                         (above)
 #   --date YYYY-MM-DDTHH:MM:SSZ
 #                         the publication time the feeds state, in UTC:
 #                         when the release is made, not a planned one, so a
@@ -103,6 +114,7 @@ allow_unnotarized=0
 previous_dir=""
 stage=""
 release_date=""
+extras=()
 sparkle_account="${INPUTWEAVE_SPARKLE_ACCOUNT:-cc.ctsite.inputweave}"
 apt_home="${INPUTWEAVE_APT_GNUPGHOME:-${GNUPGHOME:-}}"
 apt_key="${INPUTWEAVE_APT_KEY:-DA65B795D2F3984F0B305013C3AF4DF76FC87E0E}"
@@ -122,6 +134,7 @@ while [ $# -gt 0 ]; do
     --target) target="${2:?--target needs a ref}"; shift ;;
     --dist) dist="$(cd "${2:?--dist needs a folder}" && pwd)"; shift ;;
     --date) release_date="${2:?--date needs YYYY-MM-DDTHH:MM:SSZ}"; shift ;;
+    --extra-installer) extras+=("${2:?--extra-installer needs FILE:FEED}"); shift ;;
     -h | --help) awk 'NR > 1 && /^#/ { sub(/^# ?/, ""); print; next } NR > 1 { exit }' "$0"; exit 0 ;;
     *) die "unknown argument $1 (see --help)" ;;
     esac
@@ -476,17 +489,36 @@ def cmd_generate(dist, stage, version, build, site, date, minimum_macos, notes_m
     open(os.path.join(stage, "Release"), "w", encoding="utf-8").write(release)
 
 
-def cmd_check_feeds(stage):
+def cmd_extra_feed(stage, feed, path, version, build, site, date, notes_md, signature):
+    """--extra-installer's feed: update-windows.json's form, for another installer."""
+    _, _, notes_text = render_notes(notes_md)
+    entry = {
+        "version": version,
+        "build": int(build),
+        "url": f"{site}/download/v{version}/{os.path.basename(path)}",
+        "size": os.path.getsize(path),
+        "sha256": digest(path),
+        "ed25519": signature,
+        "released_at": date,
+        "notes": notes_text,
+    }
+    with open(os.path.join(stage, feed), "w", encoding="utf-8") as f:
+        json.dump(entry, f, indent=2, ensure_ascii=False)
+        f.write("\n")
+
+
+def cmd_check_feeds(stage, *extra_feeds):
     import xml.dom.minidom
     xml.dom.minidom.parse(os.path.join(stage, "appcast.xml"))
-    json.load(open(os.path.join(stage, "update-windows.json")))
+    for feed in ("update-windows.json",) + extra_feeds:
+        json.load(open(os.path.join(stage, feed)))
 
 
 COMMANDS = {
     "deb": cmd_deb, "msi-info": cmd_msi_info, "check-date": cmd_check_date,
     "highest-deb": cmd_highest_deb, "release-setting": cmd_release_setting,
     "releases": cmd_releases, "newer": cmd_newer, "sum": cmd_sum, "bytes": cmd_bytes,
-    "generate": cmd_generate, "check-feeds": cmd_check_feeds,
+    "generate": cmd_generate, "check-feeds": cmd_check_feeds, "extra-feed": cmd_extra_feed,
 }
 COMMANDS[sys.argv[1]](*sys.argv[2:])
 PY
@@ -540,6 +572,27 @@ for file in "${installers[@]}"; do
 done
 others="$(cd "$dist" && ls -1 | grep -E '\.(pkg|msi|deb|dmg)$' | grep -vxF -e "$pkg" -e "$msi" -e "$deb_amd64" -e "$deb_arm64" || true)"
 [ -z "$others" ] || warn "dist/ also holds installers of other versions, which are not uploaded: $(echo "$others" | tr '\n' ' ')"
+
+# --extra-installer FILE:FEED: the file as given, the feed a new name.
+extra_files=()
+extra_feeds=()
+for pair in ${extras[@]+"${extras[@]}"}; do
+    file="${pair%:*}"
+    feed="${pair##*:}"
+    [ "$file" != "$pair" ] || die "--extra-installer is FILE:FEED, not '$pair'"
+    [ -f "$file" ] && [ -s "$file" ] || die "--extra-installer: $file is not a file with something in it"
+    file="$(cd "$(dirname "$file")" && pwd)/$(basename "$file")"
+    name="$(basename "$file")"
+    [[ "$name" =~ ^[A-Za-z0-9._+-]+$ ]] || die "--extra-installer: $name is not a plain file name"
+    [[ "$name" == *"$version"* ]] || die "--extra-installer: $name does not name version $version"
+    [[ "$feed" =~ ^[A-Za-z0-9._-]+\.json$ ]] || die "--extra-installer: the feed $feed is not NAME.json"
+    for taken in "${installers[@]}" "${generated[@]}" SHA256SUMS ${extra_files[@]+"${extra_files[@]##*/}"} ${extra_feeds[@]+"${extra_feeds[@]}"}; do
+        [ "$name" != "$taken" ] && [ "$feed" != "$taken" ] || die "--extra-installer: $name or $feed is already one of the release's files"
+    done
+    extra_files+=("$file")
+    extra_feeds+=("$feed")
+done
+generated+=(${extra_feeds[@]+"${extra_feeds[@]}"})
 
 say "Checking $pkg"
 pkg_ok=1
@@ -719,6 +772,9 @@ fi
 key="$work/stage.key"
 {
     for file in "${installers[@]}"; do echo "installer $(sha256 "$dist/$file") $file"; done
+    for i in ${extra_files[@]+"${!extra_files[@]}"}; do
+        echo "extra $(sha256 "${extra_files[$i]}") $(basename "${extra_files[$i]}") ${extra_feeds[$i]}"
+    done
     for file in ${previous_files[@]+"${previous_files[@]}"}; do echo "previous $(sha256 "$previous_dir/$file") $file"; done
     echo "notes $(sha256 "$notes_md")"
     echo "repo $github_repo"
@@ -758,6 +814,11 @@ if [ "$regenerate" = 1 ]; then
     say "Signing $pkg and $msi"
     pkg_sig="$("$sign_update" "${sign_key[@]}" -p "$dist/$pkg")"
     msi_sig="$("$sign_update" "${sign_key[@]}" -p "$dist/$msi")"
+    extra_sigs=()
+    for file in ${extra_files[@]+"${extra_files[@]}"}; do
+        say "Signing $(basename "$file")"
+        extra_sigs+=("$("$sign_update" "${sign_key[@]}" -p "$file")")
+    done
     # Checked against the public key the apps carry: sign_update --verify
     # derives the public key from the same private key, so signing with
     # the wrong key would pass it, and every installed copy would refuse
@@ -779,6 +840,12 @@ if [ "$regenerate" = 1 ]; then
                 -in "$dist/${pair%%:*}" -sigfile "$work/signature" >/dev/null 2>&1 ||
                 die "the signature of ${pair%%:*} does not verify with the apps' public key $sparkle_public_key"
         done
+        for i in ${extra_files[@]+"${!extra_files[@]}"}; do
+            tool bytes "${extra_sigs[$i]}" "$work/signature"
+            "$ed_openssl" pkeyutl -verify -pubin -inkey "$work/sparkle-public.der" -keyform DER -rawin \
+                -in "${extra_files[$i]}" -sigfile "$work/signature" >/dev/null 2>&1 ||
+                die "the signature of $(basename "${extra_files[$i]}") does not verify with the apps' public key $sparkle_public_key"
+        done
     elif [ "${sign_key[0]}" = --account ]; then
         generate_keys="$(dirname "$sign_update")/generate_keys"
         [ "$("$generate_keys" --account "$sparkle_account" -p 2>/dev/null)" = "$sparkle_public_key" ] ||
@@ -791,6 +858,10 @@ if [ "$regenerate" = 1 ]; then
     tool generate "$dist" "$stage" "$version" "$build" "$site_url" "$release_date" "$minimum_macos" \
         "$notes_md" "$pkg" "$pkg_sig" "$msi" "$msi_sig" "$(sha256 "$dist/$msi")" \
         "$deb_amd64" "$work/control-amd64" "$deb_arm64" "$work/control-arm64"
+    for i in ${extra_files[@]+"${!extra_files[@]}"}; do
+        tool extra-feed "$stage" "${extra_feeds[$i]}" "${extra_files[$i]}" "$version" "$build" "$site_url" \
+            "$release_date" "$notes_md" "${extra_sigs[$i]}"
+    done
 
     say "Signing the package repository with $apt_key"
     "${gpg_cmd[@]}" --local-user "$apt_key" --digest-algo SHA512 --clearsign \
@@ -807,6 +878,7 @@ if [ "$regenerate" = 1 ]; then
 
     {
         for file in "${installers[@]}"; do echo "$(sha256 "$dist/$file")  $file"; done
+        for file in ${extra_files[@]+"${extra_files[@]}"}; do echo "$(sha256 "$file")  $(basename "$file")"; done
         for file in ${previous_files[@]+"${previous_files[@]}"}; do echo "$(sha256 "$previous_dir/$file")  $file"; done
         for file in "${generated[@]}"; do echo "$(sha256 "$stage/$file")  $file"; done
     } >"$stage/SHA256SUMS"
@@ -815,7 +887,7 @@ if [ "$regenerate" = 1 ]; then
 else
     say "Keeping the files $stage already holds"
 fi
-tool check-feeds "$stage" || die "appcast.xml or update-windows.json does not parse"
+tool check-feeds "$stage" ${extra_feeds[@]+"${extra_feeds[@]}"} || die "appcast.xml, update-windows.json or an --extra-installer feed does not parse"
 
 # The release's description: the notes and every file's checksum.
 {
@@ -832,6 +904,7 @@ tool check-feeds "$stage" || die "appcast.xml or update-windows.json does not pa
 # feeds and the repository, which name them.
 assets=()
 for file in "${installers[@]}"; do assets+=("$dist/$file"); done
+for file in ${extra_files[@]+"${extra_files[@]}"}; do assets+=("$file"); done
 for file in ${previous_files[@]+"${previous_files[@]}"}; do assets+=("$previous_dir/$file"); done
 for file in "${generated[@]}" SHA256SUMS; do assets+=("$stage/$file"); done
 
