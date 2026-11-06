@@ -3,18 +3,22 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; connect-src 'self' https://api.github.com; img-src 'self' data:; style-src 'self'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; upgrade-insecure-requests">
 <title>InputWeave privacy</title>
 <meta name="description" content="InputWeave keeps your keyboard, mouse, clipboard and files on your local network. This page lists every time the apps or this website reach the internet, and what is sent.">
-<link rel="canonical" href="https://inputweave.ctsite.cc/privacy.html">
-<link rel="alternate" hreflang="en" href="https://inputweave.ctsite.cc/privacy.html">
-<link rel="alternate" hreflang="zh-Hant" href="https://inputweave.ctsite.cc/zh-Hant/privacy.html">
-<link rel="alternate" hreflang="x-default" href="https://inputweave.ctsite.cc/privacy.html">
+<link rel="canonical" href="https://inputweave.ctsite.cc/privacy">
+<link rel="alternate" hreflang="en" href="https://inputweave.ctsite.cc/privacy">
+<link rel="alternate" hreflang="zh-Hant" href="https://inputweave.ctsite.cc/zh-Hant/privacy">
+<link rel="alternate" hreflang="x-default" href="https://inputweave.ctsite.cc/privacy">
 <meta property="og:type" content="website">
 <meta property="og:site_name" content="InputWeave">
 <meta property="og:title" content="InputWeave privacy">
 <meta property="og:description" content="What InputWeave and its website send over the internet, and what stays on your network.">
-<meta property="og:url" content="https://inputweave.ctsite.cc/privacy.html">
+<meta property="og:url" content="https://inputweave.ctsite.cc/privacy">
 <meta property="og:image" content="https://inputweave.ctsite.cc/assets/img/app-icon-1024.png">
+<meta property="og:image:width" content="1024">
+<meta property="og:image:height" content="1024">
+<meta property="og:image:alt" content="The InputWeave app icon: two white screens on a purple square, joined by a stitched thread">
 <meta property="og:locale" content="en_US">
 <meta property="og:locale:alternate" content="zh_TW">
 <meta name="twitter:card" content="summary">
@@ -38,10 +42,10 @@
     <nav class="nav" aria-label="Site">
       <a href="./#features">Features</a>
       <a href="./#download">Download</a>
-      <a href="license.html">License</a>
+      <a href="license">License</a>
       <a href="https://github.com/tasict/InputWeave">GitHub</a>
     </nav>
-    <a class="lang-switch" href="zh-Hant/privacy.html" hreflang="zh-Hant" lang="zh-Hant" data-lang-switch>繁體中文</a>
+    <nav class="lang-nav" aria-label="Language"><a href="privacy" hreflang="en" lang="en" aria-current="page" data-lang-switch>English</a> <a href="zh-Hant/privacy" hreflang="zh-Hant" lang="zh-Hant" data-lang-switch>繁體中文</a></nav>
   </div>
 </header>
 
@@ -105,10 +109,19 @@
     <a class="brand" href="./">InputWeave</a>
     <nav class="links" aria-label="More">
       <a href="https://github.com/tasict/InputWeave">Source code</a>
-      <a href="https://github.com/tasict/InputWeave/releases">Releases</a>
-      <a href="https://github.com/tasict/InputWeave/issues">Report a problem</a>
-      <a href="license.html">License</a>
-      <a href="privacy.html" aria-current="page">Privacy</a>
+      <a href="https://inputweave.ctsite.cc/releases">Releases</a>
+      <a href="https://inputweave.ctsite.cc/issues">Report a problem</a>
+      <a href="license">License</a>
+      <a href="privacy" aria-current="page">Privacy</a>
+    </nav>
+    <nav class="family" aria-label="More from ctsite.cc">
+      <p class="family-title"><a href="https://www.ctsite.cc/">More from ctsite.cc</a></p>
+      <ul>
+        <li><a href="https://turnout.ctsite.cc/"><strong>Turnout</strong> WireGuard VPN client for Mac and Windows</a></li>
+        <li><a href="https://peaberry.ctsite.cc/"><strong>Peaberry</strong> Keeps your Mac awake while AI agents work</a></li>
+        <li><a href="https://wata.ctsite.cc/"><strong>Wata</strong> Water reminders for iPhone and Apple Watch</a></li>
+        <li><a href="https://www.ctsite.cc/#smart-home"><strong>Homebridge plugins</strong> Daikin, Hitachi, Panasonic and Roborock in Apple Home</a></li>
+      </ul>
     </nav>
     <div class="legal small">
       <p>Questions: <span class="addr">support@ctsite.cc</span></p>

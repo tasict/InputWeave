@@ -88,6 +88,9 @@ def resolve(page_rel, url):
     full = os.path.join(out, target)
     if path.endswith("/") or os.path.isdir(full):
         target = posixpath.join(target, "index.html") if target else "index.html"
+    elif not os.path.exists(full) and os.path.isfile(full + ".html"):
+        # Pages serves page.html at page, so the site links to pages without .html.
+        target += ".html"
     return target
 
 

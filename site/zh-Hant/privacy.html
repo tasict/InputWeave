@@ -3,18 +3,22 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; connect-src 'self' https://api.github.com; img-src 'self' data:; style-src 'self'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; upgrade-insecure-requests">
 <title>InputWeave 的隱私權</title>
 <meta name="description" content="InputWeave 讓你的鍵盤、滑鼠、剪貼簿與檔案留在區域網路裡。這一頁列出 App 與這個網站每一次連上網際網路的時機，以及送出的內容。">
-<link rel="canonical" href="https://inputweave.ctsite.cc/zh-Hant/privacy.html">
-<link rel="alternate" hreflang="en" href="https://inputweave.ctsite.cc/privacy.html">
-<link rel="alternate" hreflang="zh-Hant" href="https://inputweave.ctsite.cc/zh-Hant/privacy.html">
-<link rel="alternate" hreflang="x-default" href="https://inputweave.ctsite.cc/privacy.html">
+<link rel="canonical" href="https://inputweave.ctsite.cc/zh-Hant/privacy">
+<link rel="alternate" hreflang="en" href="https://inputweave.ctsite.cc/privacy">
+<link rel="alternate" hreflang="zh-Hant" href="https://inputweave.ctsite.cc/zh-Hant/privacy">
+<link rel="alternate" hreflang="x-default" href="https://inputweave.ctsite.cc/privacy">
 <meta property="og:type" content="website">
 <meta property="og:site_name" content="InputWeave">
 <meta property="og:title" content="InputWeave 的隱私權">
 <meta property="og:description" content="InputWeave 與它的網站會經網際網路送出什麼，以及哪些留在你的網路裡。">
-<meta property="og:url" content="https://inputweave.ctsite.cc/zh-Hant/privacy.html">
+<meta property="og:url" content="https://inputweave.ctsite.cc/zh-Hant/privacy">
 <meta property="og:image" content="https://inputweave.ctsite.cc/assets/img/app-icon-1024.png">
+<meta property="og:image:width" content="1024">
+<meta property="og:image:height" content="1024">
+<meta property="og:image:alt" content="InputWeave 的 App 圖示：紫色方塊上兩個白色螢幕，以縫線相連">
 <meta property="og:locale" content="zh_TW">
 <meta property="og:locale:alternate" content="en_US">
 <meta name="twitter:card" content="summary">
@@ -38,10 +42,10 @@
     <nav class="nav" aria-label="網站">
       <a href="./#features">功能</a>
       <a href="./#download">下載</a>
-      <a href="license.html">授權</a>
+      <a href="license">授權</a>
       <a href="https://github.com/tasict/InputWeave">GitHub</a>
     </nav>
-    <a class="lang-switch" href="../privacy.html" hreflang="en" lang="en" data-lang-switch>English</a>
+    <nav class="lang-nav" aria-label="語言"><a href="../privacy" hreflang="en" lang="en" data-lang-switch>English</a> <a href="privacy" hreflang="zh-Hant" lang="zh-Hant" aria-current="page" data-lang-switch>繁體中文</a></nav>
   </div>
 </header>
 
@@ -105,10 +109,19 @@
     <a class="brand" href="./">InputWeave</a>
     <nav class="links" aria-label="更多">
       <a href="https://github.com/tasict/InputWeave">原始碼</a>
-      <a href="https://github.com/tasict/InputWeave/releases">版本</a>
-      <a href="https://github.com/tasict/InputWeave/issues">回報問題</a>
-      <a href="license.html">授權</a>
-      <a href="privacy.html" aria-current="page">隱私權</a>
+      <a href="https://inputweave.ctsite.cc/releases">版本</a>
+      <a href="https://inputweave.ctsite.cc/issues">回報問題</a>
+      <a href="license">授權</a>
+      <a href="privacy" aria-current="page">隱私權</a>
+    </nav>
+    <nav class="family" aria-label="ctsite.cc 的其他產品">
+      <p class="family-title"><a href="https://www.ctsite.cc/" hreflang="en">ctsite.cc 的其他產品</a></p>
+      <ul>
+        <li><a href="https://turnout.ctsite.cc/zh-Hant/"><strong>Turnout</strong> Mac 與 Windows 的 WireGuard VPN 用戶端</a></li>
+        <li><a href="https://peaberry.ctsite.cc/zh-Hant/"><strong>Peaberry</strong> AI agent 還在工作，Mac 就不睡</a></li>
+        <li><a href="https://wata.ctsite.cc/zh-Hant/"><strong>Wata</strong> iPhone 與 Apple Watch 的喝水提醒</a></li>
+        <li><a href="https://www.ctsite.cc/#smart-home" hreflang="en"><strong>Homebridge 外掛</strong> 把 Daikin、Hitachi、Panasonic、Roborock 帶進 Apple 家庭</a></li>
+      </ul>
     </nav>
     <div class="legal small">
       <p>聯絡：<span class="addr">support@ctsite.cc</span></p>

@@ -3,6 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; connect-src 'self' https://api.github.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; upgrade-insecure-requests">
 <title>InputWeave: one keyboard and mouse for every computer on your desk</title>
 <meta name="description" content="InputWeave lets the Mac, Windows and Linux computers on your desk share one keyboard and mouse over your local network. Move the pointer across the edge of a screen, copy on one computer and paste on another, drag files across. Free and open source.">
 <link rel="canonical" href="https://inputweave.ctsite.cc/">
@@ -29,6 +30,26 @@
 <link rel="preload" href="assets/fonts/archivo-latin.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="stylesheet" href="assets/site.css">
 <script src="assets/site.js" defer></script>
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "SoftwareApplication",
+  "name": "InputWeave",
+  "description": "InputWeave lets the Mac, Windows and Linux computers on your desk share one keyboard and mouse over your local network. Move the pointer across the edge of a screen, copy on one computer and paste on another, drag files across. Free and open source.",
+  "url": "https://inputweave.ctsite.cc/",
+  "image": "https://inputweave.ctsite.cc/assets/img/app-icon-1024.png",
+  "applicationCategory": "UtilitiesApplication",
+  "operatingSystem": "macOS, Windows, Linux",
+  "inLanguage": "en",
+  "license": "https://www.gnu.org/licenses/gpl-3.0.html",
+  "isAccessibleForFree": true,
+  "publisher": {
+    "@type": "Organization",
+    "name": "ctsite.cc",
+    "url": "https://www.ctsite.cc/"
+  }
+}
+</script>
 </head>
 <body data-page="home">
 <a class="skip" href="#main">Skip to content</a>
@@ -41,10 +62,10 @@
     <nav class="nav" aria-label="Site">
       <a href="#features">Features</a>
       <a href="#download">Download</a>
-      <a href="license.html">License</a>
+      <a href="license">License</a>
       <a href="https://github.com/tasict/InputWeave">GitHub</a>
     </nav>
-    <a class="lang-switch" href="zh-Hant/" hreflang="zh-Hant" lang="zh-Hant" data-lang-switch>繁體中文</a>
+    <nav class="lang-nav" aria-label="Language"><a href="./" hreflang="en" lang="en" aria-current="page" data-lang-switch>English</a> <a href="zh-Hant/" hreflang="zh-Hant" lang="zh-Hant" data-lang-switch>繁體中文</a></nav>
   </div>
 </header>
 
@@ -217,7 +238,7 @@
       <div class="facts">
         <div class="stack"><h3>No account, no cloud</h3><p>Computers find each other on your local network and connect directly. Your keystrokes, clipboard and files never pass through a server.</p></div>
         <div class="stack"><h3>Encrypted between your computers</h3><p>Every connection uses mutual TLS over QUIC, pinned to each computer’s own certificate. A new computer joins only with the pairing code shown on yours.</p></div>
-        <div class="stack"><h3>Two reasons to go online</h3><p>InputWeave checks for a new version, which you can turn off, and talks to Polar only if you add a license. Nothing else leaves your network. <a href="privacy.html">Privacy</a></p></div>
+        <div class="stack"><h3>Two reasons to go online</h3><p>InputWeave checks for a new version, which you can turn off, and talks to Polar only if you add a license. Nothing else leaves your network. <a href="privacy">Privacy</a></p></div>
         <div class="stack"><h3>Open source</h3><p>The source is under the GNU GPL, version 3 or later. Read it, build it yourself, or report a problem on <a href="https://github.com/tasict/InputWeave">GitHub</a>.</p></div>
       </div>
     </div>
@@ -255,7 +276,7 @@
           <p class="small grow">Install the file with apt from the folder you downloaded it to; on arm64, use the arm64 file. The package adds InputWeave’s package source, so later versions arrive with your system’s software updates.</p>
         </div>
       </div>
-      <p class="small release-line"><span data-latest-dated hidden>Released <time data-latest="date"></time>. </span><a href="https://github.com/tasict/InputWeave/releases">All releases and checksums on GitHub</a></p>
+      <p class="small release-line"><span data-latest-dated hidden>Released <time data-latest="date"></time>. </span><a href="https://inputweave.ctsite.cc/releases">All releases and checksums on GitHub</a></p>
     </div>
   </section>
 
@@ -267,7 +288,7 @@
         <p>A license replaces that with a Licensed label on up to 5 of your computers. Enter the key on one computer and the computers you’ve paired pick it up.</p>
         <div class="actions">
           <a class="btn btn-ink" href="https://buy.polar.sh/polar_cl_QlXeUC208E1POhQcAZe6AgpFHGbpsKGBXmhmu0x5LVd">Buy a license for US$10</a>
-          <a href="license.html">How the license works</a>
+          <a href="license">How the license works</a>
         </div>
       </div>
       <div class="lic-demo">
@@ -285,9 +306,18 @@
     <nav class="links" aria-label="More">
       <a href="https://github.com/tasict/InputWeave">Source code</a>
       <a href="https://github.com/tasict/InputWeave/releases">Releases</a>
-      <a href="https://github.com/tasict/InputWeave/issues">Report a problem</a>
-      <a href="license.html">License</a>
-      <a href="privacy.html">Privacy</a>
+      <a href="https://inputweave.ctsite.cc/issues">Report a problem</a>
+      <a href="license">License</a>
+      <a href="privacy">Privacy</a>
+    </nav>
+    <nav class="family" aria-label="More from ctsite.cc">
+      <p class="family-title"><a href="https://www.ctsite.cc/">More from ctsite.cc</a></p>
+      <ul>
+        <li><a href="https://turnout.ctsite.cc/"><strong>Turnout</strong> WireGuard VPN client for Mac and Windows</a></li>
+        <li><a href="https://peaberry.ctsite.cc/"><strong>Peaberry</strong> Keeps your Mac awake while AI agents work</a></li>
+        <li><a href="https://wata.ctsite.cc/"><strong>Wata</strong> Water reminders for iPhone and Apple Watch</a></li>
+        <li><a href="https://www.ctsite.cc/#smart-home"><strong>Homebridge plugins</strong> Daikin, Hitachi, Panasonic and Roborock in Apple Home</a></li>
+      </ul>
     </nav>
     <div class="legal small">
       <p>Questions: <span class="addr">support@ctsite.cc</span></p>

@@ -3,18 +3,22 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; connect-src 'self' https://api.github.com; img-src 'self' data:; style-src 'self'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; upgrade-insecure-requests">
 <title>InputWeave 的授權</title>
 <meta name="description" content="InputWeave 免費開源，沒有授權也能使用全部功能。授權是一次付款 US$10，最多 5 台電腦，設定與「關於」會顯示「已授權」。">
-<link rel="canonical" href="https://inputweave.ctsite.cc/zh-Hant/license.html">
-<link rel="alternate" hreflang="en" href="https://inputweave.ctsite.cc/license.html">
-<link rel="alternate" hreflang="zh-Hant" href="https://inputweave.ctsite.cc/zh-Hant/license.html">
-<link rel="alternate" hreflang="x-default" href="https://inputweave.ctsite.cc/license.html">
+<link rel="canonical" href="https://inputweave.ctsite.cc/zh-Hant/license">
+<link rel="alternate" hreflang="en" href="https://inputweave.ctsite.cc/license">
+<link rel="alternate" hreflang="zh-Hant" href="https://inputweave.ctsite.cc/zh-Hant/license">
+<link rel="alternate" hreflang="x-default" href="https://inputweave.ctsite.cc/license">
 <meta property="og:type" content="website">
 <meta property="og:site_name" content="InputWeave">
 <meta property="og:title" content="InputWeave 的授權">
 <meta property="og:description" content="沒有授權也能使用全部功能。授權是一次付款 US$10，最多 5 台電腦。">
-<meta property="og:url" content="https://inputweave.ctsite.cc/zh-Hant/license.html">
+<meta property="og:url" content="https://inputweave.ctsite.cc/zh-Hant/license">
 <meta property="og:image" content="https://inputweave.ctsite.cc/assets/img/app-icon-1024.png">
+<meta property="og:image:width" content="1024">
+<meta property="og:image:height" content="1024">
+<meta property="og:image:alt" content="InputWeave 的 App 圖示：紫色方塊上兩個白色螢幕，以縫線相連">
 <meta property="og:locale" content="zh_TW">
 <meta property="og:locale:alternate" content="en_US">
 <meta name="twitter:card" content="summary">
@@ -38,10 +42,10 @@
     <nav class="nav" aria-label="網站">
       <a href="./#features">功能</a>
       <a href="./#download">下載</a>
-      <a href="license.html" aria-current="page">授權</a>
+      <a href="license" aria-current="page">授權</a>
       <a href="https://github.com/tasict/InputWeave">GitHub</a>
     </nav>
-    <a class="lang-switch" href="../license.html" hreflang="en" lang="en" data-lang-switch>English</a>
+    <nav class="lang-nav" aria-label="語言"><a href="../license" hreflang="en" lang="en" data-lang-switch>English</a> <a href="license" hreflang="zh-Hant" lang="zh-Hant" aria-current="page" data-lang-switch>繁體中文</a></nav>
   </div>
 </header>
 
@@ -80,7 +84,7 @@
         </div>
         <div class="stack" id="privacy">
           <h2>App 會送出什麼</h2>
-          <p>只有加入授權碼時，以及之後偶爾確認時，App 才會連到 Polar。送出的內容列在<a href="privacy.html#license">隱私權頁面</a>。</p>
+          <p>只有加入授權碼時，以及之後偶爾確認時，App 才會連到 Polar。送出的內容列在<a href="privacy#license">隱私權頁面</a>。</p>
         </div>
         <div class="stack" id="questions">
           <h2>問題</h2>
@@ -97,10 +101,19 @@
     <a class="brand" href="./">InputWeave</a>
     <nav class="links" aria-label="更多">
       <a href="https://github.com/tasict/InputWeave">原始碼</a>
-      <a href="https://github.com/tasict/InputWeave/releases">版本</a>
-      <a href="https://github.com/tasict/InputWeave/issues">回報問題</a>
-      <a href="license.html">授權</a>
-      <a href="privacy.html">隱私權</a>
+      <a href="https://inputweave.ctsite.cc/releases">版本</a>
+      <a href="https://inputweave.ctsite.cc/issues">回報問題</a>
+      <a href="license">授權</a>
+      <a href="privacy">隱私權</a>
+    </nav>
+    <nav class="family" aria-label="ctsite.cc 的其他產品">
+      <p class="family-title"><a href="https://www.ctsite.cc/" hreflang="en">ctsite.cc 的其他產品</a></p>
+      <ul>
+        <li><a href="https://turnout.ctsite.cc/zh-Hant/"><strong>Turnout</strong> Mac 與 Windows 的 WireGuard VPN 用戶端</a></li>
+        <li><a href="https://peaberry.ctsite.cc/zh-Hant/"><strong>Peaberry</strong> AI agent 還在工作，Mac 就不睡</a></li>
+        <li><a href="https://wata.ctsite.cc/zh-Hant/"><strong>Wata</strong> iPhone 與 Apple Watch 的喝水提醒</a></li>
+        <li><a href="https://www.ctsite.cc/#smart-home" hreflang="en"><strong>Homebridge 外掛</strong> 把 Daikin、Hitachi、Panasonic、Roborock 帶進 Apple 家庭</a></li>
+      </ul>
     </nav>
     <div class="legal small">
       <p>聯絡：<span class="addr">support@ctsite.cc</span></p>
