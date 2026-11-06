@@ -1033,6 +1033,48 @@ fn input_is_handed_over_at_a_barrier_and_given_back_where_the_cursor_returns() {
 
 #[test]
 #[ignore = "needs dbus-daemon; scripts/linux-wayland-tests.sh"]
+fn a_shortcut_typed_on_the_other_device_is_reported_as_typed() {
+    let desktop = Desktop::start(2);
+    let state = tempfile::tempdir().unwrap();
+    let (mut captured, _) = Captured::new(desktop.capture(state.path()));
+    captured.backend.set_exits(&[right_exit()]);
+    running(&desktop, &mut captured);
+    desktop.activate(1, 1, (1920.4, 150.0));
+    captured.expect(&[push(1919.0, 150.0, 1.0, 0.0)]);
+    captured.backend.set_grabbed(true).unwrap();
+
+    let (control, c) = (29, 46);
+    let typed = [
+        key(usage::LEFT_CONTROL, true),
+        key(usage::C, true),
+        key(usage::C, false),
+        key(usage::LEFT_CONTROL, false),
+    ];
+    // The mask told after each key, as the desktop updates it.
+    desktop.emit(&[
+        Emit::Key(control, true),
+        Emit::Modifiers(1 << 2),
+        Emit::Key(c, true),
+        Emit::Key(c, false),
+        Emit::Key(control, false),
+        Emit::Modifiers(0),
+    ]);
+    captured.expect(&typed);
+    // Or before.
+    desktop.emit(&[
+        Emit::Modifiers(1 << 2),
+        Emit::Key(control, true),
+        Emit::Key(c, true),
+        Emit::Key(c, false),
+        Emit::Modifiers(0),
+        Emit::Key(control, false),
+    ]);
+    captured.expect(&typed);
+    captured.quiet();
+}
+
+#[test]
+#[ignore = "needs dbus-daemon; scripts/linux-wayland-tests.sh"]
 fn a_modifier_held_as_input_is_handed_over_crosses_and_old_answers_are_not_about_it() {
     let desktop = Desktop::start(2);
     let state = tempfile::tempdir().unwrap();

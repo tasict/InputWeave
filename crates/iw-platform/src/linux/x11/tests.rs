@@ -352,6 +352,59 @@ fn grabbed_input_reaches_no_other_client() {
 
 #[test]
 #[ignore = "needs an X server: scripts/linux-x11-tests.sh"]
+fn a_shortcut_typed_while_grabbed_is_reported_as_typed() {
+    let probe = Probe::new();
+    let mut emulation = X11Emulation::connect().unwrap();
+    let (tx, events) = mpsc::channel();
+    let mut capture = X11Capture::connect().unwrap().reporting_injected();
+    capture.start(tx).unwrap();
+    capture.set_grabbed(true).unwrap();
+    capture.settle();
+    let _ = reported(&events, QUIET);
+
+    // Control+C, then Control+Shift+Z with the right Control.
+    let typed = [
+        (usage::LEFT_CONTROL, true),
+        (usage::C, true),
+        (usage::C, false),
+        (usage::LEFT_CONTROL, false),
+        (usage::RIGHT_CONTROL, true),
+        (usage::LEFT_SHIFT, true),
+        (HidUsage::new(0x1D), true),
+        (HidUsage::new(0x1D), false),
+        (usage::LEFT_SHIFT, false),
+        (usage::RIGHT_CONTROL, false),
+    ];
+    for (key, pressed) in typed {
+        emulation.key(key, pressed).unwrap();
+    }
+    assert_eq!(keys(&reported(&events, QUIET)), typed);
+    let (keys_heard, _) = probe.heard(QUIET);
+    assert_eq!(keys_heard, Vec::<u8>::new());
+
+    // A modifier already down as input is grabbed goes on holding there.
+    capture.set_grabbed(false).unwrap();
+    capture.settle();
+    emulation.key(usage::LEFT_CONTROL, true).unwrap();
+    let _ = reported(&events, QUIET);
+    capture.set_grabbed(true).unwrap();
+    capture.settle();
+    tap(&mut emulation, usage::C);
+    emulation.key(usage::LEFT_CONTROL, false).unwrap();
+    assert_eq!(
+        keys(&reported(&events, QUIET)),
+        vec![
+            (usage::C, true),
+            (usage::C, false),
+            (usage::LEFT_CONTROL, false)
+        ]
+    );
+    capture.set_grabbed(false).unwrap();
+    capture.settle();
+}
+
+#[test]
+#[ignore = "needs an X server: scripts/linux-x11-tests.sh"]
 fn reserved_hotkeys_are_kept_from_other_clients() {
     let probe = Probe::new();
     let mut emulation = X11Emulation::connect().unwrap();
