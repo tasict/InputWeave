@@ -2345,20 +2345,39 @@ async fn start_with_listen(
     }
 }
 
+/// The transfer `id` once `done` says so. It times out only once nothing
+/// has moved for a while: a slow machine (a CI runner) takes longer over a
+/// big file, but each byte that arrives counts; a ceiling still ends a
+/// transfer that crawls forever.
 async fn wait_transfer(
     node: &Node,
     id: &str,
     done: impl Fn(&inputweave::agent::TransferStatus) -> bool,
 ) -> inputweave::agent::TransferStatus {
     let mut rx = node.agent.watch_transfers();
-    let found = tokio::time::timeout(
-        TIMEOUT * 3,
-        rx.wait_for(|list| list.iter().any(|t| t.id == id && done(t))),
-    )
-    .await
-    .unwrap_or_else(|_| panic!("timed out; transfers: {:#?}", node.agent.transfers()))
-    .unwrap();
-    found.iter().find(|t| t.id == id).unwrap().clone()
+    let started = std::time::Instant::now();
+    let mut moved = (0, std::time::Instant::now());
+    loop {
+        {
+            let list = rx.borrow_and_update();
+            if let Some(t) = list.iter().find(|t| t.id == id && done(t)) {
+                return t.clone();
+            }
+            let now = list.iter().filter(|t| t.id == id).map(|t| t.done).max();
+            if let Some(now) = now
+                && now > moved.0
+            {
+                moved = (now, std::time::Instant::now());
+            }
+        }
+        let still = (TIMEOUT * 3).saturating_sub(moved.1.elapsed());
+        if still.is_zero() || started.elapsed() > TIMEOUT * 30 {
+            panic!("timed out; transfers: {:#?}", node.agent.transfers());
+        }
+        if let Ok(changed) = tokio::time::timeout(still, rx.changed()).await {
+            changed.expect("agent running");
+        }
+    }
 }
 
 fn finished(t: &inputweave::agent::TransferStatus) -> bool {
