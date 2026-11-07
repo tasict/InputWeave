@@ -132,6 +132,13 @@ public sealed record AgentSnapshot
     /// </summary>
     public ImmutableHashSet<string> WakesSent { get; init; } = ImmutableHashSet<string>.Empty;
 
+    /// <summary>
+    /// Counts the connections to the service, from 1 for the first: each
+    /// is a new session, where what the app told the service before (the
+    /// Wi-Fi name) is told again.
+    /// </summary>
+    public ulong Session { get; init; }
+
     public string ThisDeviceId => Status.ThisDeviceId;
 
     /// <summary>
@@ -210,11 +217,12 @@ public sealed record AgentSnapshot
 
     /// <summary>
     /// Computers files can be sent to right now: those without a reason
-    /// they can't (<see cref="SendTargets.Unavailable"/>: connected,
-    /// and files not turned off with them here, <c>SetDeviceSharing</c>).
+    /// they can't (<see cref="SendTargets.Unavailable"/>: connected, and
+    /// files turned off neither with them here, <c>SetDeviceSharing</c>, nor
+    /// in the profile in use).
     /// </summary>
     public IReadOnlyList<DeviceStatus> FileReceivers =>
-        Status.Devices.Where(d => SendTargets.Unavailable(d) is null).ToList();
+        Status.Devices.Where(d => SendTargets.Unavailable(d, Profiles.FilesOff(this)) is null).ToList();
 
     /// <summary>Whether files can be sent to a computer right now.</summary>
     public bool CanReceiveFiles(string id) => FileReceivers.Any(d => d.Id == id);
@@ -288,6 +296,12 @@ public sealed record AgentSnapshot
     /// then shows nothing of it.
     /// </summary>
     public bool OfflineSupported => Status.OfflineSupported;
+
+    /// <summary>
+    /// Whether the service knows profiles (Status.profiles_supported); one
+    /// from before says nothing, and the app then shows nothing of them.
+    /// </summary>
+    public bool ProfilesSupported => Status.ProfilesSupported;
 
     /// <summary>
     /// Whether the service knows relative mode,

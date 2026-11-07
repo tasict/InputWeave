@@ -1,7 +1,9 @@
-//! The main window: a sidebar of five pages in the order the other two apps
-//! have them, the License row pinned at its foot, and a cover over all of
-//! them while the background service cannot be reached. Closing it only
-//! hides it; the tray icon stays.
+//! The main window: a sidebar of six pages in the order the other two apps
+//! have them (Profiles only from a service that knows profiles), the
+//! License row pinned at its foot, and a cover over all of them while the
+//! background service cannot be reached. A page may open a page of its own
+//! over them, with a back button (a profile, from Profiles). Closing it
+//! only hides it; the tray icon stays.
 
 use std::cell::{Cell, RefCell};
 use std::rc::Rc;
@@ -11,8 +13,8 @@ use std::time::SystemTime;
 use adw::prelude::*;
 use inputweave_app_core::service::{ServiceAction, ServiceState};
 use inputweave_app_core::snapshot::Snapshot;
-use inputweave_app_core::status_text;
 use inputweave_app_core::text::keys;
+use inputweave_app_core::{profiles, status_text};
 
 use gtk::gio;
 
@@ -24,6 +26,7 @@ use crate::woven::{Size as WovenSize, Woven};
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Page {
     General,
+    Profiles,
     Devices,
     Arrangement,
     Files,
@@ -34,8 +37,9 @@ pub enum Page {
 
 impl Page {
     /// In the sidebar's order, the License row last.
-    pub const ALL: [Page; 6] = [
+    pub const ALL: [Page; 7] = [
         Page::General,
+        Page::Profiles,
         Page::Devices,
         Page::Arrangement,
         Page::Files,
@@ -43,8 +47,9 @@ impl Page {
         Page::License,
     ];
     /// The pages in the sidebar's list (License has a row of its own).
-    const LISTED: [Page; 5] = [
+    const LISTED: [Page; 6] = [
         Page::General,
+        Page::Profiles,
         Page::Devices,
         Page::Arrangement,
         Page::Files,
@@ -54,6 +59,7 @@ impl Page {
     pub fn name(self) -> &'static str {
         match self {
             Page::General => "general",
+            Page::Profiles => "profiles",
             Page::Devices => "devices",
             Page::Arrangement => "arrangement",
             Page::Files => "files",
@@ -69,6 +75,7 @@ impl Page {
     fn title_key(self) -> &'static str {
         match self {
             Page::General => keys::NAV_GENERAL,
+            Page::Profiles => keys::NAV_PROFILES,
             Page::Devices => keys::NAV_DEVICES,
             Page::Arrangement => keys::NAV_ARRANGEMENT,
             Page::Files => keys::NAV_FILES,
@@ -80,6 +87,7 @@ impl Page {
     fn icon(self) -> &'static str {
         match self {
             Page::General => "preferences-system-symbolic",
+            Page::Profiles => profiles::ICON,
             Page::Devices => "computer-symbolic",
             Page::Arrangement => "view-grid-symbolic",
             Page::Files => "folder-download-symbolic",
@@ -98,10 +106,15 @@ pub struct MainWindow {
     foot_trial: gtk::Label,
     foot_licensed: Rc<Woven>,
     content: adw::NavigationPage,
+    /// The pages, and over them the page one of them opens (a profile's).
+    navigation: adw::NavigationView,
+    /// The pages: the stack under the header bar.
+    root: adw::NavigationPage,
     stack: gtk::Stack,
     unavailable: adw::StatusPage,
     start: gtk::Button,
     general: pages::general::General,
+    profiles: Rc<pages::profiles::Profiles>,
     devices: pages::devices::Devices,
     arrangement: Rc<pages::arrangement::Arrangement>,
     files: pages::files::Files,
@@ -201,6 +214,7 @@ impl MainWindow {
         let sidebar_page = adw::NavigationPage::new(&sidebar_view, "InputWeave");
 
         let general = pages::general::General::new(ui);
+        let profiles = pages::profiles::Profiles::new(ui);
         let devices = pages::devices::Devices::new(ui);
         let arrangement = pages::arrangement::Arrangement::new(ui);
         let files = pages::files::Files::new(ui);
@@ -208,6 +222,7 @@ impl MainWindow {
         let license = pages::license::LicensePage::new(ui);
         let stack = gtk::Stack::new();
         stack.add_named(general.widget(), Some(Page::General.name()));
+        stack.add_named(profiles.widget(), Some(Page::Profiles.name()));
         stack.add_named(devices.widget(), Some(Page::Devices.name()));
         stack.add_named(arrangement.widget(), Some(Page::Arrangement.name()));
         stack.add_named(files.widget(), Some(Page::Files.name()));
@@ -229,7 +244,13 @@ impl MainWindow {
         let content_view = adw::ToolbarView::new();
         content_view.add_top_bar(&adw::HeaderBar::new());
         content_view.set_content(Some(&stack));
-        let content = adw::NavigationPage::new(&content_view, &t(keys::NAV_GENERAL));
+        // The page one of the pages opens goes over them, header bar and
+        // all, with its own title and a back button.
+        let root = adw::NavigationPage::new(&content_view, &t(keys::NAV_GENERAL));
+        let navigation = adw::NavigationView::new();
+        navigation.add(&root);
+        profiles.set_navigation(&navigation);
+        let content = adw::NavigationPage::new(&navigation, &t(keys::NAV_GENERAL));
 
         let split = adw::NavigationSplitView::builder()
             .sidebar(&sidebar_page)
@@ -248,10 +269,13 @@ impl MainWindow {
             foot_trial,
             foot_licensed,
             content,
+            navigation,
+            root,
             stack,
             unavailable,
             start,
             general,
+            profiles,
             devices,
             arrangement,
             files,
@@ -313,6 +337,10 @@ impl MainWindow {
         &self.devices
     }
 
+    pub fn profiles(&self) -> &Rc<pages::profiles::Profiles> {
+        &self.profiles
+    }
+
     pub fn troubleshooting(&self) -> &pages::troubleshooting::Troubleshooting {
         &self.troubleshooting
     }
@@ -364,9 +392,18 @@ impl MainWindow {
         &self.license
     }
 
+    /// Back to the pages, from a page one of them opened.
+    fn back_to_pages(&self) {
+        if self.navigation.visible_page().as_ref() != Some(&self.root) {
+            self.navigation.pop_to_page(&self.root);
+        }
+    }
+
     fn select(&self, page: Page) {
         self.current.set(page);
+        self.back_to_pages();
         self.content.set_title(&t(page.title_key()));
+        self.root.set_title(&t(page.title_key()));
         if self.stack.visible_child_name().as_deref() != Some("unavailable") {
             self.stack.set_visible_child_name(page.name());
         }
@@ -381,6 +418,23 @@ impl MainWindow {
     /// model for when it is shown again.
     pub fn update(&self, model: &Arc<Snapshot>, service: ServiceState) {
         *self.last.borrow_mut() = Some((model.clone(), service));
+        // Profiles only from a service that knows them, as it says once
+        // reached (until then, the cover hides the pages anyway).
+        if model.connected() {
+            let supported = profiles::supported(model);
+            if let Some(row) = self.sidebar.row_at_index(
+                Page::LISTED
+                    .iter()
+                    .position(|p| *p == Page::Profiles)
+                    .unwrap_or(0) as i32,
+            ) && row.is_visible() != supported
+            {
+                row.set_visible(supported);
+            }
+            if !supported && self.current.get() == Page::Profiles {
+                self.show_page(Page::General);
+            }
+        }
         // The arrangement's version is followed while hidden too.
         self.arrangement.follow(
             model,
@@ -394,6 +448,7 @@ impl MainWindow {
     fn update_page(&self, page: Page, model: &Arc<Snapshot>, service: ServiceState) {
         match page {
             Page::General => self.general.update(model, service),
+            Page::Profiles => self.profiles.update(model),
             Page::Devices => self.devices.update(model),
             Page::Arrangement => self.arrangement.update(model),
             Page::Files => self.files.update(model),
@@ -418,6 +473,8 @@ impl MainWindow {
                 self.stack.set_visible_child_name(self.current.get().name());
             }
         } else {
+            // A page opened over the pages would hide the cover.
+            self.back_to_pages();
             let title = tr(&status_text::title(model, service, now));
             if self.unavailable.title() != title {
                 self.unavailable.set_title(&title);

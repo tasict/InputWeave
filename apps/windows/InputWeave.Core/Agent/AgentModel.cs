@@ -248,6 +248,7 @@ public sealed class AgentModel : IAsyncDisposable
             Update(s => s with
             {
                 Link = AgentLink.Connected,
+                Session = s.Session + 1,
                 UnreachableSince = null,
                 Status = status ?? new Status(),
                 Pairing = pairing ?? new PairingState(),
@@ -623,6 +624,75 @@ public sealed class AgentModel : IAsyncDisposable
         }).ConfigureAwait(false));
 
     /// <summary>
+    /// Adds a profile named <paramref name="name"/> (the service makes the
+    /// name unique with " 2", " 3"…), sharing, with every paired computer,
+    /// the clipboard and files on, and no networks. Returns its id: the
+    /// profile the status the service answers with lists that it did not
+    /// before; null if none. Refused with "invalid_name" and
+    /// "too_many_profiles".
+    /// </summary>
+    public async Task<string?> AddProfileAsync(string name)
+    {
+        var before = Snapshot.Status.Profiles.Select(p => p.Id).ToHashSet();
+        var response = await RequestAsync(new ClientMessage { AddProfile = new AddProfile { Name = name } })
+            .ConfigureAwait(false);
+        Apply(response);
+        return response.Status is { } status ? Profiles.Added(before, status) : null;
+    }
+
+    /// <summary>
+    /// Changes what <paramref name="edit"/> sets of a profile: its name,
+    /// pausing it, the clipboard, files, or which computers it connects.
+    /// Refused with "unknown_profile", "fixed_profile", "invalid_name" and
+    /// "unknown_device".
+    /// </summary>
+    public async Task EditProfileAsync(EditProfile edit) =>
+        Apply(await RequestAsync(new ClientMessage { EditProfile = edit }).ConfigureAwait(false));
+
+    /// <summary>
+    /// Removes a profile of the user's own, with its networks; when it was
+    /// the one chosen, the choice goes back to Automatic. Refused with
+    /// "unknown_profile" and "fixed_profile".
+    /// </summary>
+    public async Task RemoveProfileAsync(string profileId) =>
+        Apply(await RequestAsync(new ClientMessage { RemoveProfile = new RemoveProfile { ProfileId = profileId } })
+            .ConfigureAwait(false));
+
+    /// <summary>Uses a profile whatever the network, or Automatic again with an empty id.</summary>
+    public async Task SelectProfileAsync(string profileId) =>
+        Apply(await RequestAsync(new ClientMessage { SelectProfile = new SelectProfile { ProfileId = profileId } })
+            .ConfigureAwait(false));
+
+    /// <summary>
+    /// Adds the network this computer is on now to a profile, taking it from
+    /// any other. Refused with "unknown_profile", "other_networks",
+    /// "no_network" and "too_many_networks".
+    /// </summary>
+    public async Task AddNetworkToProfileAsync(string profileId) =>
+        Apply(await RequestAsync(new ClientMessage
+        {
+            AddNetworkToProfile = new AddNetworkToProfile { ProfileId = profileId },
+        }).ConfigureAwait(false));
+
+    /// <summary>Takes a network out of the profile that lists it. Refused with "unknown_network".</summary>
+    public async Task RemoveNetworkAsync(string networkId) =>
+        Apply(await RequestAsync(new ClientMessage { RemoveNetwork = new RemoveNetwork { NetworkId = networkId } })
+            .ConfigureAwait(false));
+
+    /// <summary>Also recognizes networks by their Wi-Fi name, which the app then reports (<see cref="ReportWifiNameAsync"/>), or only by their router.</summary>
+    public async Task SetWifiNamesAsync(bool on) =>
+        Apply(await RequestAsync(new ClientMessage { SetWifiNames = new SetWifiNames { On = on } })
+            .ConfigureAwait(false));
+
+    /// <summary>
+    /// Tells the service the Wi-Fi name of the network this computer is on,
+    /// as the status named it (empty when not on Wi-Fi, or unknown). Taken
+    /// only while the setting is on and the network is still that one.
+    /// </summary>
+    public async Task ReportWifiNameAsync(ReportWifiName report) =>
+        Apply(await RequestAsync(new ClientMessage { ReportWifiName = report }).ConfigureAwait(false));
+
+    /// <summary>
     /// Moves computers' desktop origins on the shared canvas. The service
     /// refuses positions that make screens overlap, as a whole.
     /// </summary>
@@ -819,11 +889,15 @@ public sealed class AgentModel : IAsyncDisposable
             return;
         }
         var status = current.Status;
-        var devices = string.Join(", ", status.Devices.Select(d => $"{d.Name} {d.State}"));
+        var devices = string.Join(", ", status.Devices.Select(d => $"{d.Name} {d.State}{(d.NotInProfile ? " not in profile" : "")}"));
         var line = $"status: sharing={status.Sharing}, locked={status.Locked}, capturing={status.Capturing}, "
             + $"this={status.ThisDeviceName}, cursor on {current.NameOf(current.CursorDeviceId)}, "
             + $"controlled by {(current.ControlledFromElsewhere ? current.NameOf(status.ControlledByDeviceId) : "none")}, "
             + $"devices: [{devices}], arranged: [{Arranged(current.Arrangement)}]"
+            // The profile by its id: a network's name may be a Wi-Fi name, which is never logged.
+            + (current.ProfilesSupported
+                ? $", profile {status.ProfileId}{(status.ProfileChosen ? " (chosen)" : "")}{(Profiles.Paused(current) ? " paused" : "")}"
+                : "")
             + (status.Dragging is { } dragging
                 ? $", dragging {dragging.DragId} ({dragging.Items} items) {(dragging.DeviceId.Length == 0 ? "here" : $"to {current.NameOf(dragging.DeviceId)}")}"
                 : "");

@@ -1659,4 +1659,159 @@
   <data name="HudTookThisOfflineAnother" xml:space="preserve">
     <value>Another computer took this computer offline for now.</value>
   </data>
+  <data name="NavProfiles" xml:space="preserve">
+    <value>Profiles</value>
+  </data>
+  <data name="ProfilesInUse" xml:space="preserve">
+    <value>Profile in use</value>
+  </data>
+  <data name="ProfilesInUseHint" xml:space="preserve">
+    <value>Automatic picks the profile from the network you’re on. A profile you choose stays until you choose Automatic again.</value>
+  </data>
+  <data name="ProfilesAutomatic" xml:space="preserve">
+    <value>Automatic</value>
+  </data>
+  <data name="ProfilesAutomaticNow" xml:space="preserve">
+    <value>Automatic (now: {0})</value>
+    <comment>{0} is the profile the network picks now.</comment>
+  </data>
+  <data name="ProfilesCurrentNetwork" xml:space="preserve">
+    <value>Current network: {0}</value>
+    <comment>{0} is the network’s name, or “Router 192.168.1.1”.</comment>
+  </data>
+  <data name="ProfilesNoNetwork" xml:space="preserve">
+    <value>Not connected to a network.</value>
+  </data>
+  <data name="ProfilesRouter" xml:space="preserve">
+    <value>Router {0}</value>
+    <comment>{0} is the router’s IP address.</comment>
+  </data>
+  <data name="ProfilesVpn" xml:space="preserve">
+    <value>VPN</value>
+  </data>
+  <data name="ProfilesWiredNetwork" xml:space="preserve">
+    <value>Wired network</value>
+    <comment>A wired network with neither a name nor a router known.</comment>
+  </data>
+  <data name="ProfilesWifiNetwork" xml:space="preserve">
+    <value>Wi-Fi network</value>
+    <comment>A Wi-Fi network with neither a name nor a router known.</comment>
+  </data>
+  <data name="ProfilesAddTo" xml:space="preserve">
+    <value>Add to Profile</value>
+  </data>
+  <data name="ProfilesAll" xml:space="preserve">
+    <value>All profiles</value>
+  </data>
+  <data name="ProfilesAdd" xml:space="preserve">
+    <value>Add Profile</value>
+  </data>
+  <data name="ProfilesInUseBadge" xml:space="preserve">
+    <value>In use</value>
+  </data>
+  <data name="ProfilesListJoin" xml:space="preserve">
+    <value>{0}, {1}</value>
+    <comment>Two parts of the list under a profile, its networks.</comment>
+  </data>
+  <data name="ProfilesWifiNames" xml:space="preserve">
+    <value>Also recognize networks by Wi-Fi name</value>
+  </data>
+  <data name="ProfilesWifiNamesHint" xml:space="preserve">
+    <value>InputWeave normally recognizes a network by its router. Turn this on to match Wi-Fi names too; Windows asks for location access, used only to read the Wi-Fi name.</value>
+  </data>
+  <data name="ProfileDefault" xml:space="preserve">
+    <value>Default</value>
+    <comment>The profile there always is.</comment>
+  </data>
+  <data name="ProfileOtherNetworks" xml:space="preserve">
+    <value>Other networks</value>
+    <comment>The profile for every network not in another profile.</comment>
+  </data>
+  <data name="ProfileNewName" xml:space="preserve">
+    <value>New Profile</value>
+    <comment>A new profile’s name; a number follows it when a profile has it already.</comment>
+  </data>
+  <data name="ProfileName" xml:space="preserve">
+    <value>Name</value>
+  </data>
+  <data name="ProfileNameTaken" xml:space="preserve">
+    <value>Another profile already has this name.</value>
+    <comment>Under a profile's name, after renaming it to the name of another profile.</comment>
+  </data>
+  <data name="ProfileSharing" xml:space="preserve">
+    <value>Sharing</value>
+  </data>
+  <data name="ProfileShare" xml:space="preserve">
+    <value>Share</value>
+  </data>
+  <data name="ProfilePause" xml:space="preserve">
+    <value>Pause</value>
+  </data>
+  <data name="ProfilePausedHint" xml:space="preserve">
+    <value>In this profile this computer doesn’t show up on the network or connect to any computer. Pairings are kept.</value>
+  </data>
+  <data name="ProfileSharingPaused" xml:space="preserve">
+    <value>Sharing paused</value>
+  </data>
+  <data name="ProfileComputers" xml:space="preserve">
+    <value>Computers to connect</value>
+  </data>
+  <data name="ProfileComputersHint" xml:space="preserve">
+    <value>Unchecked computers are treated as offline in this profile, and they see this computer as offline too.</value>
+  </data>
+  <data name="ProfileClipboard" xml:space="preserve">
+    <value>Clipboard sync</value>
+  </data>
+  <data name="ProfileFiles" xml:space="preserve">
+    <value>Send and receive files</value>
+  </data>
+  <data name="ProfileClipboardHint" xml:space="preserve">
+    <value>If clipboard sync is off on the General page, no profile syncs the clipboard.</value>
+  </data>
+  <data name="ProfileNetworks" xml:space="preserve">
+    <value>Networks</value>
+  </data>
+  <data name="ProfileNoNetworks" xml:space="preserve">
+    <value>No networks in this profile yet.</value>
+  </data>
+  <data name="ProfileOtherNetworksHint" xml:space="preserve">
+    <value>Networks not added to any profile use this one.</value>
+  </data>
+  <data name="ProfileAddCurrentNetwork" xml:space="preserve">
+    <value>Add Current Network</value>
+  </data>
+  <data name="ProfileRemoveNetwork" xml:space="preserve">
+    <value>Remove {0}</value>
+    <comment>What screen readers say for the × beside a network; {0} is the network.</comment>
+  </data>
+  <data name="ProfileRemove" xml:space="preserve">
+    <value>Remove Profile</value>
+  </data>
+  <data name="MenuProfile" xml:space="preserve">
+    <value>Profile</value>
+  </data>
+  <data name="MenuManageProfiles" xml:space="preserve">
+    <value>Manage Profiles…</value>
+  </data>
+  <data name="TitleProfilePaused" xml:space="preserve">
+    <value>{0}: sharing paused</value>
+    <comment>{0} is the profile in use.</comment>
+  </data>
+  <data name="SubtitleNetworkInNoProfile" xml:space="preserve">
+    <value>This network isn’t in any profile.</value>
+  </data>
+  <data name="PanelAddNetworkTo" xml:space="preserve">
+    <value>Add This Network To…</value>
+  </data>
+  <data name="ConnectionNotInProfile" xml:space="preserve">
+    <value>Not in this profile</value>
+  </data>
+  <data name="HudProfileSwitched" xml:space="preserve">
+    <value>Switched to {0}.</value>
+    <comment>{0} is the profile.</comment>
+  </data>
+  <data name="HudProfileSwitchedPaused" xml:space="preserve">
+    <value>Switched to {0}. Sharing is paused.</value>
+    <comment>{0} is the profile.</comment>
+  </data>
 </root>

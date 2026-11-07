@@ -381,6 +381,159 @@ final class Snapshots: XCTestCase {
         }
     }
 
+    /// The sample with profiles, as on the Profiles page's prototype:
+    /// Default (a wired network at home), Office (the Wi-Fi network this
+    /// Mac is on, without the Mac mini, files off) and Other networks, the
+    /// profile in use picked by Automatic. `inUse` other networks, on a
+    /// network in no profile, paused (`otherPaused`) or not; `chosen` by
+    /// the user; `wifiNames` names the network; `added`, a new profile;
+    /// `resolved` false, just after joining the network.
+    static func profilesModel(
+        inUse: String = "office", otherPaused: Bool = false, chosen: Bool = false, wifiNames: Bool = true,
+        added: Bool = false, resolved: Bool = true
+    ) -> AgentModel {
+        let sample = sampleModel(pictures: true)
+        var status = sample.status
+        var arrangement = sample.arrangement
+        func network(_ id: String, name: String = "", kind: Inputweave_App_V1_NetworkKind, router: String) -> AgentNetwork {
+            var network = AgentNetwork()
+            network.id = id; network.name = name; network.kind = kind; network.router = router
+            return network
+        }
+        func profile(
+            _ id: String, _ kind: Inputweave_App_V1_ProfileKind, name: String = "", paused: Bool = false,
+            off: [String] = [], files: Bool = true, networks: [AgentNetwork] = []
+        ) -> AgentProfile {
+            var profile = AgentProfile()
+            profile.id = id; profile.kind = kind; profile.name = name; profile.paused = paused
+            profile.offDeviceIds = off; profile.clipboard = true; profile.files = files; profile.networks = networks
+            return profile
+        }
+        let office = network("n-office", name: wifiNames ? "Office-5G" : "", kind: .wifi, router: "192.168.1.1")
+        status.profilesSupported = true
+        status.offlineSupported = true
+        status.wifiNames = wifiNames
+        status.profiles = [
+            profile("default", .default, networks: [network("n-home", kind: .wired, router: "172.16.0.1")]),
+            profile("office", .custom, name: "Office", off: ["mini"], files: false, networks: [office]),
+        ]
+        if added {
+            status.profiles.append(profile("new", .custom, name: ProfileText.newName()))
+        }
+        status.profiles.append(profile("other", .otherNetworks, paused: otherPaused))
+        status.profileID = inUse
+        status.profileChosen = chosen
+        status.network = inUse == "other" ? network("n-cafe", kind: .wifi, router: "198.51.100.1") : office
+        status.network.resolved = resolved
+        if inUse == "office" {
+            // Office leaves the Mac mini out.
+            status.devices[1].notInProfile = true
+        }
+        if ProfileText.paused(status) {
+            // As the service lists them: offline, nothing measured, none
+            // the keyboard and mouse are on.
+            status.activeDeviceID = "mac"
+            for index in status.devices.indices {
+                status.devices[index].state = .offline
+                status.devices[index].rttMs = 0
+            }
+        }
+        for index in arrangement.devices.indices where !arrangement.devices[index].thisDevice {
+            let id = arrangement.devices[index].id
+            arrangement.devices[index].connected = status.devices.first { $0.id == id }?.state == .connected
+        }
+        return AgentModel.sample(status: status, arrangement: arrangement)
+    }
+
+    /// Renders in Chinese as well: then every string the views look up in
+    /// the main bundle comes from this bundle's zh-Hant translations, as
+    /// the test runner's own bundle has none.
+    func renderBoth(_ name: String, size: CGSize, dark: Bool = false, @ViewBuilder _ view: () -> some View) throws {
+        try render(name, size: size, dark: dark, view)
+        _ = ChineseBundle.installed
+        object_setClass(Bundle.main, ChineseBundle.self)
+        defer { object_setClass(Bundle.main, Bundle.self) }
+        try render("\(name)-zh", size: size, dark: dark) {
+            view().environment(\.locale, Locale(identifier: "zh-Hant"))
+        }
+    }
+
+    /// The Profiles page in the prototype's states: Automatic in Office,
+    /// with Default selected; editing Office; Other networks paused, on a
+    /// network in no profile; a profile just added; and networks known by
+    /// their router alone, before the Wi-Fi name is read. Then the panel
+    /// with the profile in use after its title, chosen or not, and while
+    /// Automatic picked a paused Other networks; the Mac mini, left out of
+    /// Office, on the Devices page and the arrangement.
+    func testProfiles() throws {
+        let service = BackgroundService()
+        let size = CGSize(width: 760, height: 980)
+        for dark in [false, true] {
+            let suffix = dark ? "-dark" : ""
+            try renderBoth("profiles\(suffix)", size: size, dark: dark) {
+                ProfilesPage(selection: "default", wifiNames: nil).environment(Self.profilesModel())
+            }
+        }
+        try renderBoth("profiles-office", size: size) {
+            ProfilesPage(selection: "office", wifiNames: nil).environment(Self.profilesModel())
+        }
+        try renderBoth("profiles-other-paused", size: size) {
+            ProfilesPage(selection: "other", wifiNames: nil)
+                .environment(Self.profilesModel(inUse: "other", otherPaused: true))
+        }
+        try renderBoth("profiles-added", size: size) {
+            ProfilesPage(selection: "new", wifiNames: nil).environment(Self.profilesModel(added: true))
+        }
+        // Renamed to a name another profile has: said under the field,
+        // which shows the profile's name again.
+        try renderBoth("profiles-name-taken", size: size) {
+            ProfilesPage(
+                selection: "office", wifiNames: nil,
+                nameMessage: ProfileText.renameRefused("name_taken", typing: false).message
+            )
+            .environment(Self.profilesModel())
+        }
+        // Just after joining a network the service knows by its router
+        // alone: adding it is off for now.
+        try render("profiles-joining", size: size) {
+            ProfilesPage(selection: "default", wifiNames: nil).environment(Self.profilesModel(resolved: false))
+        }
+        try render("panel-profile-paused-joining", size: CGSize(width: 340, height: 360)) {
+            MenuPanel().environment(Self.profilesModel(inUse: "other", otherPaused: true, resolved: false))
+                .environment(service)
+        }
+        // As narrow as the main window lets the page be.
+        try renderBoth("profiles-narrow", size: CGSize(width: 550, height: 1040)) {
+            ProfilesPage(selection: "office", wifiNames: nil).environment(Self.profilesModel())
+        }
+        try renderBoth("profiles-routers", size: size) {
+            ProfilesPage(selection: "office", wifiNames: nil)
+                .environment(Self.profilesModel(chosen: true, wifiNames: false))
+        }
+        for dark in [false, true] {
+            let suffix = dark ? "-dark" : ""
+            try renderBoth("panel-profile\(suffix)", size: CGSize(width: 340, height: 330), dark: dark) {
+                MenuPanel().environment(Self.profilesModel()).environment(service)
+            }
+            try renderBoth("panel-profile-paused\(suffix)", size: CGSize(width: 340, height: 360), dark: dark) {
+                MenuPanel().environment(Self.profilesModel(inUse: "other", otherPaused: true)).environment(service)
+            }
+        }
+        try renderBoth("panel-profile-chosen-paused", size: CGSize(width: 340, height: 330)) {
+            MenuPanel().environment(Self.profilesModel(inUse: "other", otherPaused: true, chosen: true)).environment(service)
+        }
+        try renderBoth("devices-not-in-profile", size: CGSize(width: 730, height: 700)) {
+            DevicesPage().environment(Self.profilesModel()).environment(service)
+        }
+        try renderBoth("arrangement-not-in-profile", size: CGSize(width: 900, height: 760)) {
+            ArrangementPage(selection: "mini").environment(Self.profilesModel()).environment(service)
+        }
+        try renderBoth("arrangement-profile-paused", size: CGSize(width: 900, height: 760)) {
+            ArrangementPage(selection: "pc").environment(Self.profilesModel(inUse: "other", otherPaused: true))
+                .environment(service)
+        }
+    }
+
     /// The Mac mini offline and asleep: in the inspector, as it can be woken,
     /// is being woken, didn't wake up, and can't be woken yet; the moon after
     /// its name on the canvas, the mini map and the devices list.
@@ -886,4 +1039,51 @@ final class Snapshots: XCTestCase {
             try png.write(to: Self.output.appending(path: "status-icon-\(Int(scale))x.png"))
         }
     }
+}
+
+/// The main bundle while a snapshot renders in Chinese: every way Foundation
+/// and SwiftUI look up a string goes to the snapshot bundle's zh-Hant
+/// translations. The lookups Swift does not let a subclass override are
+/// added to it at run time.
+private final class ChineseBundle: Bundle, @unchecked Sendable {
+    static let translations: Bundle = {
+        let own = Bundle(for: Snapshots.self)
+        return own.path(forResource: "zh-Hant", ofType: "lproj").flatMap(Bundle.init(path:)) ?? own
+    }()
+
+    private static func string(_ key: NSString?, _ value: NSString?, _ table: NSString?) -> NSString {
+        translations.localizedString(forKey: (key ?? "") as String, value: value as String?, table: table as String?) as NSString
+    }
+
+    override func localizedString(forKey key: String, value: String?, table tableName: String?) -> String {
+        Self.string(key as NSString, value as NSString?, tableName as NSString?) as String
+    }
+
+    override var preferredLocalizations: [String] { ["zh-Hant"] }
+
+    /// Adds the other lookups, once.
+    static let installed: Void = {
+        typealias Three = @convention(block) (AnyObject, NSString?, NSString?, NSString?) -> AnyObject
+        typealias Four = @convention(block) (AnyObject, NSString?, NSString?, NSString?, AnyObject?) -> AnyObject
+        typealias Six = @convention(block) (AnyObject, NSString?, NSString?, NSString?, AnyObject?, AnyObject?, ObjCBool) -> AnyObject
+        let plain: [(String, Any)] = [
+            ("localizedStringForKey:value:table:localization:", { _, k, v, t, _ in string(k, v, t) } as Four),
+            ("localizedStringForKey:value:table:localizations:", { _, k, v, t, _ in string(k, v, t) } as Four),
+            ("_localizedStringForKey:value:table:localizations:", { _, k, v, t, _ in string(k, v, t) } as Four),
+            (
+                "_localizedStringForKey:value:table:bundleLocalizations:localization:preventMarkdownParsing:",
+                { _, k, v, t, _, _, _ in string(k, v, t) } as Six
+            ),
+            ("localizedAttributedStringForKey:value:table:", { _, k, v, t in NSAttributedString(string: string(k, v, t) as String) } as Three),
+            (
+                "localizedAttributedStringForKey:value:table:localization:",
+                { _, k, v, t, _ in NSAttributedString(string: string(k, v, t) as String) } as Four
+            ),
+        ]
+        for (name, block) in plain {
+            let selector = NSSelectorFromString(name)
+            guard let method = class_getInstanceMethod(Bundle.self, selector) else { continue }
+            class_addMethod(ChineseBundle.self, selector, imp_implementationWithBlock(block), method_getTypeEncoding(method))
+        }
+    }()
 }

@@ -47,7 +47,7 @@ final class SendService: NSObject {
             chooser.add(urls)
             return
         }
-        switch SendTargets.choice(model.status.devices) {
+        switch SendTargets.choice(model.status.devices, profileFilesOff: ProfileText.filesOff(model.status)) {
         case .nowhere:
             chooser.notice(String(localized: "No connected computer can receive files."))
         case .only(let id):

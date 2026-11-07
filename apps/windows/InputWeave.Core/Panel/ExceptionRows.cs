@@ -73,11 +73,15 @@ public static class ExceptionRows
 
     /// <summary>
     /// The computers that can't be reached: offline, except those taken
-    /// offline for now, which are offline on purpose; and none while this
-    /// computer is offline for now, when every other one shows offline.
+    /// offline for now and those the profile in use doesn't connect, which
+    /// are offline on purpose; and none while this computer is offline for
+    /// now or the profile in use is paused, when every other one shows
+    /// offline.
     /// </summary>
     private static IReadOnlyList<DeviceStatus> Unreachable(AgentSnapshot model) =>
-        OfflineForNow.ThisOffline(model)
+        OfflineForNow.ThisOffline(model) || Profiles.Paused(model)
             ? []
-            : model.OfflineDevices.Where(d => !OfflineForNow.IsOffline(model, d.Id)).ToList();
+            : model.OfflineDevices
+                .Where(d => !OfflineForNow.IsOffline(model, d.Id) && !Profiles.NotInProfile(model, d.Id))
+                .ToList();
 }

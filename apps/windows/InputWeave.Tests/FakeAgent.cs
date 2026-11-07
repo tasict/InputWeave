@@ -309,8 +309,227 @@ internal sealed class FakeAgent
         return new Response { Status = Status };
     }
 
+    /// <summary>
+    /// Gives the status profiles as the service has them after an upgrade:
+    /// Default with the network this computer is on, Office with another,
+    /// and Other networks; Automatic picks Default.
+    /// </summary>
+    public void UseProfiles()
+    {
+        Status.ProfilesSupported = true;
+        Status.Network = new Network { Id = "n-home", Name = "", Kind = NetworkKind.Wired, Router = "192.168.1.1", Resolved = true };
+        var home = new Profile { Id = "default", Kind = ProfileKind.Default, Clipboard = true, Files = true };
+        // In a profile's list, a network is never resolved.
+        home.Networks.Add(new Network { Id = "n-home", Kind = NetworkKind.Wired, Router = "192.168.1.1" });
+        var office = new Profile { Id = "p1", Kind = ProfileKind.Custom, Name = "Office", Clipboard = true, Files = true };
+        office.Networks.Add(new Network { Id = "n-office", Name = "Office-5G", Kind = NetworkKind.Wifi, Router = "172.16.0.1" });
+        var other = new Profile { Id = "other", Kind = ProfileKind.OtherNetworks, Clipboard = true, Files = true };
+        Status.Profiles.Add(home);
+        Status.Profiles.Add(office);
+        Status.Profiles.Add(other);
+        Status.ProfileId = "default";
+    }
+
+    private readonly List<ReportWifiName> reports = [];
+
+    /// <summary>The Wi-Fi names the app reported, oldest first.</summary>
+    public IReadOnlyList<ReportWifiName> Reports
+    {
+        get
+        {
+            lock (gate)
+            {
+                return reports.ToList();
+            }
+        }
+    }
+
+    /// <summary>
+    /// The profile commands, as the service answers them: names made unique,
+    /// the fixed two kept, a network in one profile at most.
+    /// </summary>
+    private Response? AnswerProfiles(ClientMessage request)
+    {
+        static bool Valid(string name) => name.Length is > 0 and <= 64 && !name.Any(char.IsControl);
+        // As the service: the names of Default and Other networks, in either
+        // language, and another profile's name are taken, whatever the case.
+        string[] fixedNames = ["Default", "預設", "Other networks", "其他網路"];
+        bool Taken(string name, string except) =>
+            fixedNames.Contains(name, StringComparer.OrdinalIgnoreCase)
+            || Status.Profiles.Any(p => p.Id != except && string.Equals(p.Name, name, StringComparison.OrdinalIgnoreCase));
+        Profile? Find(string id) => Status.Profiles.FirstOrDefault(p => p.Id == id);
+        switch (request.CommandCase)
+        {
+            case ClientMessage.CommandOneofCase.AddProfile:
+                var name = request.AddProfile.Name.Trim();
+                if (!Valid(name))
+                {
+                    return Refuse("invalid_name", "a profile name is 1 to 64 characters");
+                }
+                if (Status.Profiles.Count >= 32)
+                {
+                    return Refuse("too_many_profiles", "32 profiles at most");
+                }
+                if (fixedNames.Contains(name, StringComparer.OrdinalIgnoreCase))
+                {
+                    return Refuse("name_taken", "a profile has that name");
+                }
+                var unique = name;
+                for (int n = 2; Status.Profiles.Any(p => p.Name == unique); n++)
+                {
+                    unique = $"{name} {n}";
+                }
+                Status = Status.Clone();
+                var added = new Profile { Id = $"p{Status.Profiles.Count}", Name = unique, Clipboard = true, Files = true };
+                Status.Profiles.Insert(Status.Profiles.Count - 1, added);
+                return new Response { Status = Status };
+            case ClientMessage.CommandOneofCase.EditProfile:
+                var edit = request.EditProfile;
+                if (Find(edit.ProfileId) is not { } editing)
+                {
+                    return Refuse("unknown_profile", "no such profile");
+                }
+                if (edit.HasName && editing.Kind != ProfileKind.Custom)
+                {
+                    return Refuse("fixed_profile", "Default and Other networks keep their names");
+                }
+                if (edit.HasName && !Valid(edit.Name))
+                {
+                    return Refuse("invalid_name", "a profile name is 1 to 64 characters");
+                }
+                if (edit.HasName && Taken(edit.Name, editing.Id))
+                {
+                    return Refuse("name_taken", "a profile has that name");
+                }
+                if (edit.Devices.Any(d => Status.Devices.All(t => t.Id != d.DeviceId) && !editing.OffDeviceIds.Contains(d.DeviceId)))
+                {
+                    return Refuse("unknown_device", "no such trusted device");
+                }
+                Status = Status.Clone();
+                editing = Find(edit.ProfileId)!;
+                if (edit.HasName)
+                {
+                    editing.Name = edit.Name;
+                }
+                if (edit.HasPaused)
+                {
+                    editing.Paused = edit.Paused;
+                }
+                if (edit.HasClipboard)
+                {
+                    editing.Clipboard = edit.Clipboard;
+                }
+                if (edit.HasFiles)
+                {
+                    editing.Files = edit.Files;
+                }
+                foreach (var device in edit.Devices)
+                {
+                    editing.OffDeviceIds.Remove(device.DeviceId);
+                    if (!device.Connect)
+                    {
+                        editing.OffDeviceIds.Add(device.DeviceId);
+                    }
+                }
+                return new Response { Status = Status };
+            case ClientMessage.CommandOneofCase.RemoveProfile:
+                if (Find(request.RemoveProfile.ProfileId) is not { } removing)
+                {
+                    return Refuse("unknown_profile", "no such profile");
+                }
+                if (removing.Kind != ProfileKind.Custom)
+                {
+                    return Refuse("fixed_profile", "Default and Other networks stay");
+                }
+                Status = Status.Clone();
+                Status.Profiles.Remove(Find(removing.Id)!);
+                if (Status.ProfileId == removing.Id)
+                {
+                    (Status.ProfileId, Status.ProfileChosen) = ("default", false);
+                }
+                return new Response { Status = Status };
+            case ClientMessage.CommandOneofCase.SelectProfile:
+                var chosen = request.SelectProfile.ProfileId;
+                if (chosen.Length != 0 && Find(chosen) is null)
+                {
+                    return Refuse("unknown_profile", "no such profile");
+                }
+                Status = Status.Clone();
+                (Status.ProfileId, Status.ProfileChosen) = chosen.Length == 0 ? ("default", false) : (chosen, true);
+                return new Response { Status = Status };
+            case ClientMessage.CommandOneofCase.AddNetworkToProfile:
+                if (Find(request.AddNetworkToProfile.ProfileId) is not { } to)
+                {
+                    return Refuse("unknown_profile", "no such profile");
+                }
+                if (to.Kind == ProfileKind.OtherNetworks)
+                {
+                    return Refuse("other_networks", "Other networks lists no networks");
+                }
+                if (Status.Network is not { } current)
+                {
+                    return Refuse("no_network", "on no network");
+                }
+                if (!current.Resolved)
+                {
+                    return Refuse("network_unresolved", "the network is known by its router's address alone");
+                }
+                Status = Status.Clone();
+                foreach (var profile in Status.Profiles)
+                {
+                    foreach (var listed in profile.Networks.Where(n => n.Id == current.Id).ToList())
+                    {
+                        profile.Networks.Remove(listed);
+                    }
+                }
+                var inProfile = current.Clone();
+                inProfile.Resolved = false;
+                Find(to.Id)!.Networks.Add(inProfile);
+                return new Response { Status = Status };
+            case ClientMessage.CommandOneofCase.RemoveNetwork:
+                var network = request.RemoveNetwork.NetworkId;
+                if (Status.Profiles.All(p => p.Networks.All(n => n.Id != network)))
+                {
+                    return Refuse("unknown_network", "no such network");
+                }
+                Status = Status.Clone();
+                foreach (var profile in Status.Profiles)
+                {
+                    foreach (var listed in profile.Networks.Where(n => n.Id == network).ToList())
+                    {
+                        profile.Networks.Remove(listed);
+                    }
+                }
+                return new Response { Status = Status };
+            case ClientMessage.CommandOneofCase.SetWifiNames:
+                Status = Status.Clone();
+                Status.WifiNames = request.SetWifiNames.On;
+                return new Response { Status = Status };
+            case ClientMessage.CommandOneofCase.ReportWifiName:
+                var report = request.ReportWifiName;
+                lock (gate)
+                {
+                    reports.Add(report.Clone());
+                }
+                // Taken only for the network this computer is on, with the setting on.
+                if (Status.WifiNames && Status.Network?.Id == report.NetworkId)
+                {
+                    Status = Status.Clone();
+                    Status.Network!.Name = report.Ssid;
+                    Status.WifiNameHeld = new WifiNameHeld { NetworkId = report.NetworkId, Ssid = report.Ssid, InUse = true };
+                }
+                return new Response { Status = Status };
+            default:
+                return null;
+        }
+    }
+
     private Response Answer(ClientMessage request)
     {
+        if (AnswerProfiles(request) is { } answered)
+        {
+            return answered;
+        }
         switch (request.CommandCase)
         {
             case ClientMessage.CommandOneofCase.Hello:

@@ -22,7 +22,7 @@ use inputweave_app_core::snapshot::Link;
 use inputweave_app_core::snapshot::Snapshot;
 use inputweave_app_core::status_text::{self, MenuState, TrayState};
 use inputweave_app_core::text::keys;
-use inputweave_app_core::{log, offline, paths, sample, wake};
+use inputweave_app_core::{log, offline, paths, profiles, sample, wake};
 
 use crate::overlay::Overlay;
 use crate::setup::Setup;
@@ -353,6 +353,12 @@ impl Ui {
         self.tray_model(model)
     }
 
+    /// Does what choosing `action` in the tray menu does.
+    #[cfg(test)]
+    pub fn tray_action_for_tests(self: &Rc<Self>, action: TrayAction) {
+        self.tray_action(action);
+    }
+
     fn tray_shown(&self) -> bool {
         self.tray.borrow().as_ref().is_some_and(Tray::shown)
     }
@@ -362,18 +368,11 @@ impl Ui {
         let service = self.service();
         let state = TrayState::of(model, service, now);
         let menu = MenuState::of(model);
-        let item = |key: &str, enabled: bool, action: TrayAction| MenuItem {
-            label: t(key),
-            enabled,
-            action: Some(action),
-        };
+        let item =
+            |key: &str, enabled: bool, action: TrayAction| MenuItem::new(t(key), enabled, action);
         let title = tr(&status_text::title(model, service, now));
         let mut menu_items = vec![
-            MenuItem {
-                label: title.clone(),
-                enabled: false,
-                action: Some(TrayAction::Open),
-            },
+            MenuItem::new(title.clone(), false, TrayAction::Open),
             MenuItem::separator(),
             item(
                 keys::MENU_SEND_FILES,
@@ -381,12 +380,37 @@ impl Ui {
                 TrayAction::SendFiles,
             ),
             MenuItem::separator(),
-            item(
-                menu.pause_key,
-                menu.pause_enabled,
-                TrayAction::ToggleSharing,
-            ),
         ];
+        // The profile to use, in a section of its own before Pause Sharing,
+        // as on Windows: Automatic and every profile, the one chosen
+        // checked, then Manage Profiles….
+        if !menu.profiles.is_empty() {
+            let mut choices: Vec<MenuItem> = menu
+                .profiles
+                .iter()
+                .map(|choice| MenuItem {
+                    checked: Some(choice.checked),
+                    ..MenuItem::new(
+                        tr(&choice.label),
+                        menu.profiles_enabled,
+                        TrayAction::SelectProfile(choice.id.clone()),
+                    )
+                })
+                .collect();
+            choices.push(MenuItem::separator());
+            choices.push(item(
+                keys::MENU_MANAGE_PROFILES,
+                true,
+                TrayAction::ManageProfiles,
+            ));
+            menu_items.push(MenuItem::submenu(t(keys::MENU_PROFILE), choices));
+            menu_items.push(MenuItem::separator());
+        }
+        menu_items.push(item(
+            menu.pause_key,
+            menu.pause_enabled,
+            TrayAction::ToggleSharing,
+        ));
         // Taking this computer offline for now, or bringing it back, after
         // Pause Sharing, as on Windows.
         if let Some((key, _)) = menu.offline {
@@ -432,6 +456,8 @@ impl Ui {
                     self.set_offline(&this, offline);
                 }
             }
+            TrayAction::SelectProfile(id) => self.command(profiles::select(&id)),
+            TrayAction::ManageProfiles => self.show_window(Some(Page::Profiles)),
             TrayAction::IdentifyScreens => {
                 self.command(Command::IdentifyScreens(IdentifyScreens {}))
             }

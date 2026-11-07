@@ -2,12 +2,13 @@
 //! app's `HUDController` and the Windows app's `HudWatch`: why the keyboard
 //! and mouse came back, the cursor being locked or unlocked, relative mode
 //! starting and ending, a computer taken offline for now or brought back,
-//! a computer being woken and waking up, and the take-back hint the first
-//! three times this computer takes control of another. It compares each
-//! state with the one before, so only a change is news; the first state
-//! seen after the app starts is only remembered, and so are relative mode,
-//! computers offline for now and waking in the first state after the
-//! service is reached again. Where the HUD shows (an overlay, or a
+//! the profile in use changing by itself, a computer being woken and waking
+//! up, and the take-back hint the first three times this computer takes
+//! control of another. It compares each state with the one before, so only
+//! a change is news; the first state seen after the app starts is only
+//! remembered, and so are relative mode, computers offline for now, profile
+//! switches and waking in the first state after the service is reached
+//! again. Where the HUD shows (an overlay, or a
 //! notification) is the app's.
 
 use std::collections::HashMap;
@@ -16,6 +17,7 @@ use std::time::{Duration, SystemTime};
 use iw_proto::app::v1::{ConnectionState, RelativeEndReason, ReturnReason, WakeState};
 
 use crate::offline;
+use crate::profiles;
 use crate::snapshot::{Link, Snapshot};
 use crate::text::{UiText, keys};
 use crate::ui;
@@ -55,6 +57,9 @@ pub struct HudWatch {
     offline_primed: bool,
     /// Status.offline_changes as last seen.
     offline_changes: u64,
+    profile_primed: bool,
+    /// Status.profile_switches as last seen.
+    profile_switches: u64,
 }
 
 impl HudWatch {
@@ -72,6 +77,7 @@ impl HudWatch {
             self.relative_primed = false;
             self.wake_primed = false;
             self.offline_primed = false;
+            self.profile_primed = false;
             return None;
         }
         let status = &snapshot.status;
@@ -93,6 +99,7 @@ impl HudWatch {
         self.relative_ends = status.relative_ends;
         self.seen_refusal = snapshot.relative_refusals;
         let offline = self.offline_message(snapshot);
+        let profile = self.profile_message(snapshot);
         let wake = self.wake_message(snapshot);
         if first {
             return None;
@@ -101,6 +108,11 @@ impl HudWatch {
             && let Some(back) = return_message(snapshot)
         {
             return Some(back);
+        }
+        // The keyboard and mouse coming back because of it says nothing of
+        // its own (`return_message`): this says why.
+        if profile.is_some() {
+            return profile;
         }
         if self.seen_refusal > refusal_before {
             return Some(ui!(
@@ -231,6 +243,28 @@ impl HudWatch {
         }
     }
 
+    /// The profile in use changing by itself, from a service that knows
+    /// profiles, as `Status.profile_switches` grows (the service counts
+    /// neither the user's own choice nor its start; fewer than before, from
+    /// a restarted service, is only remembered, as is the first state after
+    /// the service is reached): "Switched to Office.", or with the profile
+    /// in use paused, "Switched to Other networks. Sharing is paused."
+    fn profile_message(&mut self, snapshot: &Snapshot) -> Option<UiText> {
+        let status = &snapshot.status;
+        let primed = std::mem::replace(&mut self.profile_primed, true);
+        let before = std::mem::replace(&mut self.profile_switches, status.profile_switches);
+        if !primed || status.profile_switches <= before {
+            return None;
+        }
+        let profile = profiles::in_use(snapshot)?;
+        let name = profiles::name(profile);
+        Some(if profile.paused {
+            ui!(keys::HUD_PROFILE_SWITCHED_PAUSED, name)
+        } else {
+            ui!(keys::HUD_PROFILE_SWITCHED, name)
+        })
+    }
+
     /// A device being woken ("Waking Mac mini…": its wake state became
     /// WAKING), or connected after it was ("Mac mini is awake."), from a
     /// service that wakes devices. Remembers every other device's state,
@@ -324,6 +358,9 @@ fn return_message(snapshot: &Snapshot) -> Option<UiText> {
         ReturnReason::OfflineForNow if status.last_return_device_id != status.this_device_id => {
             Some(ui!(keys::HUD_OFFLINE_RETURNED, name))
         }
+        // The profile in use changed: when it changed by itself, the switch
+        // says so (`profile_message`); when the user chose it, they know.
+        ReturnReason::ProfileChanged => None,
         _ => None,
     }
 }
@@ -1594,6 +1631,118 @@ mod tests {
         };
         let mut watch = HudWatch::default();
         let mut hints = 3;
+        watch.update(&old(0), &mut hints, start());
+        assert_eq!(watch.update(&old(1), &mut hints, start()), None);
+    }
+
+    /// The sample having counted `switches` profile switches, in `profile`.
+    fn switched(switches: u64, profile: &str) -> Snapshot {
+        let mut m = crate::sample::snapshot(start());
+        m.status.profile_switches = switches;
+        m.status.profile_id = profile.into();
+        m
+    }
+
+    #[test]
+    fn says_the_profile_switched_by_itself() {
+        let mut watch = HudWatch::default();
+        let mut hints = 3;
+        assert_eq!(
+            watch.update(&switched(2, "office"), &mut hints, start()),
+            None,
+            "the first state seen"
+        );
+        let to_default = watch.update(&switched(3, "default"), &mut hints, start());
+        assert_eq!(
+            to_default,
+            Some(ui!(keys::HUD_PROFILE_SWITCHED, ui!(keys::PROFILE_DEFAULT)))
+        );
+        assert_eq!(
+            watch.update(&switched(3, "default"), &mut hints, start()),
+            None,
+            "said once"
+        );
+        let to_office = watch.update(&switched(4, "office"), &mut hints, start());
+        // To a paused one.
+        let mut paused = switched(5, "other");
+        for p in &mut paused.status.profiles {
+            p.paused = p.id == "other";
+        }
+        let to_paused = watch.update(&paused, &mut hints, start());
+        let zh = crate::text::Catalog::for_language(crate::text::Language::ChineseTaiwan);
+        let both = |text: Option<UiText>| text.map(|t| (t.to_string(), zh.render(&t)));
+        assert_eq!(
+            both(to_default),
+            Some(("Switched to Default.".into(), "已切換到「預設」。".into()))
+        );
+        assert_eq!(
+            both(to_office),
+            Some(("Switched to Office.".into(), "已切換到「Office」。".into()))
+        );
+        assert_eq!(
+            both(to_paused),
+            Some((
+                "Switched to Other networks. Sharing is paused.".into(),
+                "已切換到「其他網路」，鍵鼠共享已暫停。".into()
+            ))
+        );
+    }
+
+    #[test]
+    fn the_keyboard_and_mouse_coming_back_for_a_profile_says_the_switch() {
+        let mut watch = HudWatch::default();
+        let mut hints = 3;
+        let mut there = switched(0, "office");
+        there.status.active_device_id = "pc".into();
+        watch.update(&there, &mut hints, start());
+        // The profile changed by itself, leaving the Studio PC out.
+        let mut back = switched(1, "default");
+        back.status.control_returns = 1;
+        back.status.last_return = ReturnReason::ProfileChanged as i32;
+        back.status.last_return_device_id = "pc".into();
+        assert_eq!(
+            watch.update(&back, &mut hints, start()),
+            Some(ui!(keys::HUD_PROFILE_SWITCHED, ui!(keys::PROFILE_DEFAULT)))
+        );
+        // The user chose another profile: not counted, nothing said.
+        let mut watch = HudWatch::default();
+        watch.update(&there, &mut hints, start());
+        let mut chosen = switched(0, "default");
+        chosen.status.profile_chosen = true;
+        chosen.status.control_returns = 1;
+        chosen.status.last_return = ReturnReason::ProfileChanged as i32;
+        assert_eq!(watch.update(&chosen, &mut hints, start()), None);
+    }
+
+    #[test]
+    fn switches_already_made_are_only_remembered() {
+        let mut watch = HudWatch::default();
+        let mut hints = 3;
+        watch.update(&switched(1, "office"), &mut hints, start());
+        // When the service is reached again.
+        let mut away = switched(1, "office");
+        away.link = Link::Connecting;
+        assert_eq!(watch.update(&away, &mut hints, start()), None);
+        assert_eq!(
+            watch.update(&switched(3, "default"), &mut hints, start()),
+            None
+        );
+        // A restarted service the app did not see go counts from 0.
+        assert_eq!(
+            watch.update(&switched(1, "office"), &mut hints, start()),
+            None
+        );
+        assert_eq!(
+            watch.update(&switched(2, "default"), &mut hints, start()),
+            Some(ui!(keys::HUD_PROFILE_SWITCHED, ui!(keys::PROFILE_DEFAULT)))
+        );
+        // From a service before profiles: nothing.
+        let mut watch = HudWatch::default();
+        let old = |switches| {
+            let mut m = switched(switches, "default");
+            m.status.profiles_supported = false;
+            m
+        };
         watch.update(&old(0), &mut hints, start());
         assert_eq!(watch.update(&old(1), &mut hints, start()), None);
     }

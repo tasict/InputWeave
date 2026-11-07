@@ -371,6 +371,8 @@ struct ClipboardState {
     max_write: Option<usize>,
     /// How long each read takes, as reading a large clipboard does.
     read_delay: std::time::Duration,
+    /// Whether the agent last said sync is on (`set_sync`), if it said.
+    sync: Option<bool>,
 }
 
 impl ClipboardState {
@@ -473,6 +475,11 @@ impl MockClipboard {
     pub fn delay_reads(&self, delay: std::time::Duration) {
         self.state.lock().unwrap().read_delay = delay;
     }
+
+    /// Whether the agent last said sync is on, if it said.
+    pub fn sync(&self) -> Option<bool> {
+        self.state.lock().unwrap().sync
+    }
 }
 
 impl Clipboard for MockClipboard {
@@ -518,6 +525,10 @@ impl Clipboard for MockClipboard {
         self.state.lock().unwrap().max_write
     }
 
+    fn set_sync(&mut self, on: bool) {
+        self.state.lock().unwrap().sync = Some(on);
+    }
+
     fn write_promise(&mut self, promise: ClipboardPromise) -> Result<u64, PlatformError> {
         let mut state = self.state.lock().unwrap();
         if state.no_promises {
@@ -556,6 +567,8 @@ struct MockSession {
     firewall: Firewall,
     /// The ports the agent asked about the firewall for.
     firewall_ports: Vec<u16>,
+    /// The network the session is on; none at first.
+    network: Option<crate::network::NetworkSighting>,
 }
 
 impl MockStatus {
@@ -653,6 +666,12 @@ impl MockStatus {
         self.state.lock().unwrap().firewall = firewall;
     }
 
+    /// The network the session is on from now on: none, without a route
+    /// to the internet.
+    pub fn set_network(&self, network: Option<crate::network::NetworkSighting>) {
+        self.state.lock().unwrap().network = network;
+    }
+
     /// The last port the agent asked about the firewall for.
     pub fn firewall_port(&self) -> Option<u16> {
         self.state.lock().unwrap().firewall_ports.last().copied()
@@ -709,6 +728,10 @@ impl SessionStatus for MockStatus {
 
     fn session_info(&self) -> Option<SessionInfo> {
         self.state.lock().unwrap().session_info.clone()
+    }
+
+    fn network(&self) -> Result<Option<crate::network::NetworkSighting>, PlatformError> {
+        Ok(self.state.lock().unwrap().network.clone())
     }
 
     fn checks_firewall(&self) -> bool {

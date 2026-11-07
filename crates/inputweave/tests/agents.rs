@@ -141,6 +141,20 @@ async fn start_showing(
     options: Options,
     pictures: MockDesktopPictures,
 ) -> Node {
+    start_on(spec, identity, all, known, options, pictures, None).await
+}
+
+/// Like [`start_showing`], on `network` from the start, as the agent first
+/// reads it.
+async fn start_on(
+    spec: &Spec,
+    identity: Identity,
+    all: &[&Spec],
+    known: &[Known],
+    options: Options,
+    pictures: MockDesktopPictures,
+    network: Option<iw_platform::network::NetworkSighting>,
+) -> Node {
     let config = Config {
         device: DeviceConfig {
             id: spec.id.to_owned(),
@@ -148,7 +162,8 @@ async fn start_showing(
         },
         network: NetworkConfig {
             listen: "127.0.0.1:0".parse().unwrap(),
-            discovery: false,
+            // Only as a stand-in, which touches no network.
+            discovery: options.fake_discovery,
             ..NetworkConfig::default()
         },
         paths: PathsConfig::default(),
@@ -182,6 +197,7 @@ async fn start_showing(
     let displays = SharedDisplays::new(spec.displays.clone());
     let clipboard = MockClipboard::default();
     let status = MockStatus::granted();
+    status.set_network(network);
     let backends = Backends {
         capture: Box::new(capture),
         emulation: Box::new(emulation.clone()),
@@ -8860,7 +8876,7 @@ async fn the_login_window_agent_is_the_users_device_and_writes_nothing() {
         state.identity,
         spec.displays.clone(),
         Box::new(LoginWindowSession),
-        login_window::options(state.devices, state.offline),
+        login_window::options(state.devices, state.offline, state.profiles),
     )
     .await;
     assert_eq!(at_login.agent.device_id(), "mac");
@@ -13135,6 +13151,137 @@ async fn files_stop_while_a_device_is_offline_and_go_on_once_it_is_back() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn files_stop_while_the_profile_turns_them_off_and_go_on_once_on_again() {
+    use inputweave::agent::{SendError, TransferState};
+
+    let dir = tempfile::tempdir().unwrap();
+    let (mac, win, _, _) = file_pair(dir.path()).await;
+    let source = dir.path().join("big.bin");
+    let data: Vec<u8> = (0..160_000_000u32)
+        .map(|i| (i.wrapping_mul(2654435761) >> 24) as u8)
+        .collect();
+    std::fs::write(&source, &data).unwrap();
+    let profile = wait_status(&mac, |s| !s.profile.is_empty()).await.profile;
+    // Both ways at once.
+    let out = mac
+        .agent
+        .send_files("win", vec![source.clone()])
+        .await
+        .unwrap()
+        .remove(0);
+    let back = win
+        .agent
+        .send_files("mac", vec![source.clone()])
+        .await
+        .unwrap()
+        .remove(0);
+    let partway = |t: &inputweave::agent::TransferStatus| t.done > 0;
+    let going = wait_transfer(&win, &out, partway).await;
+    let coming = wait_transfer(&mac, &back, partway).await;
+    assert!(
+        going.done < going.size && coming.done < coming.size,
+        "the transfers finished too fast to cut off"
+    );
+
+    // Files turned off in the profile in use here: both stop, what arrived
+    // kept, and wait.
+    let off = |files: bool| ProfileEdit {
+        files: Some(files),
+        ..ProfileEdit::default()
+    };
+    change(&mac, ProfileChange::Edit(profile.clone(), off(false))).await;
+    let waiting =
+        |t: &inputweave::agent::TransferStatus| t.state == TransferState::WaitingForConnection;
+    wait_transfer(&mac, &out, waiting).await;
+    tokio::time::sleep(Duration::from_millis(1500)).await;
+    for (node, id) in [(&mac, &out), (&win, &out), (&mac, &back), (&win, &back)] {
+        let now = node
+            .agent
+            .transfers()
+            .into_iter()
+            .find(|t| t.id == *id)
+            .unwrap();
+        assert!(
+            now.done < now.size
+                && !matches!(now.state, TransferState::Done | TransferState::Declined(_)),
+            "{now:?}"
+        );
+    }
+    // Nothing new goes from here.
+    let small = dir.path().join("small.txt");
+    std::fs::write(&small, "small").unwrap();
+    let refused = mac.agent.send_files("win", vec![small]).await;
+    assert!(
+        matches!(refused, Err(SendError::FilesOff(_))),
+        "{refused:?}"
+    );
+
+    // On again: both go on from where they stopped, and arrive whole.
+    change(&mac, ProfileChange::Edit(profile, off(true))).await;
+    for (node, id) in [(&win, &out), (&mac, &back)] {
+        let received = wait_transfer(node, id, finished).await;
+        assert_eq!(received.state, TransferState::Done, "{received:?}");
+        assert_eq!(std::fs::read(received.path.unwrap()).unwrap(), data);
+    }
+
+    mac.agent.shutdown().await;
+    win.agent.shutdown().await;
+}
+
+/// The reason a send is refused is the one the user gave: taken offline
+/// for now first, then left out of the profile, then files turned off.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_send_is_refused_for_the_reason_that_comes_first() {
+    use inputweave::agent::SendError;
+
+    let dir = tempfile::tempdir().unwrap();
+    let (mac, win, _, _) = file_pair(dir.path()).await;
+    let small = dir.path().join("small.txt");
+    std::fs::write(&small, "small").unwrap();
+    let send = || mac.agent.send_files("win", vec![small.clone()]);
+    let profile = wait_status(&mac, |s| !s.profile.is_empty()).await.profile;
+    // Files off in the profile, and the PC left out of it: left out.
+    let edit = ProfileEdit {
+        files: Some(false),
+        devices: vec![("win".to_owned(), false)],
+        ..ProfileEdit::default()
+    };
+    change(&mac, ProfileChange::Edit(profile.clone(), edit)).await;
+    let refused = send().await;
+    assert!(
+        matches!(refused, Err(SendError::NotInProfile(_))),
+        "{refused:?}"
+    );
+    // Paused too: still the profile's doing.
+    change(&mac, ProfileChange::Edit(profile.clone(), pause(true))).await;
+    let refused = send().await;
+    assert!(
+        matches!(refused, Err(SendError::NotInProfile(_))),
+        "{refused:?}"
+    );
+    // Taken offline for now as well: that first. (While paused the status
+    // shows every device just offline, so nothing there to wait for.)
+    mac.agent.set_offline_for_now("win", true).await.unwrap();
+    let refused = send().await;
+    assert!(
+        matches!(refused, Err(SendError::OfflineForNow(_))),
+        "{refused:?}"
+    );
+    // Only the files left off: files off.
+    mac.agent.set_offline_for_now("win", false).await.unwrap();
+    change(&mac, ProfileChange::Edit(profile.clone(), pause(false))).await;
+    change(&mac, ProfileChange::Edit(profile, connect("win", true))).await;
+    let refused = send().await;
+    assert!(
+        matches!(refused, Err(SendError::FilesOff(_))),
+        "{refused:?}"
+    );
+
+    mac.agent.shutdown().await;
+    win.agent.shutdown().await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn an_older_device_taken_offline_is_turned_away_when_it_enters() {
     use iw_net::{PeerEndpoint, Session, hello};
     use iw_proto::peer::v1::{Control, Enter, Input, Key, Os, control, input};
@@ -13604,4 +13751,1318 @@ async fn ctl_takes_a_device_offline_and_brings_it_back() {
     for node in nodes {
         node.agent.shutdown().await;
     }
+}
+
+// Profiles: which devices this one connects, and how, by the network it is
+// on. The networks are mock readings of the platform (`MockStatus`).
+
+use inputweave::agent::{ProfileChange, ProfileError};
+use inputweave::profiles_file::{DEFAULT, OTHER, ProfileEdit};
+use iw_platform::network::{LinkKind, NetworkSighting};
+
+/// A network: a router at `router`, whose hardware address ends in
+/// `mac`, reached over `kind`.
+fn network(router: [u8; 4], mac: u8, kind: LinkKind) -> NetworkSighting {
+    NetworkSighting {
+        interface: "en0".to_owned(),
+        kind,
+        address: Some(std::net::Ipv4Addr::new(router[0], router[1], router[2], 20)),
+        router: Some(std::net::Ipv4Addr::from(router)),
+        router_mac: Some([0x3c, 0x22, 0xfb, 0, 0, mac]),
+        wifi_name: None,
+        network_name: None,
+    }
+}
+
+fn home() -> NetworkSighting {
+    network([192, 168, 1, 1], 1, LinkKind::Wired)
+}
+
+fn office() -> NetworkSighting {
+    network([198, 51, 100, 1], 2, LinkKind::Wifi)
+}
+
+fn cafe() -> NetworkSighting {
+    network([172, 16, 0, 1], 3, LinkKind::Wifi)
+}
+
+/// Puts `node` on `network`, and waits until it says so.
+async fn on_network(node: &Node, network: Option<NetworkSighting>) -> Status {
+    let router = network.as_ref().and_then(|n| n.router);
+    node.status.set_network(network);
+    wait_status(node, |s| {
+        s.network.as_ref().and_then(|n| n.router) == router
+    })
+    .await
+}
+
+async fn change(node: &Node, change: ProfileChange) {
+    node.agent.change_profiles(change).await.unwrap();
+}
+
+fn pause(paused: bool) -> ProfileEdit {
+    ProfileEdit {
+        paused: Some(paused),
+        ..ProfileEdit::default()
+    }
+}
+
+fn connect(device: &str, connect: bool) -> ProfileEdit {
+    ProfileEdit {
+        devices: vec![(device.to_owned(), connect)],
+        ..ProfileEdit::default()
+    }
+}
+
+/// Adds a profile named `name` on `node`, and lists the network it is on in
+/// it; returns the profile's id.
+async fn office_profile(node: &Node, name: &str) -> String {
+    change(node, ProfileChange::Add(name.to_owned())).await;
+    let id = node
+        .agent
+        .status()
+        .profiles
+        .iter()
+        .find(|p| p.name == name)
+        .unwrap()
+        .id
+        .clone();
+    change(node, ProfileChange::AddNetwork(id.clone())).await;
+    id
+}
+
+/// Waits until the agent on `node` told its clipboard sync is `on`.
+async fn wait_sync(node: &Node, on: bool) {
+    let deadline = tokio::time::Instant::now() + TIMEOUT;
+    while node.clipboard.sync() != Some(on) {
+        assert!(
+            tokio::time::Instant::now() < deadline,
+            "the clipboard was not told sync is {on}"
+        );
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+}
+
+/// Whether `status` shows `peer` connected.
+fn reaches(status: &Status, peer: &str) -> bool {
+    status.device(peer).is_some_and(|d| d.connected)
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn the_first_network_seen_is_defaults_so_upgrading_changes_nothing() {
+    let dir = tempfile::tempdir().unwrap();
+    let kept = |s: &Spec| Options {
+        devices_file: Some(dir.path().join(s.id).join("devices.toml")),
+        ..Options::default()
+    };
+    let nodes = desk_with(&[mac(), win()], kept).await;
+    let (mac, win) = (&nodes[0], &nodes[1]);
+    // No network yet: Other networks, which shares with every device as
+    // Default does; no profiles file.
+    let status = mac.agent.status();
+    assert_eq!(status.profile, OTHER);
+    assert!(status.network.is_none());
+    let file = dir.path().join("mac").join("profiles.toml");
+    assert!(!file.exists());
+
+    // The first network seen goes into Default, which is used from then
+    // on; that is no switch the apps tell of.
+    let status = on_network(mac, Some(home())).await;
+    let id = status.network.as_ref().unwrap().id.clone();
+    let status = wait_status(mac, |s| s.profile == DEFAULT).await;
+    let default = status.profile_in_use().unwrap();
+    assert_eq!(default.networks.len(), 1);
+    assert_eq!(default.networks[0].id, id);
+    assert_eq!(status.profile_switches, 0);
+    assert!(reaches(&status, "win"));
+    assert!(reaches(&win.agent.status(), "mac"));
+    // Written as it goes, off the engine.
+    let deadline = tokio::time::Instant::now() + TIMEOUT;
+    while !file.exists() {
+        assert!(tokio::time::Instant::now() < deadline, "no profiles file");
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    let text = std::fs::read_to_string(&file).unwrap();
+    assert!(text.contains(&id) && !text.contains("3c:22:fb"));
+    // A second network is not taken in: Other networks.
+    on_network(mac, Some(cafe())).await;
+    let status = wait_status(mac, |s| s.profile == OTHER).await;
+    assert_eq!(status.profile_in_use().unwrap().networks.len(), 0);
+    assert_eq!(status.profile_switches, 1);
+
+    for node in nodes {
+        node.agent.shutdown().await;
+    }
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_paused_profile_is_not_on_the_network_and_reconnects_once_it_shares() {
+    let announced = |s: &Spec| Options {
+        fake_discovery: s.id == "mac",
+        ..Options::default()
+    };
+    let nodes = desk_with(&[mac(), mini(), win()], announced).await;
+    let (mac, mini, win) = (&nodes[0], &nodes[1], &nodes[2]);
+    assert!(mac.agent.announcing());
+    on_network(mac, Some(home())).await;
+    wait_status(mac, |s| s.profile == DEFAULT).await;
+
+    // At a cafe, on Other networks, which the user pauses there.
+    on_network(mac, Some(cafe())).await;
+    wait_status(mac, |s| s.profile == OTHER && s.profile_switches == 1).await;
+    offline(mac, "mini", true).await;
+    change(mac, ProfileChange::Edit(OTHER.to_owned(), pause(true))).await;
+    // Not announced, connected to none, and every device just offline, the
+    // one offline for now too.
+    let status = wait_status(mac, |s| s.devices.iter().all(|d| !d.connected)).await;
+    assert!(
+        status
+            .devices
+            .iter()
+            .all(|d| !d.not_in_profile && !d.can_wake && !d.offline_for_now)
+    );
+    // Pausing the profile in use is no switch.
+    assert_eq!(status.profile_switches, 1);
+    let deadline = tokio::time::Instant::now() + TIMEOUT;
+    while mac.agent.announcing() {
+        assert!(tokio::time::Instant::now() < deadline, "still announced");
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    for node in [mini, win] {
+        wait_status(node, |s| !reaches(s, "mac")).await;
+    }
+    // It stays so: the Mac dials neither, and nothing reaches it.
+    tokio::time::sleep(Duration::from_millis(1500)).await;
+    assert!(!reaches(&mini.agent.status(), "mac"));
+    assert!(!reaches(&win.agent.status(), "mac"));
+    assert_eq!(
+        mac.agent.jump_to("win").await,
+        Err(agent::JumpError::ProfilePaused)
+    );
+    assert_eq!(
+        mac.agent.wake("win").await,
+        Err(agent::WakeError::ProfilePaused)
+    );
+
+    // Home again: Default, which shares, and everything connects again.
+    on_network(mac, Some(home())).await;
+    offline(mac, "mini", false).await;
+    let status = wait_status(mac, |s| {
+        s.profile == DEFAULT && reaches(s, "mini") && reaches(s, "win")
+    })
+    .await;
+    assert_eq!(status.profile_switches, 2);
+    assert!(mac.agent.announcing());
+    for node in [mini, win] {
+        connected(node, "mac").await;
+    }
+    mac.agent.jump_to("win").await.unwrap();
+    wait_status(win, |s| s.controlled_by.as_deref() == Some("mac")).await;
+
+    for node in nodes {
+        node.agent.shutdown().await;
+    }
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn only_the_devices_a_profile_connects_are_connected_and_both_see_it() {
+    let nodes = desk(&[mac(), mini(), win()]).await;
+    let (mac, mini, win) = (&nodes[0], &nodes[1], &nodes[2]);
+    on_network(mac, Some(home())).await;
+    on_network(win, Some(home())).await;
+    wait_status(mac, |s| s.profile == DEFAULT).await;
+    wait_status(win, |s| s.profile == DEFAULT).await;
+
+    // The Mac, at the office, leaves the mini out there: it does not dial
+    // it, so to the mini the Mac is offline.
+    on_network(mac, Some(office())).await;
+    let id = office_profile(mac, "Office").await;
+    let status = wait_status(mac, |s| s.profile == id).await;
+    // Arriving (Other networks) and listing the network it is on, which
+    // picked the profile by itself.
+    assert_eq!(status.profile_switches, 2);
+    change(mac, ProfileChange::Edit(id.clone(), connect("mini", false))).await;
+    let status = wait_status(mac, |s| {
+        s.device("mini")
+            .is_some_and(|d| d.not_in_profile && !d.connected)
+    })
+    .await;
+    assert!(reaches(&status, "win"));
+    wait_status(mini, |s| !reaches(s, "mac")).await;
+    assert_eq!(
+        mac.agent.jump_to("mini").await,
+        Err(agent::JumpError::NotInProfile("mini".to_owned()))
+    );
+    assert_eq!(
+        mac.agent.wake("mini").await,
+        Err(agent::WakeError::NotInProfile("mini".to_owned()))
+    );
+
+    // The PC leaves the Mac out of its Default: it turns away the Mac's
+    // dialing, so each sees the other offline.
+    change(
+        win,
+        ProfileChange::Edit(DEFAULT.to_owned(), connect("mac", false)),
+    )
+    .await;
+    wait_status(win, |s| {
+        s.device("mac")
+            .is_some_and(|d| d.not_in_profile && !d.connected)
+    })
+    .await;
+    wait_status(mac, |s| !reaches(s, "win")).await;
+    tokio::time::sleep(Duration::from_millis(1500)).await;
+    assert!(!reaches(&mac.agent.status(), "win"));
+    assert!(reaches(&win.agent.status(), "mini"));
+
+    // Back in: both connect again.
+    change(
+        win,
+        ProfileChange::Edit(DEFAULT.to_owned(), connect("mac", true)),
+    )
+    .await;
+    connected(mac, "win").await;
+    connected(win, "mac").await;
+    // Home: Default, and the mini too.
+    on_network(mac, Some(home())).await;
+    connected(mac, "mini").await;
+    connected(mini, "mac").await;
+    assert!(!mac.agent.status().device("mini").unwrap().not_in_profile);
+
+    for node in nodes {
+        node.agent.shutdown().await;
+    }
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_profile_leaving_out_the_controlled_device_brings_the_keyboard_and_mouse_back() {
+    let nodes = desk(&[mac(), win()]).await;
+    let (mac, win) = (&nodes[0], &nodes[1]);
+    on_network(mac, Some(home())).await;
+    mac.agent.jump_to("win").await.unwrap();
+    wait_status(win, |s| s.controlled_by.as_deref() == Some("mac")).await;
+    key(mac, usage::A, true);
+    wait_injected(win, Emulated::Key(usage::A, true)).await;
+
+    change(
+        mac,
+        ProfileChange::Edit(DEFAULT.to_owned(), connect("win", false)),
+    )
+    .await;
+    let status = wait_status(mac, |s| s.cursor_on == "mac").await;
+    assert_eq!(
+        status.last_return,
+        Some(ReturnReason::ProfileChanged(DeviceId::new("win")))
+    );
+    // The PC let go of everything, and no longer hears from the Mac.
+    wait_status(win, |s| s.controlled_by.is_none() && !reaches(s, "mac")).await;
+    wait_injected(win, Emulated::Key(usage::A, false)).await;
+
+    for node in nodes {
+        node.agent.shutdown().await;
+    }
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn the_clipboard_and_files_follow_the_profile() {
+    use inputweave::agent::{SendError, TransferState};
+
+    let dir = tempfile::tempdir().unwrap();
+    let receiving = |s: &Spec| Options {
+        receive_folder: Some(dir.path().join(format!("{}-received", s.id))),
+        ..Options::default()
+    };
+    let nodes = desk_with(&[mac(), win()], receiving).await;
+    let (mac, win) = (&nodes[0], &nodes[1]);
+    on_network(mac, Some(home())).await;
+    let off = ProfileEdit {
+        clipboard: Some(false),
+        files: Some(false),
+        ..ProfileEdit::default()
+    };
+    assert_eq!(mac.clipboard.sync(), Some(true));
+    change(mac, ProfileChange::Edit(DEFAULT.to_owned(), off.clone())).await;
+    let status = mac.agent.status();
+    let default = status.profile_in_use().unwrap();
+    assert!(!default.clipboard && !default.files);
+    // The clipboard here is told, so one that reads ahead reads nothing.
+    wait_sync(mac, false).await;
+    // The user's switch is kept as it was.
+    assert!(status.clipboard_sync);
+    // The device's own switches are as the user left them.
+    assert!(!status.device("win").unwrap().clipboard_off);
+    assert!(!status.device("win").unwrap().files_off);
+
+    // The clipboard does not go with the cursor.
+    mac.clipboard.copy(text("not for the PC"), false);
+    mac.agent.jump_to("win").await.unwrap();
+    wait_status(win, |s| s.controlled_by.as_deref() == Some("mac")).await;
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    assert_ne!(win.clipboard.content(), text("not for the PC"));
+    mac.agent.jump_to("mac").await.unwrap();
+    wait_status(win, |s| s.controlled_by.is_none()).await;
+    // Nor do files.
+    let source = dir.path().join("note.txt");
+    std::fs::write(&source, "note").unwrap();
+    let refused = mac.agent.send_files("win", vec![source.clone()]).await;
+    assert!(
+        matches!(refused, Err(SendError::FilesOff(_))),
+        "{refused:?}"
+    );
+
+    // Turned on again in the profile: both go.
+    let on = ProfileEdit {
+        clipboard: Some(true),
+        files: Some(true),
+        ..ProfileEdit::default()
+    };
+    // What was copied meanwhile goes as the cursor next leaves.
+    mac.clipboard.copy(text("for the PC"), false);
+    change(mac, ProfileChange::Edit(DEFAULT.to_owned(), on.clone())).await;
+    wait_sync(mac, true).await;
+    mac.agent.jump_to("win").await.unwrap();
+    wait_clipboard(win, &text("for the PC")).await;
+    mac.agent.jump_to("mac").await.unwrap();
+    // Off by the user's switch, it stays off whatever the profile says,
+    // and on again only with both.
+    mac.agent.set_clipboard_sync(false);
+    wait_sync(mac, false).await;
+    change(mac, ProfileChange::Edit(DEFAULT.to_owned(), off)).await;
+    change(mac, ProfileChange::Edit(DEFAULT.to_owned(), on)).await;
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    assert_eq!(mac.clipboard.sync(), Some(false));
+    mac.agent.set_clipboard_sync(true);
+    wait_sync(mac, true).await;
+    let id = mac
+        .agent
+        .send_files("win", vec![source])
+        .await
+        .unwrap()
+        .remove(0);
+    assert_eq!(
+        wait_transfer(mac, &id, finished).await.state,
+        TransferState::Done
+    );
+
+    for node in nodes {
+        node.agent.shutdown().await;
+    }
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn default_takes_the_first_network_only_once_its_router_is_resolved() {
+    let dir = tempfile::tempdir().unwrap();
+    let spec = mac();
+    let mac = start_with(
+        &spec,
+        Identity::generate().unwrap(),
+        &[&spec],
+        &[],
+        Options {
+            devices_file: Some(dir.path().join("devices.toml")),
+            ..Options::default()
+        },
+    )
+    .await;
+    // A router that does not resolve: taken by its address alone after a
+    // while, which Default does not keep, since that id would match no
+    // more once it resolves.
+    let mut resolving = home();
+    resolving.router_mac = None;
+    mac.status.set_network(Some(resolving.clone()));
+    let status = wait_status(&mac, |s| {
+        s.network.as_ref().and_then(|n| n.router) == resolving.router
+    })
+    .await;
+    let by_address = status.network.as_ref().unwrap().id.clone();
+    assert_eq!(status.profile, OTHER);
+    // Nor can the user add it, for the same reason; the apps are told.
+    assert!(!status.to_proto().network.unwrap().resolved);
+    assert_eq!(
+        mac.agent
+            .change_profiles(ProfileChange::AddNetwork(DEFAULT.to_owned()))
+            .await,
+        Err(ProfileError::NetworkUnresolved)
+    );
+    assert_eq!(ProfileError::NetworkUnresolved.code(), "network_unresolved");
+    tokio::time::sleep(Duration::from_millis(1500)).await;
+    let status = mac.agent.status();
+    assert!(status.profiles.iter().all(|p| p.networks.is_empty()));
+    assert!(!dir.path().join("profiles.toml").exists());
+    // Resolved: that one is Default's, as on any first start.
+    mac.status.set_network(Some(home()));
+    let status = wait_status(&mac, |s| s.profile == DEFAULT).await;
+    let listed = &status.profile_in_use().unwrap().networks;
+    assert_eq!(listed.len(), 1);
+    assert_ne!(listed[0].id, by_address);
+    assert_eq!(Some(&listed[0].id), status.network.as_ref().map(|n| &n.id));
+    assert!(status.to_proto().network.unwrap().resolved);
+    mac.agent.shutdown().await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_chosen_profile_holds_whatever_the_network_until_automatic() {
+    let dir = tempfile::tempdir().unwrap();
+    let devices = dir.path().join("devices.toml");
+    let spec = mac();
+    let identity = dir.path().join("identity");
+    let kept = || Options {
+        devices_file: Some(devices.clone()),
+        ..Options::default()
+    };
+    let mac = start_with(
+        &spec,
+        Identity::load_or_generate(&identity).unwrap(),
+        &[&spec],
+        &[],
+        kept(),
+    )
+    .await;
+    on_network(&mac, Some(home())).await;
+    on_network(&mac, Some(office())).await;
+    let office_id = office_profile(&mac, "Office").await;
+    wait_status(&mac, |s| s.profile == office_id).await;
+    let switches = mac.agent.status().profile_switches;
+
+    // Default, chosen: it holds on any network, and choosing is no switch.
+    change(&mac, ProfileChange::Choose(Some(DEFAULT.to_owned()))).await;
+    let status = wait_status(&mac, |s| s.profile == DEFAULT && s.profile_chosen).await;
+    assert_eq!(status.profile_switches, switches);
+    on_network(&mac, Some(cafe())).await;
+    on_network(&mac, Some(office())).await;
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    assert_eq!(mac.agent.status().profile, DEFAULT);
+    assert_eq!(mac.agent.status().profile_switches, switches);
+
+    // Remembered across a restart.
+    mac.agent.shutdown().await;
+    let mac = start_with(
+        &spec,
+        Identity::load_or_generate(&identity).unwrap(),
+        &[&spec],
+        &[],
+        kept(),
+    )
+    .await;
+    // Once the network is known (none here), as the agent starts.
+    let status = wait_status(&mac, |s| !s.profile.is_empty()).await;
+    assert_eq!(status.profile, DEFAULT);
+    assert!(status.profile_chosen);
+
+    // Automatic again: the office's profile, and that too is no switch.
+    on_network(&mac, Some(office())).await;
+    change(&mac, ProfileChange::Choose(None)).await;
+    let status = wait_status(&mac, |s| s.profile == office_id && !s.profile_chosen).await;
+    assert_eq!(status.profile_switches, 0);
+    // Chosen and removed: Automatic, which picks Default here at home.
+    on_network(&mac, Some(home())).await;
+    change(&mac, ProfileChange::Choose(Some(office_id.clone()))).await;
+    wait_status(&mac, |s| s.profile == office_id).await;
+    let switches = mac.agent.status().profile_switches;
+    change(&mac, ProfileChange::Remove(office_id.clone())).await;
+    let status = wait_status(&mac, |s| s.profile == DEFAULT).await;
+    assert!(!status.profile_chosen);
+    // The user's doing: no switch for the apps to tell.
+    assert_eq!(status.profile_switches, switches);
+    // The fixed profiles stay.
+    assert_eq!(
+        mac.agent
+            .change_profiles(ProfileChange::Remove(OTHER.to_owned()))
+            .await,
+        Err(ProfileError::FixedProfile)
+    );
+    mac.agent.shutdown().await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn the_wifi_name_an_app_reads_is_used_while_it_stays_on_that_network() {
+    let dir = tempfile::tempdir().unwrap();
+    let spec = mac();
+    let mac = start_with(
+        &spec,
+        Identity::generate().unwrap(),
+        &[&spec],
+        &[],
+        Options {
+            devices_file: Some(dir.path().join("devices.toml")),
+            ..Options::default()
+        },
+    )
+    .await;
+    on_network(&mac, Some(home())).await;
+    let status = on_network(&mac, Some(office())).await;
+    let at_office = status.network.unwrap().id;
+    let named = |s: &Status| s.network.as_ref().and_then(|n| n.wifi_name.clone());
+
+    // Read while names are not used: passed over.
+    mac.agent.report_wifi_name(&at_office, Some("Office-5G"));
+    tokio::time::sleep(Duration::from_millis(2500)).await;
+    assert_eq!(named(&mac.agent.status()), None);
+    change(&mac, ProfileChange::WifiNames(true)).await;
+    assert!(mac.agent.status().wifi_names);
+    // Used once a reading of the network after it still shows the office.
+    mac.agent.report_wifi_name(&at_office, Some("Office-5G"));
+    assert_eq!(named(&mac.agent.status()), None);
+    wait_status(&mac, |s| named(s).as_deref() == Some("Office-5G")).await;
+    // Added by the user, the network keeps the name.
+    let office_id = office_profile(&mac, "Office").await;
+    let status = wait_status(&mac, |s| s.profile == office_id).await;
+    let listed = &status.profile_in_use().unwrap().networks[0];
+    assert_eq!(listed.wifi_name.as_deref(), Some("Office-5G"));
+
+    // A name read for the next network under the office's id, before the
+    // agent saw the network change, is never used, nor kept.
+    on_network(&mac, Some(home())).await;
+    let status = wait_status(&mac, |s| s.profile == DEFAULT).await;
+    let at_home = status.network.unwrap().id;
+    mac.agent.report_wifi_name(&at_home, Some("Cafe"));
+    mac.status.set_network(Some(cafe()));
+    let status = wait_status(&mac, |s| s.profile == OTHER).await;
+    assert_eq!(named(&status), None);
+    let home_listed = status.profiles[0]
+        .networks
+        .iter()
+        .find(|n| n.id == at_home)
+        .unwrap();
+    assert_eq!(home_listed.wifi_name, None);
+
+    // Another router, the same Wi-Fi name: Other networks, until the app
+    // reads the name there; one read on the network before says nothing.
+    let mut roamed = office();
+    roamed.router = Some(std::net::Ipv4Addr::new(198, 51, 101, 1));
+    roamed.router_mac = Some([4, 4, 4, 4, 4, 4]);
+    on_network(&mac, Some(roamed.clone())).await;
+    let status = wait_status(&mac, |s| s.profile == OTHER).await;
+    let there = status.network.unwrap().id;
+    mac.agent.report_wifi_name(&at_office, Some("Office-5G"));
+    tokio::time::sleep(Duration::from_millis(2500)).await;
+    assert_eq!(mac.agent.status().profile, OTHER);
+    mac.agent.report_wifi_name(&there, Some("Office-5G"));
+    let status = wait_status(&mac, |s| s.profile == office_id).await;
+    // Matched by the name, which is not kept for that network.
+    assert!(
+        status
+            .profiles
+            .iter()
+            .all(|p| p.networks.iter().all(|n| n.id != there))
+    );
+    // A reading without the name while this device still reads Wi-Fi
+    // keeps it (the app lost it for a moment); another network drops it.
+    mac.agent.report_wifi_name(&there, None);
+    tokio::time::sleep(Duration::from_millis(2500)).await;
+    assert_eq!(mac.agent.status().profile, office_id);
+    let status = on_network(&mac, Some(cafe())).await;
+    assert_eq!(status.profile, OTHER);
+    // Back, the profile picked there by the name, before the app reads it
+    // again; until a name read there says otherwise.
+    let switches = status.profile_switches;
+    let status = on_network(&mac, Some(roamed)).await;
+    assert_eq!(status.profile, office_id);
+    assert_eq!(named(&status), None);
+    assert_eq!(status.profile_switches, switches + 1);
+    mac.agent.report_wifi_name(&there, Some("Guest"));
+    let status = wait_status(&mac, |s| s.profile == OTHER).await;
+    assert_eq!(status.profile_switches, switches + 2);
+    mac.agent.shutdown().await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn the_status_says_which_wifi_name_is_held_and_a_listed_network_takes_it() {
+    let dir = tempfile::tempdir().unwrap();
+    let spec = mac();
+    let mac = start_with(
+        &spec,
+        Identity::generate().unwrap(),
+        &[&spec],
+        &[],
+        Options {
+            devices_file: Some(dir.path().join("devices.toml")),
+            ..Options::default()
+        },
+    )
+    .await;
+    on_network(&mac, Some(home())).await;
+    let status = on_network(&mac, Some(office())).await;
+    let at_office = status.network.unwrap().id;
+    assert!(status.wifi_name_held.is_none());
+    // Listed before names were used: without its Wi-Fi name.
+    office_profile(&mac, "Office").await;
+    change(&mac, ProfileChange::WifiNames(true)).await;
+    let listed = |s: &Status| {
+        s.profiles
+            .iter()
+            .flat_map(|p| &p.networks)
+            .find(|n| n.id == at_office)
+            .unwrap()
+            .wifi_name
+            .clone()
+    };
+    assert_eq!(listed(&mac.agent.status()), None);
+    let held = |s: &Status| {
+        s.wifi_name_held
+            .as_ref()
+            .map(|h| (h.network.clone(), h.name.clone(), h.in_use))
+    };
+
+    // Held as soon as it comes, so the app knows it arrived; in use once
+    // confirmed.
+    mac.agent.report_wifi_name(&at_office, Some("Office-5G"));
+    let named = Some("Office-5G".to_owned());
+    let status = wait_status(&mac, |s| {
+        held(s).is_some_and(|(network, name, _)| network == at_office && name == named)
+    })
+    .await;
+    let status = match held(&status) {
+        Some((_, _, true)) => status,
+        _ => wait_status(&mac, |s| held(s).is_some_and(|h| h.2)).await,
+    };
+    // The listed network that had none takes it, and keeps it.
+    assert_eq!(listed(&status), named);
+    let file = dir.path().join("profiles.toml");
+    let deadline = tokio::time::Instant::now() + TIMEOUT;
+    while !std::fs::read_to_string(&file).is_ok_and(|t| t.contains("Office-5G")) {
+        assert!(tokio::time::Instant::now() < deadline, "not written");
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    // Never over one it has.
+    mac.agent.report_wifi_name(&at_office, Some("Guest"));
+    wait_status(&mac, |s| {
+        held(s).is_some_and(|(_, name, in_use)| in_use && name.as_deref() == Some("Guest"))
+    })
+    .await;
+    assert_eq!(listed(&mac.agent.status()), named);
+    mac.agent.report_wifi_name(&at_office, Some("Office-5G"));
+    wait_status(&mac, |s| {
+        held(s).is_some_and(|(_, name, in_use)| in_use && name == named)
+    })
+    .await;
+
+    // An empty read while this device reads Wi-Fi: the app lost the name
+    // for a moment, and the name stays.
+    mac.agent.report_wifi_name(&at_office, None);
+    tokio::time::sleep(Duration::from_millis(2500)).await;
+    let status = mac.agent.status();
+    assert_eq!(
+        held(&status),
+        Some((at_office.clone(), named.clone(), true))
+    );
+    assert_eq!(status.network.unwrap().wifi_name, named);
+    // On a wired link to the same router (the same network), an empty
+    // read is taken: not on Wi-Fi.
+    let mut wired = office();
+    wired.kind = LinkKind::Wired;
+    mac.status.set_network(Some(wired));
+    wait_status(&mac, |s| {
+        s.network
+            .as_ref()
+            .is_some_and(|n| n.kind == inputweave::profiles_file::NetworkKind::Wired)
+    })
+    .await;
+    mac.agent.report_wifi_name(&at_office, None);
+    wait_status(&mac, |s| {
+        held(s)
+            .is_some_and(|(network, name, in_use)| network == at_office && name.is_none() && in_use)
+    })
+    .await;
+    // Names turned off: none held.
+    change(&mac, ProfileChange::WifiNames(false)).await;
+    assert!(mac.agent.status().wifi_name_held.is_none());
+    mac.agent.shutdown().await;
+}
+
+/// The login window's agent has no app to tell it Wi-Fi names: on a
+/// network it picks the profile the user's agent last picked there by the
+/// name, as the user's agent does as it starts again.
+#[tokio::test(flavor = "multi_thread")]
+async fn the_login_windows_agent_picks_what_the_users_agent_last_picked_there() {
+    use inputweave::profiles_file::{Loaded, ProfilesFile};
+
+    let dir = tempfile::tempdir().unwrap();
+    let spec = mac();
+    let user = start_with(
+        &spec,
+        Identity::generate().unwrap(),
+        &[&spec],
+        &[],
+        Options {
+            devices_file: Some(dir.path().join("devices.toml")),
+            ..Options::default()
+        },
+    )
+    .await;
+    on_network(&user, Some(home())).await;
+    let status = on_network(&user, Some(office())).await;
+    let at_office = status.network.unwrap().id;
+    change(&user, ProfileChange::WifiNames(true)).await;
+    user.agent.report_wifi_name(&at_office, Some("Office-5G"));
+    wait_status(&user, |s| {
+        s.network.as_ref().and_then(|n| n.wifi_name.as_deref()) == Some("Office-5G")
+    })
+    .await;
+    let office_id = office_profile(&user, "Office").await;
+    // Another of the office's routers, known by the name alone.
+    let mut roamed = office();
+    roamed.router = Some(std::net::Ipv4Addr::new(198, 51, 101, 1));
+    roamed.router_mac = Some([4, 4, 4, 4, 4, 4]);
+    let status = on_network(&user, Some(roamed.clone())).await;
+    let there = status.network.unwrap().id;
+    user.agent.report_wifi_name(&there, Some("Office-5G"));
+    wait_status(&user, |s| s.profile == office_id).await;
+    let file = dir.path().join("profiles.toml");
+    let last_there =
+        |text: &str| text.contains(&format!("network = \"{there}\"\nprofile = \"{office_id}\""));
+    let deadline = tokio::time::Instant::now() + TIMEOUT;
+    while !std::fs::read_to_string(&file).is_ok_and(|t| last_there(&t)) {
+        assert!(tokio::time::Instant::now() < deadline, "not written");
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    user.agent.shutdown().await;
+    let text = std::fs::read_to_string(&file).unwrap();
+
+    // As the login window starts it, with the user's profiles and no app.
+    let Loaded::File(profiles) = ProfilesFile::load(&file) else {
+        panic!("no profiles");
+    };
+    let options = || {
+        inputweave::login_window::options(
+            inputweave::store::DevicesFile::default(),
+            inputweave::offline_file::OfflineDoc::default(),
+            Some(profiles.clone()),
+        )
+    };
+    let at_login = start_with(
+        &spec,
+        Identity::generate().unwrap(),
+        &[&spec],
+        &[],
+        options(),
+    )
+    .await;
+    on_network(&at_login, Some(roamed.clone())).await;
+    wait_status(&at_login, |s| s.profile == office_id).await;
+    // Elsewhere as ever; a network listed by its id, by it.
+    on_network(&at_login, Some(cafe())).await;
+    wait_status(&at_login, |s| s.profile == OTHER).await;
+    on_network(&at_login, Some(home())).await;
+    wait_status(&at_login, |s| s.profile == DEFAULT).await;
+    on_network(&at_login, Some(roamed.clone())).await;
+    wait_status(&at_login, |s| s.profile == office_id).await;
+    at_login.agent.shutdown().await;
+    // It noted nothing, and wrote nothing.
+    assert_eq!(std::fs::read_to_string(&file).unwrap(), text);
+
+    // The user's own agent, started again there before the app reads the
+    // name: on the profile picked there, which is no switch the apps tell,
+    // and nothing to write; nor once the app reads the same name.
+    let user = start_on(
+        &spec,
+        Identity::generate().unwrap(),
+        &[&spec],
+        &[],
+        Options {
+            devices_file: Some(dir.path().join("devices.toml")),
+            ..Options::default()
+        },
+        MockDesktopPictures::default(),
+        Some(roamed),
+    )
+    .await;
+    let status = wait_status(&user, |s| {
+        s.network.as_ref().map(|n| n.id.as_str()) == Some(there.as_str())
+    })
+    .await;
+    assert_eq!(
+        (status.profile.as_str(), status.profile_switches),
+        (office_id.as_str(), 0)
+    );
+    user.agent.report_wifi_name(&there, Some("Office-5G"));
+    let in_use = |s: &Status| s.wifi_name_held.as_ref().is_some_and(|h| h.in_use);
+    let status = wait_status(&user, in_use).await;
+    assert_eq!(
+        (status.profile.as_str(), status.profile_switches),
+        (office_id.as_str(), 0)
+    );
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    assert_eq!(std::fs::read_to_string(&file).unwrap(), text);
+    // Another name read there says otherwise: a switch the apps tell, and
+    // kept as the pick there.
+    user.agent.report_wifi_name(&there, Some("Guest"));
+    let status = wait_status(&user, |s| s.profile == OTHER).await;
+    assert_eq!(status.profile_switches, 1);
+    let other_there =
+        |text: &str| text.contains(&format!("network = \"{there}\"\nprofile = \"{OTHER}\""));
+    let deadline = tokio::time::Instant::now() + TIMEOUT;
+    while !std::fs::read_to_string(&file).is_ok_and(|t| other_there(&t)) {
+        assert!(tokio::time::Instant::now() < deadline, "not written");
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    user.agent.shutdown().await;
+}
+
+#[cfg(unix)]
+#[tokio::test(flavor = "multi_thread")]
+async fn ctl_changes_profiles_and_an_apps_wifi_name_outlasts_the_app() {
+    use iw_proto::app::v1::client_message::Command;
+    use iw_proto::app::v1::{ReportWifiName, SetWifiNames};
+
+    let dir = tempfile::tempdir().unwrap();
+    let socket = dir.path().join("agent.sock");
+    let nodes = desk_with(&[mac(), win()], ipc_on_mac(&socket)).await;
+    let (mac, win) = (&nodes[0], &nodes[1]);
+    on_network(mac, Some(home())).await;
+    on_network(mac, Some(office())).await;
+
+    let ctl = |args: &'static [&'static str]| run_ctl(&socket, args);
+    let output = ctl(&["profile"]).await;
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains("Default [default]\n")
+            && stdout.contains("Other networks [other], in use\n")
+            && stdout.contains("network:        router 198.51.100.1 (Wi-Fi), id "),
+        "{stdout}"
+    );
+    let output = ctl(&["profile", "add", "Office"]).await;
+    assert!(output.status.success(), "{output:?}");
+    let output = ctl(&["profile", "add-network", "p1"]).await;
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains("Office [p1], in use\n")
+            && stdout.contains("profile:        Office (automatic)"),
+        "{stdout}"
+    );
+    let output = ctl(&[
+        "profile",
+        "set",
+        "p1",
+        "--leave-out",
+        "win",
+        "--files",
+        "off",
+    ])
+    .await;
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains("sharing on, clipboard on, files off\n")
+            && stdout.contains("not connecting: Windows PC (win)\n"),
+        "{stdout}"
+    );
+    wait_status(win, |s| !reaches(s, "mac")).await;
+    let output = ctl(&["status"]).await;
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("not in this profile"), "{stdout}");
+    let output = ctl(&["profile", "use", "default"]).await;
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains("profile:        Default (chosen)"),
+        "{stdout}"
+    );
+    connected(win, "mac").await;
+    let output = ctl(&["profile", "use", "auto"]).await;
+    assert!(output.status.success(), "{output:?}");
+    let output = ctl(&["profile", "remove", "default"]).await;
+    assert!(!output.status.success(), "{output:?}");
+    assert!(
+        String::from_utf8_lossy(&output.stderr).contains("fixed_profile"),
+        "{output:?}"
+    );
+    // Nor may one of the user's own take a fixed one's name, or another's.
+    for args in [
+        &["profile", "rename", "p1", "Default"][..],
+        &["profile", "add", "其他網路"][..],
+    ] {
+        let output = ctl(args).await;
+        assert!(!output.status.success(), "{output:?}");
+        assert!(
+            String::from_utf8_lossy(&output.stderr).contains("name_taken"),
+            "{output:?}"
+        );
+    }
+
+    // An app's Wi-Fi name, over IPC.
+    let mut client = inputweave::ctl::Client::connect(&socket).await.unwrap();
+    let status = client
+        .change_profiles(Command::SetWifiNames(SetWifiNames { on: true }))
+        .await
+        .unwrap();
+    let network_id = status.network.unwrap().id;
+    let report = |ssid: &str| {
+        Command::ReportWifiName(ReportWifiName {
+            network_id: network_id.clone(),
+            ssid: ssid.to_owned(),
+        })
+    };
+    // One that is no Wi-Fi name is passed over.
+    client.request(report(&"x".repeat(33))).await.unwrap();
+    client.request(report("Office-5G")).await.unwrap();
+    let named = |s: &Status| s.network.as_ref().and_then(|n| n.wifi_name.clone());
+    wait_status(mac, |s| named(s).as_deref() == Some("Office-5G")).await;
+    let status = client.status().await.unwrap();
+    assert_eq!(status.network.unwrap().name, "Office-5G");
+    // The app going (quitting, being updated) leaves it be.
+    drop(client);
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    assert_eq!(named(&mac.agent.status()).as_deref(), Some("Office-5G"));
+
+    // A name given the network here is what it is called now, over it.
+    let output = run_ctl(&socket, &["profile", "rename-network", &network_id, "Desk"]).await;
+    assert!(output.status.success(), "{output:?}");
+    let status = mac.agent.status();
+    assert_eq!(
+        status.network.as_ref().unwrap().name.as_deref(),
+        Some("Desk")
+    );
+    assert_eq!(status.to_proto().network.unwrap().name, "Desk");
+    let output = ctl(&["profile"]).await;
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains("network:        Desk (Wi-Fi, router 198.51.100.1), id "),
+        "{stdout}"
+    );
+    // Taken away, the Wi-Fi name again.
+    let output = run_ctl(&socket, &["profile", "rename-network", &network_id, ""]).await;
+    assert!(output.status.success(), "{output:?}");
+    assert_eq!(mac.agent.status().network.unwrap().name, None);
+
+    for node in nodes {
+        node.agent.shutdown().await;
+    }
+}
+
+/// An app reads the Wi-Fi name whatever carries the traffic: while a VPN
+/// takes it all, over the home Wi-Fi, the name says nothing of that network.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_wifi_name_read_under_a_vpn_or_on_a_wired_link_is_not_used() {
+    let dir = tempfile::tempdir().unwrap();
+    let spec = mac();
+    let mac = start_with(
+        &spec,
+        Identity::generate().unwrap(),
+        &[&spec],
+        &[],
+        Options {
+            devices_file: Some(dir.path().join("devices.toml")),
+            ..Options::default()
+        },
+    )
+    .await;
+    // Home, over Wi-Fi, in Default, known by its name too.
+    let home_wifi = network([192, 168, 1, 1], 1, LinkKind::Wifi);
+    let status = on_network(&mac, Some(home_wifi.clone())).await;
+    let at_home = status.network.unwrap().id;
+    wait_status(&mac, |s| s.profile == DEFAULT).await;
+    change(&mac, ProfileChange::WifiNames(true)).await;
+    mac.agent.report_wifi_name(&at_home, Some("Home-5G"));
+    let in_use = |s: &Status, id: &str| {
+        s.wifi_name_held
+            .as_ref()
+            .is_some_and(|h| h.network == id && h.in_use)
+    };
+    wait_status(&mac, |s| in_use(s, &at_home)).await;
+
+    // A VPN that takes all traffic: another network, which the name read
+    // there does not make the home's.
+    let vpn = NetworkSighting {
+        interface: "utun3".to_owned(),
+        kind: LinkKind::Tunnel,
+        address: Some(std::net::Ipv4Addr::new(100, 64, 0, 6)),
+        router: None,
+        router_mac: None,
+        wifi_name: None,
+        network_name: None,
+    };
+    mac.status.set_network(Some(vpn));
+    let is_vpn = |s: &Status| {
+        s.network
+            .as_ref()
+            .is_some_and(|n| n.kind == inputweave::profiles_file::NetworkKind::Vpn)
+    };
+    let status = wait_status(&mac, |s| is_vpn(s) && s.profile == OTHER).await;
+    let through_vpn = status.network.unwrap().id;
+    mac.agent.report_wifi_name(&through_vpn, Some("Home-5G"));
+    // Held, so the app does not send it again, but never used.
+    wait_status(&mac, |s| {
+        s.wifi_name_held
+            .as_ref()
+            .is_some_and(|h| h.network == through_vpn && h.name.as_deref() == Some("Home-5G"))
+    })
+    .await;
+    tokio::time::sleep(Duration::from_millis(2500)).await;
+    let status = mac.agent.status();
+    assert_eq!(status.profile, OTHER);
+    assert_eq!(status.network.unwrap().wifi_name, None);
+    assert!(!status.wifi_name_held.unwrap().in_use);
+
+    // Wired to another router: the same.
+    let status = on_network(&mac, Some(cafe_wired())).await;
+    let wired = status.network.unwrap().id;
+    mac.agent.report_wifi_name(&wired, Some("Home-5G"));
+    tokio::time::sleep(Duration::from_millis(2500)).await;
+    let status = mac.agent.status();
+    assert_eq!(status.profile, OTHER);
+    assert_eq!(status.network.unwrap().wifi_name, None);
+    mac.agent.shutdown().await;
+}
+
+fn cafe_wired() -> NetworkSighting {
+    network([172, 16, 0, 1], 3, LinkKind::Wired)
+}
+
+/// As the agent starts, it reaches no device and announces nothing until it
+/// knows the network, and so the profile: a device the profile there leaves
+/// out is never connected, though the router is not resolved at first.
+#[tokio::test(flavor = "multi_thread")]
+async fn nothing_is_reached_as_the_agent_starts_until_the_network_is_known() {
+    let dir = tempfile::tempdir().unwrap();
+    let identity = dir.path().join("identity");
+    let (mac_spec, win_spec) = (mac(), win());
+    let mac_fingerprint = Identity::load_or_generate(&identity).unwrap().fingerprint();
+    let win_identity = Identity::generate().unwrap();
+    let win_fingerprint = win_identity.fingerprint();
+    let known = |address: Option<SocketAddr>| {
+        vec![
+            Known {
+                id: mac_spec.id,
+                name: mac_spec.name,
+                fingerprint: mac_fingerprint,
+                address: None,
+            },
+            Known {
+                id: win_spec.id,
+                name: win_spec.name,
+                fingerprint: win_fingerprint,
+                address,
+            },
+        ]
+    };
+    let all = [&mac_spec, &win_spec];
+    let win = start_with(
+        &win_spec,
+        win_identity,
+        &all,
+        &known(None),
+        Options::default(),
+    )
+    .await;
+    let kept = || Options {
+        devices_file: Some(dir.path().join("devices.toml")),
+        fake_discovery: true,
+        ..Options::default()
+    };
+    let mac = start_with(
+        &mac_spec,
+        Identity::load_or_generate(&identity).unwrap(),
+        &all,
+        &known(Some(win.agent.local_addr())),
+        kept(),
+    )
+    .await;
+    on_network(&mac, Some(home())).await;
+    wait_status(&mac, |s| reaches(s, "win")).await;
+    // At the office, the PC is left out.
+    on_network(&mac, Some(office())).await;
+    let office_id = office_profile(&mac, "Office").await;
+    change(
+        &mac,
+        ProfileChange::Edit(office_id.clone(), connect("win", false)),
+    )
+    .await;
+    wait_status(&mac, |s| s.profile == office_id && !reaches(s, "win")).await;
+    // Other networks, which no network is in yet as the agent starts, is
+    // paused and keeps the clipboard: none of that is to be seen then.
+    let quiet = ProfileEdit {
+        paused: Some(true),
+        clipboard: Some(false),
+        ..ProfileEdit::default()
+    };
+    change(&mac, ProfileChange::Edit(OTHER.to_owned(), quiet)).await;
+    mac.agent.shutdown().await;
+    wait_status(&win, |s| !reaches(s, "mac")).await;
+
+    // Started again at the office, its router not resolved yet.
+    let mut resolving = office();
+    resolving.router_mac = None;
+    let mac = start_on(
+        &mac_spec,
+        Identity::load_or_generate(&identity).unwrap(),
+        &all,
+        &known(Some(win.agent.local_addr())),
+        kept(),
+        MockDesktopPictures::default(),
+        Some(resolving),
+    )
+    .await;
+    let never_reached = |until: tokio::time::Instant, announcing: bool| {
+        let (mac, win) = (&mac, &win);
+        async move {
+            while tokio::time::Instant::now() < until {
+                let status = mac.agent.status();
+                assert!(!reaches(&status, "win"), "the PC was reached");
+                assert!(!reaches(&win.agent.status(), "mac"), "the PC was reached");
+                assert_eq!(mac.agent.announcing(), announcing);
+                // No profile in effect before, nor any of Other networks'
+                // settings: not paused, the clipboard as the user has it.
+                if !announcing {
+                    assert_eq!(status.profile, "");
+                    assert!(status.profile_in_use().is_none());
+                }
+                assert_ne!(mac.clipboard.sync(), Some(false));
+                tokio::time::sleep(Duration::from_millis(20)).await;
+            }
+        }
+    };
+    // Nothing while the router is not known: not even announced.
+    never_reached(
+        tokio::time::Instant::now() + Duration::from_millis(1000),
+        false,
+    )
+    .await;
+    // Not connected yet, which is all a jump or a wake-up hears.
+    let jumped = mac.agent.jump_to("win").await.unwrap_err();
+    assert!(
+        !matches!(
+            jumped,
+            inputweave::agent::JumpError::ProfilePaused
+                | inputweave::agent::JumpError::NotInProfile(_)
+        ),
+        "{jumped:?}"
+    );
+    let woken = mac.agent.wake("win").await;
+    assert!(
+        !matches!(
+            woken.as_ref().map_err(|e| e.code()),
+            Err("profile_paused" | "not_in_profile")
+        ),
+        "{woken:?}"
+    );
+    never_reached(
+        tokio::time::Instant::now() + Duration::from_millis(500),
+        false,
+    )
+    .await;
+    // Resolved: the office, which leaves the PC out, and no switch.
+    mac.status.set_network(Some(office()));
+    let status = wait_status(&mac, |s| s.profile == office_id).await;
+    assert_eq!(status.profile_switches, 0);
+    // Announcing is no part of the status, which may not change again:
+    // looked at until it shows.
+    let deadline = tokio::time::Instant::now() + TIMEOUT;
+    while !mac.agent.announcing() {
+        assert!(tokio::time::Instant::now() < deadline, "not announced");
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    never_reached(
+        tokio::time::Instant::now() + Duration::from_millis(1500),
+        true,
+    )
+    .await;
+    mac.agent.shutdown().await;
+    win.agent.shutdown().await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_profiles_file_that_cannot_be_read_is_left_be_until_the_user_changes_them() {
+    let dir = tempfile::tempdir().unwrap();
+    let file = dir.path().join("profiles.toml");
+    std::fs::write(&file, "not toml [").unwrap();
+    let spec = mac();
+    let mac = start_with(
+        &spec,
+        Identity::generate().unwrap(),
+        &[&spec],
+        &[],
+        Options {
+            devices_file: Some(dir.path().join("devices.toml")),
+            ..Options::default()
+        },
+    )
+    .await;
+    // The first network does not go into Default, and nothing is written.
+    on_network(&mac, Some(home())).await;
+    let status = wait_status(&mac, |s| s.profile == OTHER).await;
+    assert!(status.profiles[0].networks.is_empty());
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    assert_eq!(std::fs::read_to_string(&file).unwrap(), "not toml [");
+    // A change the user makes writes it anew.
+    change(&mac, ProfileChange::Add("Office".to_owned())).await;
+    let deadline = tokio::time::Instant::now() + TIMEOUT;
+    while std::fs::read_to_string(&file).unwrap() == "not toml [" {
+        assert!(tokio::time::Instant::now() < deadline, "not written");
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    let written = inputweave::profiles_file::ProfilesFile::load(&file);
+    assert!(matches!(written, inputweave::profiles_file::Loaded::File(f) if f.profiles.len() == 3));
+    mac.agent.shutdown().await;
+}
+
+/// Turns Wi-Fi names on for `node`, at the office with its name read and
+/// confirmed, and lists the office in a profile of its own: the profile's
+/// id and the office's network id.
+async fn office_by_name(node: &Node) -> (String, String) {
+    on_network(node, Some(home())).await;
+    let status = on_network(node, Some(office())).await;
+    let at_office = status.network.unwrap().id;
+    change(node, ProfileChange::WifiNames(true)).await;
+    node.agent.report_wifi_name(&at_office, Some("Office-5G"));
+    wait_status(node, |s| {
+        s.network.as_ref().and_then(|n| n.wifi_name.as_deref()) == Some("Office-5G")
+    })
+    .await;
+    let office_id = office_profile(node, "Office").await;
+    wait_status(node, |s| s.profile == office_id).await;
+    (office_id, at_office)
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_wifi_name_read_as_the_network_changes_goes_to_neither() {
+    let spec = mac();
+    let mac = start(&spec, Identity::generate().unwrap(), &[&spec], &[]).await;
+    let (office_id, at_office) = office_by_name(&mac).await;
+    // The computer moves to a cafe whose router is not resolved yet; the app
+    // reads the cafe's name while the agent still has the office.
+    let mut joining = cafe();
+    joining.router_mac = None;
+    mac.status.set_network(Some(joining));
+    mac.agent.report_wifi_name(&at_office, Some("Cafe"));
+    tokio::time::sleep(Duration::from_millis(1500)).await;
+    mac.status.set_network(Some(cafe()));
+    let status = wait_status(&mac, |s| {
+        s.network.as_ref().and_then(|n| n.router) == cafe().router
+    })
+    .await;
+    // Neither the cafe nor the office has the name.
+    tokio::time::sleep(Duration::from_millis(2500)).await;
+    let status = {
+        let now = mac.agent.status();
+        assert_eq!(now.network.as_ref().unwrap().id, status.network.unwrap().id);
+        now
+    };
+    assert_eq!(status.network.as_ref().unwrap().wifi_name, None);
+    assert_eq!(status.profile, OTHER);
+    let office = status.profiles.iter().find(|p| p.id == office_id).unwrap();
+    let listed = office.networks.iter().find(|n| n.id == at_office).unwrap();
+    assert_eq!(listed.wifi_name.as_deref(), Some("Office-5G"));
+    mac.agent.shutdown().await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_wifi_name_read_while_the_network_is_waited_on_is_taken_once_it_is_back() {
+    let spec = mac();
+    let mac = start(&spec, Identity::generate().unwrap(), &[&spec], &[]).await;
+    on_network(&mac, Some(home())).await;
+    let status = on_network(&mac, Some(office())).await;
+    let at_office = status.network.unwrap().id;
+    change(&mac, ProfileChange::WifiNames(true)).await;
+    // The route goes for a moment, and the app reads the name meanwhile:
+    // held, not dropped, and used once the office is back.
+    mac.status.set_network(None);
+    tokio::time::sleep(Duration::from_millis(1500)).await;
+    mac.agent.report_wifi_name(&at_office, Some("Office-5G"));
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    mac.status.set_network(Some(office()));
+    let status = wait_status(&mac, |s| {
+        s.network.as_ref().and_then(|n| n.wifi_name.as_deref()) == Some("Office-5G")
+    })
+    .await;
+    assert_eq!(status.network.unwrap().id, at_office);
+    mac.agent.shutdown().await;
 }

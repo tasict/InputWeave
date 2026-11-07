@@ -59,9 +59,10 @@ public static class DeviceText
 
     /// <summary>
     /// A computer's status: this one, offline for now (before anything
-    /// else, without a latency), connected with its latency or locked, or
-    /// offline; being woken, or since when it is offline when it can be
-    /// woken (<see cref="Wake.OfflineStatus"/>), as of <paramref name="now"/>.
+    /// else, without a latency), not in the profile in use, connected with
+    /// its latency or locked, or offline; being woken, or since when it is
+    /// offline when it can be woken (<see cref="Wake.OfflineStatus"/>), as
+    /// of <paramref name="now"/>.
     /// </summary>
     public static UiText Status(AgentSnapshot model, string id, DateTimeOffset now, CultureInfo culture)
     {
@@ -72,6 +73,10 @@ public static class DeviceText
         if (OfflineForNow.IsOffline(model, id))
         {
             return new(TextKeys.ConnectionOfflineForNow);
+        }
+        if (Profiles.NotInProfile(model, id))
+        {
+            return new(TextKeys.ConnectionNotInProfile);
         }
         return model.Device(id) is { State: ConnectionState.Connected } device
             ? Connected(device.RttMs, device.ScreenLocked, device.LockScreenInput, device.InputUnavailable, device.SharingPaused)
@@ -112,9 +117,10 @@ public static class DeviceText
 
     /// <summary>
     /// Why files dragged over the canvas would not go to a computer: it is
-    /// offline for now, files are turned off with it ("Files turned off" on
-    /// the mini map, where room is short), or it is offline. Null for this
-    /// computer, which says nothing.
+    /// offline for now, not in the profile in use, files are turned off
+    /// with it ("Files turned off" on the mini map, where room is short) or
+    /// in the profile in use, or it is offline. Null for this computer,
+    /// which says nothing.
     /// </summary>
     public static UiText? CannotReceive(AgentSnapshot model, string id, bool compact)
     {
@@ -126,9 +132,17 @@ public static class DeviceText
         {
             return new(TextKeys.ConnectionOfflineForNow);
         }
+        if (Profiles.NotInProfile(model, id))
+        {
+            return new(TextKeys.ConnectionNotInProfile);
+        }
         if (model.FilesOff(id))
         {
             return compact ? new(TextKeys.DeviceFilesOffShort) : FilesOff(model.NameOf(id));
+        }
+        if (Profiles.FilesOff(model) && model.Device(id) is { State: ConnectionState.Connected })
+        {
+            return compact ? new(TextKeys.DeviceFilesOffShort) : new(TextKeys.SendReasonFilesOff);
         }
         return new(TextKeys.ConnectionOffline);
     }

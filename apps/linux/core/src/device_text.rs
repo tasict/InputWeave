@@ -7,6 +7,7 @@ use iw_proto::app::v1::{ConnectionState, DeviceStatus, Screen, WakeState};
 
 use crate::clipboard_text::{AgoStyle, ago};
 use crate::offline;
+use crate::profiles;
 use crate::snapshot::Snapshot;
 use crate::text::{UiText, keys};
 use crate::ui;
@@ -48,8 +49,9 @@ pub fn connected(d: &DeviceStatus) -> UiText {
 }
 
 /// A device's status: this computer, that another one is offline for now
-/// (before anything else, with no latency), how it is connected, or that it
-/// is offline (`offline`); while this computer is offline for now, every
+/// (before anything else, with no latency), that the profile in use leaves
+/// it out, how it is connected, or that it is offline (`offline`); while
+/// this computer is offline for now or the profile in use is paused, every
 /// other one is just offline.
 pub fn status(model: &Snapshot, id: &str, now: SystemTime) -> UiText {
     if id == model.this_device_id() {
@@ -58,7 +60,10 @@ pub fn status(model: &Snapshot, id: &str, now: SystemTime) -> UiText {
     if offline::is_offline(model, id) {
         return ui!(keys::CONNECTION_OFFLINE_FOR_NOW);
     }
-    if offline::this_offline(model) {
+    if profiles::not_in_profile(model, id) {
+        return ui!(keys::CONNECTION_NOT_IN_PROFILE);
+    }
+    if offline::this_offline(model) || profiles::paused(model) {
         return ui!(keys::CONNECTION_OFFLINE);
     }
     match model.device(id) {
@@ -160,7 +165,9 @@ pub fn files_off(name: &str) -> UiText {
     ui!(keys::DEVICE_FILES_OFF, name)
 }
 
-/// Why files cannot go to the device now.
+/// Why files cannot go to the device now: as the picker of where files go
+/// says it (`send_choice::unavailable`), the profile in use turning files
+/// off said as for the device itself.
 pub fn cannot_receive(model: &Snapshot, id: &str, compact: bool) -> Option<UiText> {
     if id == model.this_device_id() {
         return None;
@@ -168,7 +175,10 @@ pub fn cannot_receive(model: &Snapshot, id: &str, compact: bool) -> Option<UiTex
     if offline::is_offline(model, id) {
         return Some(ui!(keys::CONNECTION_OFFLINE_FOR_NOW));
     }
-    if model.files_off(id) {
+    if profiles::not_in_profile(model, id) {
+        return Some(ui!(keys::CONNECTION_NOT_IN_PROFILE));
+    }
+    if model.files_off(id) || (profiles::files_off(model) && is_connected(model, id)) {
         return Some(if compact {
             ui!(keys::DEVICE_FILES_OFF_SHORT)
         } else {
@@ -391,6 +401,62 @@ mod tests {
             cannot_receive(&model, "mini", true).map(|t| t.to_string()),
             Some("Offline".into())
         );
+    }
+
+    #[test]
+    fn not_in_this_profile_comes_after_offline_for_now() {
+        use crate::sample;
+        use crate::text::{Catalog, Language};
+        let now = SystemTime::now();
+        let zh = Catalog::for_language(Language::ChineseTaiwan);
+        let said = |model: &Snapshot, id: &str| {
+            let text = status(model, id, now);
+            (text.to_string(), zh.render(&text))
+        };
+        let pair = |en: &str, zh: &str| (en.to_owned(), zh.to_owned());
+        let mut model = sample::not_in_profile(now);
+        assert_eq!(
+            said(&model, "pc"),
+            pair("Not in this profile", "不在這個情境")
+        );
+        assert_eq!(
+            cannot_receive(&model, "pc", true).map(|t| t.to_string()),
+            Some("Not in this profile".into())
+        );
+        assert_eq!(
+            said(&model, "mac"),
+            pair("Connected · 3 ms", "已連線・3 ms")
+        );
+        // Offline for now comes first, as the service says only one.
+        model.status.devices[1].offline_for_now = true;
+        assert_eq!(said(&model, "pc"), pair("Offline for now", "暫時離線"));
+        model.status.devices[1].offline_for_now = false;
+        // The profile in use turning files off: every connected computer
+        // as one files are turned off with; one offline is offline.
+        for profile in &mut model.status.profiles {
+            profile.files = false;
+        }
+        assert_eq!(
+            cannot_receive(&model, "mac", true),
+            Some(ui!(keys::DEVICE_FILES_OFF_SHORT))
+        );
+        assert_eq!(
+            cannot_receive(&model, "laptop", true),
+            Some(ui!(keys::CONNECTION_OFFLINE))
+        );
+        // The profile in use paused: every other computer just offline,
+        // whatever else it says (the ThinkPad could be woken otherwise).
+        let paused = sample::profile_paused(now, false);
+        for id in ["mac", "pc", "laptop"] {
+            assert_eq!(said(&paused, id), pair("Offline", "離線"), "{id}");
+        }
+        let mut wakeable = paused.clone();
+        wakeable.status.devices[2].can_wake = true;
+        assert_eq!(said(&wakeable, "laptop"), pair("Offline", "離線"));
+        // A service before profiles: as ever.
+        let mut old = sample::not_in_profile(now);
+        old.status.profiles_supported = false;
+        assert_eq!(said(&old, "pc"), pair("Offline", "離線"));
     }
 
     #[test]

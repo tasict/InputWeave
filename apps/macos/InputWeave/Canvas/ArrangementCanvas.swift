@@ -142,9 +142,9 @@ struct ArrangementCanvas: View {
         }
         .modifier(JumpMenu(
             shown: interactive,
-            // While this computer is offline for now, another computer's
-            // menu has only Rename….
-            jumps: device.id == model.thisDeviceID || !model.offlineHere,
+            // While this computer is offline for now, or the profile in use
+            // keeps another computer away, its menu has only Rename….
+            jumps: device.id == model.thisDeviceID || (!model.offlineHere && !model.keptAway(device.id)),
             enabled: model.canJump(to: device.id), jump: { jump(to: device.id) },
             rename: model.device(device.id) == nil ? nil : { rename(device.id) },
             wake: model.wakeOffer(device.id) == .hidden ? nil : { model.wake(device.id) },
@@ -239,14 +239,16 @@ struct ArrangementCanvas: View {
     }
 
     /// Moves the cursor to a computer. Refusals the panel already explains
-    /// (sharing paused, cursor locked) are left at that; others shake the
-    /// computer.
+    /// (sharing paused, cursor locked, the profile in use paused or leaving
+    /// it out) are left at that; others shake the computer.
     private func jump(to id: String) {
         Task {
             do {
                 try await model.jump(to: id)
-            } catch let refusal as AgentRefusal where ["sharing_paused", "locked"].contains(refusal.code) {
-                // The panel's headline says why.
+            } catch let refusal as AgentRefusal
+                where ["sharing_paused", "locked", "not_in_profile", "profile_paused"].contains(refusal.code)
+            {
+                // The panel's headline, or the computer's status, says why.
             } catch {
                 flagRefused(id)
             }
@@ -259,10 +261,14 @@ struct ArrangementCanvas: View {
     }
 
     /// What VoiceOver says of a computer's state: taken offline for now,
-    /// its screen locked, the keyboard and mouse on it.
+    /// left out of the profile in use, its screen locked, the keyboard and
+    /// mouse on it.
     private func accessibilityValue(_ id: String) -> Text {
         if model.showsOfflineForNow(id) {
             return Text(OfflineText.status())
+        }
+        if model.showsNotInProfile(id) {
+            return Text(ProfileText.notInProfile())
         }
         let here = model.cursorDeviceID == id
         if screenLocked(id) && model.outOfReach(id) {
@@ -286,7 +292,12 @@ struct ArrangementCanvas: View {
     /// Why files dropped on another computer would not go there.
     private func unavailableReason(_ id: String) -> String {
         if model.showsOfflineForNow(id) { return OfflineText.status() }
-        guard model.filesOff(id) else { return String(localized: "Offline") }
+        if model.showsNotInProfile(id) { return ProfileText.notInProfile() }
+        guard model.device(id)?.state == .connected else { return String(localized: "Offline") }
+        guard model.filesOff(id) else {
+            // Connected, so the profile in use keeps files off.
+            return interactive ? SendTargets.reason(.filesOff) : DeviceSharingText.filesOffShort
+        }
         return interactive ? DeviceSharingText.filesOff(model.name(of: id)) : DeviceSharingText.filesOffShort
     }
 

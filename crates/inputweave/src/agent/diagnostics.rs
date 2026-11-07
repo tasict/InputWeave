@@ -199,6 +199,67 @@ pub(crate) fn report(fixed: &Fixed, snapshot: &Snapshot, now: SystemTime) -> Str
         }
     );
 
+    // The profile and the network by their ids and kinds only: never the
+    // names, which say where the user is.
+    let status = &snapshot.status;
+    let in_use = status.profile_in_use();
+    let _ = writeln!(
+        out,
+        "Profile: {}{}{}; {} profiles, {} networks listed; Wi-Fi names {}",
+        status.profile,
+        if status.profile_chosen {
+            " (chosen)"
+        } else {
+            " (automatic)"
+        },
+        match in_use {
+            Some(p) if p.paused => ", paused".to_owned(),
+            Some(p) => format!(
+                ", clipboard {}, files {}, not connecting {}",
+                if p.clipboard { "on" } else { "off" },
+                if p.files { "on" } else { "off" },
+                if p.off.is_empty() {
+                    "none".to_owned()
+                } else {
+                    p.off.iter().cloned().collect::<Vec<_>>().join(", ")
+                }
+            ),
+            None => String::new(),
+        },
+        status.profiles.len(),
+        status
+            .profiles
+            .iter()
+            .map(|p| p.networks.len())
+            .sum::<usize>(),
+        if status.wifi_names { "on" } else { "off" }
+    );
+    let _ = writeln!(
+        out,
+        "Network: {}",
+        match &status.network {
+            Some(n) => format!(
+                "{} ({:?}{}){}",
+                n.id,
+                n.kind,
+                if n.wifi_name.is_some() {
+                    ", Wi-Fi name known"
+                } else {
+                    ""
+                },
+                match status
+                    .profiles
+                    .iter()
+                    .find(|p| p.networks.iter().any(|l| l.id == n.id))
+                {
+                    Some(p) => format!(", listed in {}", p.id),
+                    None => ", not listed".to_owned(),
+                }
+            ),
+            None => "none".to_owned(),
+        }
+    );
+
     section(&mut out, "Connections");
     if snapshot.status.devices.is_empty() {
         let _ = writeln!(out, "none");
@@ -232,6 +293,8 @@ pub(crate) fn report(fixed: &Fixed, snapshot: &Snapshot, now: SystemTime) -> Str
         } else if let Some((by, name)) = &d.offline_by {
             let by = describe_setter(&snapshot.status.this_device, by, name);
             format!("offline for now, {by}")
+        } else if d.not_in_profile {
+            "not in this profile".to_owned()
         } else {
             "offline".to_owned()
         };

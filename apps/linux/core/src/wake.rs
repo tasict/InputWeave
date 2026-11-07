@@ -3,8 +3,9 @@
 //! (`Status.wake_supported`: nothing of waking shows from one before it),
 //! which ones it can wake now (`DeviceStatus.can_wake`, only while they are
 //! offline) and whether one is being woken (`DeviceStatus.wake`). This
-//! computer is never offered, nor a computer offline for now, nor any
-//! while this one is offline for now. The service sends the wake-up and
+//! computer is never offered, nor a computer offline for now or left out
+//! of the profile in use, nor any while this one is offline for now or the
+//! profile in use is paused. The service sends the wake-up and
 //! decides when it did not work; this says what the app shows of it.
 
 use std::collections::HashSet;
@@ -12,6 +13,7 @@ use std::collections::HashSet;
 use iw_proto::app::v1::{ConnectionState, DeviceStatus, WakeState};
 
 use crate::offline;
+use crate::profiles;
 use crate::snapshot::Snapshot;
 use crate::text::{UiText, keys};
 use crate::ui;
@@ -25,12 +27,15 @@ pub fn supported(model: &Snapshot) -> bool {
 }
 
 /// Another device, from a service that wakes devices, that neither it
-/// nor this one is offline for now.
+/// nor this one is offline for now, that the profile in use connects, and
+/// while that profile is not paused.
 fn other<'a>(model: &'a Snapshot, id: &str) -> Option<&'a DeviceStatus> {
     if !supported(model)
         || id == model.this_device_id()
         || offline::this_offline(model)
         || offline::is_offline(model, id)
+        || profiles::paused(model)
+        || profiles::not_in_profile(model, id)
     {
         return None;
     }

@@ -1,5 +1,7 @@
-//! General: what sharing is doing (with bringing this computer back while
-//! it is offline for now), this computer's name, opening at login,
+//! General: what sharing is doing (with the profile in use after it, adding
+//! the network to a profile while Other networks pauses sharing for it, and
+//! bringing this computer back while it is offline for now), this
+//! computer's name, opening at login,
 //! the clipboard, desktop pictures, switching (with the edge glow, the
 //! app's own setting, and waking a computer the cursor pushes toward) and
 //! the shortcuts.
@@ -18,7 +20,9 @@ use inputweave_app_core::service::ServiceState;
 use inputweave_app_core::snapshot::Snapshot;
 use inputweave_app_core::status_text::{self, ProblemAction};
 use inputweave_app_core::text::keys;
-use inputweave_app_core::{autostart, clipboard_text, edge_glow, log, offline, paths, wake};
+use inputweave_app_core::{
+    autostart, clipboard_text, edge_glow, log, offline, paths, profiles, wake,
+};
 
 use super::{EntrySync, Quiet, set_subtitle, set_switch, set_title};
 use crate::strings::{t, tr};
@@ -38,6 +42,14 @@ pub struct General {
     page: adw::PreferencesPage,
     quiet: Quiet,
     status: adw::ActionRow,
+    /// The profile in use after the title, as the other two apps' panel
+    /// capsule.
+    capsule: gtk::Label,
+    /// Add This Network To…, while Other networks pauses sharing for a
+    /// network in no profile: the panel's button on the other two apps.
+    add_network: gtk::MenuButton,
+    add_network_action: gio::SimpleAction,
+    add_network_shown: RefCell<String>,
     /// Bring Back Online, at the end of the status while this computer is
     /// offline for now: the panel's button on the other two apps.
     bring_back: gtk::Button,
@@ -81,6 +93,22 @@ impl General {
             .title(t(keys::STATUS_HEADER))
             .build();
         let status = adw::ActionRow::builder().use_markup(false).build();
+        let capsule = gtk::Label::builder()
+            .css_classes(["iw-capsule"])
+            .valign(gtk::Align::Center)
+            .visible(false)
+            .build();
+        status.add_suffix(&capsule);
+        let add_network = gtk::MenuButton::builder()
+            .label(t(keys::PROFILE_ADD_THIS_NETWORK))
+            .valign(gtk::Align::Center)
+            .visible(false)
+            .build();
+        status.add_suffix(&add_network);
+        let actions = gio::SimpleActionGroup::new();
+        let add_network_action = super::profiles::add_network_action(ui, false);
+        actions.add_action(&add_network_action);
+        status.insert_action_group("general", Some(&actions));
         let bring_back = super::row_button(&t(keys::OFFLINE_BRING_BACK));
         bring_back.set_visible(false);
         status.add_suffix(&bring_back);
@@ -218,6 +246,10 @@ impl General {
             page,
             quiet,
             status,
+            capsule,
+            add_network,
+            add_network_action,
+            add_network_shown: RefCell::default(),
             bring_back,
             sharing,
             problems,
@@ -435,11 +467,22 @@ impl General {
             .map(|s| tr(&s))
             .unwrap_or_default();
         set_subtitle(&self.status, &subtitle);
+        match profiles::capsule(model) {
+            Some(name) => {
+                super::set_text(&self.capsule, &tr(&name));
+                self.capsule.set_visible(true);
+            }
+            None => self.capsule.set_visible(false),
+        }
+        self.update_add_network(model);
+        let paused = profiles::paused(model);
         // Sharing keeps the user's own choice, and can be changed, while
-        // this computer is offline for now.
+        // this computer is offline for now; a paused profile in use says
+        // the rest, and another profile is the way to share again.
         self.bring_back
-            .set_visible(model.connected() && offline::this_offline(model));
-        set_switch(&self.quiet, &self.sharing, status.sharing);
+            .set_visible(model.connected() && offline::this_offline(model) && !paused);
+        set_switch(&self.quiet, &self.sharing, status.sharing && !paused);
+        self.sharing.set_sensitive(!paused);
         match clipboard_text::line(model, now) {
             Some(line) => {
                 set_title(&self.clipboard_line, &tr(&line));
@@ -565,6 +608,46 @@ impl General {
     #[cfg(test)]
     pub fn bring_back_button(&self) -> &gtk::Button {
         &self.bring_back
+    }
+
+    #[cfg(test)]
+    pub fn capsule(&self) -> &gtk::Label {
+        &self.capsule
+    }
+
+    #[cfg(test)]
+    pub fn add_network_button(&self) -> &gtk::MenuButton {
+        &self.add_network
+    }
+
+    #[cfg(test)]
+    pub fn sharing_row(&self) -> &adw::SwitchRow {
+        &self.sharing
+    }
+
+    /// Add This Network To…, listing every profile it can go to, while the
+    /// service picked Other networks, paused, for a network in no profile.
+    fn update_add_network(&self, model: &Snapshot) {
+        let shown = model.connected() && profiles::unassigned_network(model);
+        self.add_network.set_visible(shown);
+        if !shown {
+            return;
+        }
+        // Off, as its items, until the service knows the network by more
+        // than its router's address.
+        let can = profiles::can_add_network(model);
+        self.add_network_action.set_enabled(can);
+        self.add_network.set_sensitive(can);
+        let targets = profiles::network_targets(model);
+        let key = super::profiles::menu_key(&targets);
+        if *self.add_network_shown.borrow() != key {
+            self.add_network
+                .set_menu_model(Some(&super::profiles::network_menu(
+                    &targets,
+                    "general.add-network",
+                )));
+            *self.add_network_shown.borrow_mut() = key;
+        }
     }
 
     pub fn shortcuts(&self) -> &Rc<super::shortcuts::Shortcuts> {

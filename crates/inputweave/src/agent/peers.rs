@@ -5,6 +5,12 @@
 //! more than one session per pair. Which devices are trusted, and where to
 //! reach them, comes from the [`Directory`], which pairing and discovery
 //! keep up to date while the agent runs.
+//!
+//! The profile in use says which of them may be reached ([`Reach`]): a
+//! device it does not connect is not dialed, and its sessions are closed
+//! once its certificate shows who it is; while it is paused, nothing is
+//! dialed, and connection attempts are dropped without an answer, pairing
+//! too, so to other devices this one is not on the network.
 
 use std::collections::HashMap;
 use std::net::SocketAddr;
@@ -18,7 +24,7 @@ use iw_net::{
     Fingerprint, IncomingPeer, NetError, PeerEndpoint, Purpose, Session, SessionInfo, close,
 };
 use iw_proto::peer::v1::{Control, Heartbeat, Input, control};
-use tokio::sync::{Semaphore, mpsc};
+use tokio::sync::{Semaphore, mpsc, watch};
 use tokio::task::{JoinHandle, JoinSet};
 use tracing::{debug, info, warn};
 
@@ -28,6 +34,7 @@ use super::files::Files;
 use super::lazy_clipboard::PendingPulls;
 use super::lazy_clipboard::is_pull;
 use super::pairing::Pairing;
+use super::profiles::Reach;
 use super::this_device::ThisDevice;
 use super::transfer::{self, Incoming};
 use super::wake::{self, WakeData};
@@ -94,6 +101,8 @@ pub(crate) struct PeerContext {
     pub(crate) clipboard: ClipboardLimits,
     pub(crate) files: Arc<Files>,
     wake: WakeSource,
+    /// What the profile in use lets this device reach, as the engine says.
+    reach: watch::Receiver<Reach>,
     next_session: AtomicU64,
 }
 
@@ -108,6 +117,7 @@ impl PeerContext {
         clipboard: ClipboardLimits,
         files: Arc<Files>,
         wake: WakeSource,
+        reach: watch::Receiver<Reach>,
     ) -> Result<Self, NetError> {
         Ok(Self {
             local_addr: endpoint.local_addr()?,
@@ -119,6 +129,7 @@ impl PeerContext {
             clipboard,
             files,
             wake,
+            reach,
             next_session: AtomicU64::new(1),
         })
     }
@@ -132,6 +143,12 @@ impl PeerContext {
 pub(crate) async fn accept_loop(ctx: Arc<PeerContext>) {
     let mut handlers = JoinSet::new();
     while let Some(incoming) = ctx.endpoint.accept().await {
+        // Paused, or held as the agent starts until the network is known,
+        // this device answers nothing: it is not on the network.
+        if ctx.reach.borrow().quiet() {
+            incoming.ignore();
+            continue;
+        }
         let ctx = ctx.clone();
         handlers.spawn(async move {
             if let Err(e) = handle_incoming(&ctx, incoming).await {
@@ -146,6 +163,13 @@ async fn handle_incoming(ctx: &PeerContext, incoming: IncomingPeer) -> Result<()
     let accepted = incoming
         .finish(|fp| ctx.directory.peer_by_fingerprint(fp).is_some())
         .await?;
+    // Paused since the attempt came.
+    if ctx.reach.borrow().quiet() {
+        accepted
+            .connection
+            .close(close::AWAY.into(), b"not connecting now");
+        return Ok(());
+    }
     if accepted.purpose == Purpose::Pairing {
         ctx.pairing.incoming(accepted);
         return Ok(());
@@ -162,6 +186,14 @@ async fn handle_incoming(ctx: &PeerContext, incoming: IncomingPeer) -> Result<()
             close::DUPLICATE.into(),
             b"the device with the smaller id dials",
         );
+        return Ok(());
+    }
+    // As if it were offline: the profile in use does not connect it.
+    if !ctx.reach.borrow().allows(&peer.id) {
+        debug!(device = %peer.id, "turning a session away: the profile in use does not connect it");
+        accepted
+            .connection
+            .close(close::AWAY.into(), b"not connecting now");
         return Ok(());
     }
     let session = Session::accept(accepted.connection, accepted.peer, ctx.this.hello()).await?;
@@ -188,7 +220,8 @@ pub(crate) async fn dial_all(ctx: Arc<PeerContext>) {
     }
 }
 
-struct AbortOnDrop(JoinHandle<()>);
+/// Aborts a task as it is dropped.
+pub(crate) struct AbortOnDrop(pub(crate) JoinHandle<()>);
 
 impl Drop for AbortOnDrop {
     fn drop(&mut self) {
@@ -197,10 +230,12 @@ impl Drop for AbortOnDrop {
 }
 
 /// Dials `id` until it is no longer trusted, trying each address the
-/// directory knows in turn and waiting for one when it knows none.
+/// directory knows in turn and waiting for one when it knows none, and
+/// for the profile in use to connect it while it does not.
 async fn dial_loop(ctx: Arc<PeerContext>, id: String) {
     let mut peers = ctx.directory.watch_peers();
     let mut nearby = ctx.directory.watch_nearby();
+    let mut reach = ctx.reach.clone();
     let mut backoff = BACKOFF_MIN;
     let mut attempt = 0usize;
     loop {
@@ -209,6 +244,19 @@ async fn dial_loop(ctx: Arc<PeerContext>, id: String) {
         let Some(peer) = ctx.directory.peer(&id) else {
             return;
         };
+        if !reach.borrow_and_update().allows(&id) {
+            debug!(device = %id, "not dialing: the profile in use does not connect it");
+            // Until it does, or the device is not trusted any more.
+            tokio::select! {
+                changed = reach.changed() => if changed.is_err() {
+                    return;
+                },
+                _ = peers.changed() => {}
+            }
+            backoff = BACKOFF_MIN;
+            attempt = 0;
+            continue;
+        }
         let addresses = ctx.directory.addresses(&peer, ctx.local_addr);
         if addresses.is_empty() {
             debug!(device = %id, "no address known; waiting for discovery");

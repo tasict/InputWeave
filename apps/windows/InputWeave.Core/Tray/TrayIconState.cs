@@ -16,7 +16,7 @@ public enum TrayIconState
     Controlling,
     /// <summary>Controlled from elsewhere: the whole icon knocked out of a tile.</summary>
     Controlled,
-    /// <summary>Sharing paused, or this computer offline for now: the stitches are gone.</summary>
+    /// <summary>Sharing paused, the profile in use paused, or this computer offline for now: the stitches are gone.</summary>
     Paused,
     /// <summary>Something needs the user: a dot in the corner.</summary>
     Attention,
@@ -45,9 +45,10 @@ public static class TrayIcons
         {
             return TrayIconState.Attention;
         }
-        // Offline for now, this computer neither controls another nor is
-        // controlled, as when paused; the panel's title says which it is.
-        if (!model.Status.Sharing || OfflineForNow.ThisOffline(model))
+        // Offline for now, or in a paused profile, this computer neither
+        // controls another nor is controlled, as when paused; the panel's
+        // title says which it is.
+        if (!model.Status.Sharing || OfflineForNow.ThisOffline(model) || Profiles.Paused(model))
         {
             return TrayIconState.Paused;
         }
@@ -61,11 +62,13 @@ public static class TrayIcons
     /// <summary>
     /// The tooltip, which is also what screen readers say for the icon: with
     /// <paramref name="model"/>, the paused icon of a computer offline for
-    /// now says so rather than that sharing is paused.
+    /// now says so rather than that sharing is paused, unless the profile in
+    /// use is paused, which the panel's title says first.
     /// </summary>
     public static UiText Description(TrayIconState state, AgentSnapshot? model = null) => state switch
     {
-        TrayIconState.Paused when model is not null && OfflineForNow.ThisOffline(model) => new(TextKeys.TrayOfflineForNow),
+        TrayIconState.Paused when model is not null && OfflineForNow.ThisOffline(model) && !Profiles.Paused(model)
+            => new(TextKeys.TrayOfflineForNow),
         TrayIconState.Controlling => new(TextKeys.TrayControlling),
         TrayIconState.Controlled => new(TextKeys.TrayControlled),
         TrayIconState.Paused => new(TextKeys.TrayPaused),

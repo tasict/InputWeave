@@ -183,6 +183,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private lazy var dragPromises = DragPromises(model: model, hud: hud)
     /// Finder's Services › Send with InputWeave.
     private lazy var sendService = SendService(model: model, hud: hud)
+    /// The Wi-Fi name, for recognizing networks by it.
+    private lazy var wifiNames = WifiNameReporter(model: model)
     /// The transfer list was seen since the app started.
     private var sawTransfers = false
     private var restartedOutdatedService = false
@@ -232,6 +234,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         model.start()
         startUpdater()
+        AppActions.wifiNames = wifiNames
         observe { [weak self] in
             self?.hud.update()
             self?.locator.update()
@@ -243,6 +246,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             self?.dragStrips.update()
             self?.dragPromises.update()
             self?.restartOutdatedService()
+            self?.wifiNames.update()
         }
         license.start()
         // Login Items does not tell the app when the user turns the service

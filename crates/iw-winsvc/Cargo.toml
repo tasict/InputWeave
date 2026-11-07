@@ -13,7 +13,8 @@ blake3.workspace = true
 iw-ipc.workspace = true
 iw-proto.workspace = true
 thiserror.workspace = true
-tokio = { workspace = true, features = ["rt", "sync", "time"] }
+# `macros` for the broker's `tokio::select!`.
+tokio = { workspace = true, features = ["macros", "rt", "sync", "time"] }
 tracing.workspace = true
 windows = { workspace = true, features = [
     "Win32_Foundation",

@@ -794,6 +794,13 @@ pub trait SessionStatus: Send + Sync {
             Firewall::Unknown
         }
     }
+
+    /// The network this device is on now ([`network::current`]); none
+    /// while it has no route to the internet. Asked about once a second,
+    /// off the async runtime. Never prompts and needs no permission.
+    fn network(&self) -> Result<Option<network::NetworkSighting>, PlatformError> {
+        network::current()
+    }
 }
 
 /// What kind of graphical session the agent runs in, and what serves each

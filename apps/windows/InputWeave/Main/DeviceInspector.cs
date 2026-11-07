@@ -21,7 +21,8 @@ namespace InputWeave.Main;
 /// being woken and a note under it when it didn't wake up or can't be
 /// woken yet; offline for now, with who took it offline under it and, while
 /// it runs InputWeave 1.0 itself, a warning for each other computer on 1.0
-/// that still controls it), its screens, how fast
+/// that still controls it; not in the profile in use, with no Wake and no
+/// Take Offline), its screens, how fast
 /// the cursor moves on it, whether this
 /// computer shares its clipboard and files with it, swapping the modifier
 /// keys, taking it offline for now or bringing it back, and removing it.
@@ -64,6 +65,14 @@ internal sealed partial class DeviceInspector : UserControl
     private readonly FontIcon offlineIcon = new()
     {
         Glyph = OfflineForNow.Glyph,
+        FontSize = 14,
+        Margin = new Thickness(0, 0, 6, 0),
+        VerticalAlignment = VerticalAlignment.Center,
+    };
+    /// <summary>Before the status while the profile in use doesn't connect the computer; the status says so in words.</summary>
+    private readonly FontIcon profileIcon = new()
+    {
+        Glyph = Profiles.Glyph,
         FontSize = 14,
         Margin = new Thickness(0, 0, 6, 0),
         VerticalAlignment = VerticalAlignment.Center,
@@ -165,10 +174,12 @@ internal sealed partial class DeviceInspector : UserControl
         AutomationProperties.SetAccessibilityView(moon, AccessibilityView.Raw);
         AutomationProperties.SetAccessibilityView(wakeWarning, AccessibilityView.Raw);
         AutomationProperties.SetAccessibilityView(offlineIcon, AccessibilityView.Raw);
+        AutomationProperties.SetAccessibilityView(profileIcon, AccessibilityView.Raw);
         var statusLine = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right };
         statusLine.Children.Add(waking);
         statusLine.Children.Add(moon);
         statusLine.Children.Add(offlineIcon);
+        statusLine.Children.Add(profileIcon);
         statusLine.Children.Add(status);
         var statusValue = new StackPanel();
         statusValue.Children.Add(statusLine);
@@ -404,6 +415,7 @@ internal sealed partial class DeviceInspector : UserControl
         }
         bool offline = OfflineForNow.IsOffline(model, id);
         offlineIcon.Visibility = offline ? Visibility.Visible : Visibility.Collapsed;
+        profileIcon.Visibility = Profiles.NotInProfile(model, id) ? Visibility.Visible : Visibility.Collapsed;
         offlineGroup.Visibility = OfflineForNow.Offered(model, id) ? Visibility.Visible : Visibility.Collapsed;
         offlineButton.Content = Strings.Get(OfflineForNow.ActionKey(model, id));
 

@@ -185,8 +185,10 @@ if [ "$identity" != "-" ]; then
     # inside, which keep Sparkle's own signatures without a timestamp, and
     # notarization refuses them. Inside out, as Sparkle's documentation
     # says: the helpers, the framework, then the app, whose signature seals
-    # the framework's. (Downloader.xpc has entitlements; the others and the
-    # app have none, and preserving nothing is harmless.)
+    # the framework's. (Downloader.xpc and the app have entitlements, the
+    # app's for location services, which the hardened runtime needs to read
+    # the Wi-Fi name; the others have none, and preserving nothing is
+    # harmless.)
     echo "==> Signing Sparkle's helpers"
     sparkle="$app/Contents/Frameworks/Sparkle.framework"
     for code in "$sparkle/Versions/B/XPCServices/Installer.xpc" \
@@ -203,6 +205,13 @@ feed_key="$(/usr/libexec/PlistBuddy -c "Print :SUPublicEDKey" "$app/Contents/Inf
 universal "$agent"
 universal "$app/Contents/MacOS/InputWeave"
 codesign --verify --deep --strict "$app"
+# Without it, the hardened runtime keeps location services, and so the
+# Wi-Fi name, from the app.
+app_entitlements="$(codesign -d --entitlements - --xml "$app" 2>/dev/null || true)"
+grep -q com.apple.security.personal-information.location <<<"$app_entitlements" || {
+    echo "error: the app is not signed with the location services entitlement" >&2
+    exit 1
+}
 # The virtual keyboard and mouse's entitlement, with its profile or not at
 # all: a restricted entitlement without a profile keeps the agent from
 # starting.

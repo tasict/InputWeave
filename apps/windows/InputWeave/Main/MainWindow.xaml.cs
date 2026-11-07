@@ -27,7 +27,7 @@ internal interface IMainPage
 
 /// <summary>
 /// The InputWeave window: the settings, in
-/// five pages. Closing it only hides it; the app stays in the notification
+/// pages (Profiles only for a service that knows them). Closing it only hides it; the app stays in the notification
 /// area. While the background service is out of reach the pages are
 /// covered by a message that offers to start or restart the service.
 /// </summary>
@@ -47,6 +47,8 @@ public sealed partial class MainWindow : Window
     private bool aboutOpen;
     private AboutDialog? about;
     private (LicenseVariant Variant, bool Shown)? licenseItemShows;
+    /// <summary>Profiles was asked for before the service said it knows them (at launch, before it answers): opened once it does.</summary>
+    private bool profilesWanted;
     private readonly TextBlock licenseItemText = new() { VerticalAlignment = VerticalAlignment.Center };
     private readonly Grid licenseItemContent = new() { ColumnSpacing = 8 };
 
@@ -88,6 +90,7 @@ public sealed partial class MainWindow : Window
         };
         ArrangementItem.Content = Strings.Get(TextKeys.NavArrangement);
         DevicesItem.Content = Strings.Get(TextKeys.NavDevices);
+        ProfilesItem.Content = Strings.Get(TextKeys.NavProfiles);
         FilesItem.Content = Strings.Get(TextKeys.NavFiles);
         GeneralItem.Content = Strings.Get(TextKeys.NavGeneral);
         TroubleshootingItem.Content = Strings.Get(TextKeys.NavTroubleshooting);
@@ -134,8 +137,15 @@ public sealed partial class MainWindow : Window
 
     internal void Navigate(MainPage page)
     {
+        // Manage Profiles… opens the list of profiles, not one of them.
+        if (page == MainPage.Profiles && pages.TryGetValue(MainPage.Profiles, out var profiles))
+        {
+            ((ProfilesPage)profiles.View).ShowList();
+        }
+        profilesWanted = page == MainPage.Profiles && ProfilesItem.Visibility != Visibility.Visible;
         Nav.SelectedItem = page switch
         {
+            MainPage.Profiles when ProfilesItem.Visibility == Visibility.Visible => ProfilesItem,
             MainPage.Devices => DevicesItem,
             MainPage.Arrangement => ArrangementItem,
             MainPage.Files => FilesItem,
@@ -235,6 +245,26 @@ public sealed partial class MainWindow : Window
         }
         addDevice?.Update(snapshot);
         ShowLicenseItem(snapshot);
+        ShowProfilesItem(snapshot);
+    }
+
+    /// <summary>The Profiles page, only for a service that knows profiles; one from before has none.</summary>
+    private void ShowProfilesItem(AgentSnapshot snapshot)
+    {
+        var shown = snapshot.ProfilesSupported ? Visibility.Visible : Visibility.Collapsed;
+        if (ProfilesItem.Visibility == shown)
+        {
+            return;
+        }
+        ProfilesItem.Visibility = shown;
+        if (shown == Visibility.Collapsed && current == MainPage.Profiles)
+        {
+            Navigate(MainPage.General);
+        }
+        else if (shown == Visibility.Visible && profilesWanted)
+        {
+            Navigate(MainPage.Profiles);
+        }
     }
 
     internal void Invalidate()
@@ -282,6 +312,7 @@ public sealed partial class MainWindow : Window
         {
             FrameworkElement view = page switch
             {
+                MainPage.Profiles => new ProfilesPage(),
                 MainPage.Devices => new DevicesPage(),
                 MainPage.Arrangement => new ArrangementPage(),
                 MainPage.Files => new FilesPage(),
@@ -291,12 +322,42 @@ public sealed partial class MainWindow : Window
             };
             shown = (view, (IMainPage)view);
             pages[page] = shown;
+            if (view is ProfilesPage profiles)
+            {
+                // The page's title follows the profile it shows.
+                profiles.HeaderChanged += () =>
+                {
+                    if (current == MainPage.Profiles)
+                    {
+                        Nav.Header = profiles.Header;
+                    }
+                };
+            }
         }
         PageHost.Content = shown.View;
-        Nav.Header = page == MainPage.License ? Strings.Get(TextKeys.NavLicense) : item.Content;
+        Nav.Header = page switch
+        {
+            MainPage.License => Strings.Get(TextKeys.NavLicense),
+            MainPage.Profiles => ((ProfilesPage)shown.View).Header,
+            _ => item.Content,
+        };
         if (model is not null)
         {
             shown.Page.Update(model, service, DateTimeOffset.UtcNow);
+        }
+    }
+
+    /// <summary>
+    /// Profiles chosen in the sidebar while one profile is shown goes back to
+    /// the list, as in Windows' Settings.
+    /// </summary>
+    private void OnNavigationInvoked(NavigationView sender, NavigationViewItemInvokedEventArgs args)
+    {
+        profilesWanted = false;
+        if (args.InvokedItemContainer == ProfilesItem && current == MainPage.Profiles
+            && pages.TryGetValue(MainPage.Profiles, out var profiles))
+        {
+            ((ProfilesPage)profiles.View).ShowList();
         }
     }
 

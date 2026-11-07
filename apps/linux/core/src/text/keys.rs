@@ -505,6 +505,46 @@ pub const HUD_TOOK_THIS_OFFLINE: &str = "HudTookThisOffline";
 pub const OFFLINE_SET_BY_UNKNOWN: &str = "OfflineSetByUnknown";
 pub const SUBTITLE_THIS_OFFLINE_BY_UNKNOWN: &str = "SubtitleThisOfflineByUnknown";
 pub const HUD_TOOK_THIS_OFFLINE_UNKNOWN: &str = "HudTookThisOfflineUnknown";
+pub const NAV_PROFILES: &str = "NavProfiles";
+pub const PROFILE_IN_USE: &str = "ProfileInUse";
+pub const PROFILE_IN_USE_HINT: &str = "ProfileInUseHint";
+pub const PROFILE_AUTOMATIC: &str = "ProfileAutomatic";
+pub const PROFILE_AUTOMATIC_NOW: &str = "ProfileAutomaticNow";
+pub const PROFILE_DEFAULT: &str = "ProfileDefault";
+pub const PROFILE_OTHER_NETWORKS: &str = "ProfileOtherNetworks";
+pub const PROFILE_NEW_NAME: &str = "ProfileNewName";
+pub const PROFILE_CURRENT_NETWORK: &str = "ProfileCurrentNetwork";
+pub const PROFILE_NO_NETWORK: &str = "ProfileNoNetwork";
+pub const NETWORK_ROUTER: &str = "NetworkRouter";
+pub const NETWORK_VPN: &str = "NetworkVpn";
+pub const NETWORK_WIRED: &str = "NetworkWired";
+pub const NETWORK_WIFI: &str = "NetworkWifi";
+pub const PROFILE_NAME_TAKEN: &str = "ProfileNameTaken";
+pub const PROFILE_ADD_TO: &str = "ProfileAddTo";
+pub const PROFILE_IN_USE_TAG: &str = "ProfileInUseTag";
+pub const PROFILE_ADD: &str = "ProfileAdd";
+pub const PROFILE_REMOVE: &str = "ProfileRemove";
+pub const PROFILE_SHARING: &str = "ProfileSharing";
+pub const PROFILE_SHARE: &str = "ProfileShare";
+pub const PROFILE_PAUSE: &str = "ProfilePause";
+pub const PROFILE_PAUSED_HINT: &str = "ProfilePausedHint";
+pub const PROFILE_COMPUTERS: &str = "ProfileComputers";
+pub const PROFILE_COMPUTERS_HINT: &str = "ProfileComputersHint";
+pub const PROFILE_FILES: &str = "ProfileFiles";
+pub const PROFILE_CLIPBOARD_HINT: &str = "ProfileClipboardHint";
+pub const PROFILE_NETWORKS: &str = "ProfileNetworks";
+pub const PROFILE_NO_NETWORKS: &str = "ProfileNoNetworks";
+pub const PROFILE_OTHER_NETWORKS_HINT: &str = "ProfileOtherNetworksHint";
+pub const PROFILE_ADD_CURRENT_NETWORK: &str = "ProfileAddCurrentNetwork";
+pub const PROFILE_REMOVE_NETWORK: &str = "ProfileRemoveNetwork";
+pub const MENU_PROFILE: &str = "MenuProfile";
+pub const MENU_MANAGE_PROFILES: &str = "MenuManageProfiles";
+pub const TITLE_PROFILE_PAUSED: &str = "TitleProfilePaused";
+pub const PROFILE_NETWORK_NOT_IN_ANY: &str = "ProfileNetworkNotInAny";
+pub const PROFILE_ADD_THIS_NETWORK: &str = "ProfileAddThisNetwork";
+pub const CONNECTION_NOT_IN_PROFILE: &str = "ConnectionNotInProfile";
+pub const HUD_PROFILE_SWITCHED: &str = "HudProfileSwitched";
+pub const HUD_PROFILE_SWITCHED_PAUSED: &str = "HudProfileSwitchedPaused";
 
 pub const ALL: &[&str] = &[
     TITLE_UPDATING,
@@ -1007,4 +1047,44 @@ pub const ALL: &[&str] = &[
     OFFLINE_SET_BY_UNKNOWN,
     SUBTITLE_THIS_OFFLINE_BY_UNKNOWN,
     HUD_TOOK_THIS_OFFLINE_UNKNOWN,
+    NAV_PROFILES,
+    PROFILE_IN_USE,
+    PROFILE_IN_USE_HINT,
+    PROFILE_AUTOMATIC,
+    PROFILE_AUTOMATIC_NOW,
+    PROFILE_DEFAULT,
+    PROFILE_OTHER_NETWORKS,
+    PROFILE_NEW_NAME,
+    PROFILE_CURRENT_NETWORK,
+    PROFILE_NO_NETWORK,
+    NETWORK_ROUTER,
+    NETWORK_VPN,
+    NETWORK_WIRED,
+    NETWORK_WIFI,
+    PROFILE_NAME_TAKEN,
+    PROFILE_ADD_TO,
+    PROFILE_IN_USE_TAG,
+    PROFILE_ADD,
+    PROFILE_REMOVE,
+    PROFILE_SHARING,
+    PROFILE_SHARE,
+    PROFILE_PAUSE,
+    PROFILE_PAUSED_HINT,
+    PROFILE_COMPUTERS,
+    PROFILE_COMPUTERS_HINT,
+    PROFILE_FILES,
+    PROFILE_CLIPBOARD_HINT,
+    PROFILE_NETWORKS,
+    PROFILE_NO_NETWORKS,
+    PROFILE_OTHER_NETWORKS_HINT,
+    PROFILE_ADD_CURRENT_NETWORK,
+    PROFILE_REMOVE_NETWORK,
+    MENU_PROFILE,
+    MENU_MANAGE_PROFILES,
+    TITLE_PROFILE_PAUSED,
+    PROFILE_NETWORK_NOT_IN_ANY,
+    PROFILE_ADD_THIS_NETWORK,
+    CONNECTION_NOT_IN_PROFILE,
+    HUD_PROFILE_SWITCHED,
+    HUD_PROFILE_SWITCHED_PAUSED,
 ];

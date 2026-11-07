@@ -1,8 +1,9 @@
 import SwiftUI
 
-/// The menu bar panel: state and the sharing
-/// switch (and while this computer is offline for now, bringing it back),
-/// the mini map (click a computer to move the cursor there, drop
+/// The menu bar panel: state, the profile in use and the sharing
+/// switch (while Automatic picked a paused Other networks, adding the
+/// network to a profile; while this computer is offline for now, bringing
+/// it back), the mini map (click a computer to move the cursor there, drop
 /// files on one to send them), exceptions, transfers, then settings.
 struct MenuPanel: View {
     @Environment(AgentModel.self) private var model
@@ -13,7 +14,9 @@ struct MenuPanel: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             header
-            if model.link == .connected && model.offlineHere {
+            if model.link == .connected && ProfileText.offersAddingNetwork(model.status) {
+                AddNetworkMenu()
+            } else if model.link == .connected && model.offlineHere && !model.profilePaused {
                 Button(OfflineText.bringBack()) { model.setOffline(model.thisDeviceID, false) }
             }
             if model.link == .connected {
@@ -47,7 +50,7 @@ struct MenuPanel: View {
     private var header: some View {
         HStack(alignment: .firstTextBaseline) {
             VStack(alignment: .leading, spacing: 2) {
-                Text(PanelText.title(model)).font(.headline)
+                PanelTitle(title: PanelText.title(model), capsule: PanelText.capsule(model))
                 if let subtitle = PanelText.subtitle(model) {
                     Text(subtitle)
                         .font(.callout)
@@ -56,16 +59,18 @@ struct MenuPanel: View {
                 }
             }
             Spacer()
+            // Off while the profile in use pauses sharing: choosing another
+            // profile is what brings it back.
             Toggle(
                 "Sharing",
                 isOn: Binding(
-                    get: { model.status.sharing },
+                    get: { model.status.sharing && !model.profilePaused },
                     set: { on in Task { try? await model.setSharing(on) } }
                 )
             )
             .toggleStyle(.switch)
             .labelsHidden()
-            .disabled(model.link != .connected)
+            .disabled(model.link != .connected || model.profilePaused)
             .accessibilityLabel(Text("Sharing"))
         }
     }
@@ -84,7 +89,10 @@ struct MenuPanel: View {
                 Button(model.status.sharing ? "Pause Sharing" : "Resume Sharing") {
                     Task { try? await model.setSharing(!model.status.sharing) }
                 }
-                .disabled(model.link != .connected)
+                .disabled(model.link != .connected || model.profilePaused)
+                if model.link == .connected && model.profilesSupported {
+                    ProfileMenu { AppActions.showMain(openWindow, page: .profiles) }
+                }
                 // Taking this computer offline for now, or bringing it back;
                 // the whole group then leaves it be.
                 if let item = OfflineText.thisComputerItem(model.status) {
@@ -116,6 +124,98 @@ struct MenuPanel: View {
             .menuIndicator(.hidden)
             .fixedSize()
             .accessibilityLabel(Text("More"))
+        }
+    }
+}
+
+/// The panel's title, with the profile in use in a neutral capsule after
+/// it; the capsule goes beneath when both do not fit on one line.
+private struct PanelTitle: View {
+    let title: String
+    let capsule: String?
+
+    var body: some View {
+        if let capsule {
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: 7) {
+                    heading
+                    ProfileCapsule(name: capsule)
+                }
+                VStack(alignment: .leading, spacing: 3) {
+                    heading
+                    ProfileCapsule(name: capsule)
+                }
+            }
+            .accessibilityElement(children: .combine)
+        } else {
+            heading
+        }
+    }
+
+    private var heading: some View {
+        Text(title)
+            .font(.headline)
+            .fixedSize(horizontal: false, vertical: true)
+    }
+}
+
+/// The profile in use, after the panel's title.
+private struct ProfileCapsule: View {
+    let name: String
+
+    var body: some View {
+        Text(name)
+            .font(.caption.weight(.medium))
+            .foregroundStyle(.secondary)
+            .lineLimit(1)
+            .padding(.horizontal, 7)
+            .padding(.vertical, 1)
+            .background(.quaternary, in: Capsule())
+    }
+}
+
+/// "Add This Network To…": while Automatic picked a paused Other networks
+/// for a network in no profile, the profiles it can go to; choosing one
+/// moves it there, and the service switches to it. Off for the few seconds
+/// the service knows the network by its router alone.
+private struct AddNetworkMenu: View {
+    @Environment(AgentModel.self) private var model
+
+    var body: some View {
+        Menu("Add This Network To…") {
+            ForEach(ProfileText.addable(model.status), id: \.id) { profile in
+                Button(ProfileText.name(profile)) {
+                    model.changeProfiles("Adding the network to a profile") { try await $0.addNetworkToProfile(profile.id) }
+                }
+            }
+        }
+        .fixedSize()
+        .disabled(!ProfileText.canAddNetwork(model.status))
+    }
+}
+
+/// The ⋯ menu's Profile submenu: Automatic and every profile, the one in
+/// effect checked, then Manage Profiles….
+private struct ProfileMenu: View {
+    @Environment(AgentModel.self) private var model
+    let manage: () -> Void
+
+    var body: some View {
+        Menu("Profile") {
+            // Automatic, or the profile the user chose.
+            Picker("Profile", selection: Binding(
+                get: { model.status.profileChosen ? model.status.profileID : "" },
+                set: { id in model.changeProfiles("Choosing a profile") { try await $0.selectProfile(id) } }
+            )) {
+                Text(ProfileText.automatic()).tag("")
+                ForEach(model.status.profiles, id: \.id) { profile in
+                    Text(ProfileText.name(profile)).tag(profile.id)
+                }
+            }
+            .pickerStyle(.inline)
+            .labelsHidden()
+            Divider()
+            Button("Manage Profiles…", action: manage)
         }
     }
 }

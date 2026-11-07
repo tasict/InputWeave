@@ -115,6 +115,9 @@ pub enum Event {
     /// comes back from it. Kept while it is connected only, as the others
     /// are: the caller tells it again as the device connects.
     PeerOfflineForNow(DeviceId, bool),
+    /// The profile in use no longer connects the device: control comes
+    /// back from it, before its session ends (`PeerLost` follows).
+    LeaveForProfile(DeviceId),
     /// Someone used the remote device's own keyboard or mouse.
     RemoteActivity(DeviceId),
     SetSharing(bool),
@@ -180,6 +183,9 @@ pub enum ReturnReason {
     OfflineForNow(DeviceId),
     /// Capture lost hold of the input (`InputEvent::CaptureEnded`).
     CaptureEnded,
+    /// The profile in use changed, and no longer connects the controlled
+    /// device (`Event::LeaveForProfile`).
+    ProfileChanged(DeviceId),
 }
 
 /// Why relative mode began (`Action::RelativeStarted`).
@@ -873,6 +879,13 @@ impl Router {
             }
             Event::PeerOfflineForNow(device, offline) => {
                 self.set_unreachable(device, Barrier::OfflineForNow, offline)
+            }
+            Event::LeaveForProfile(device) => {
+                if self.is_remote(&device) {
+                    self.return_control(ReturnReason::ProfileChanged(device), true)
+                } else {
+                    Vec::new()
+                }
             }
             Event::RemoteActivity(device) => {
                 if self.is_remote(&device) {
@@ -2702,6 +2715,27 @@ mod tests {
         assert!(
             matches!(enter_win(&mut r).last(), Some(Action::Enter { device, .. }) if *device == id("win"))
         );
+    }
+
+    #[test]
+    fn a_profile_that_leaves_the_controlled_device_out_hands_control_back() {
+        let mut r = router();
+        // Not the controlled device: nothing to do.
+        assert!(handle(&mut r, Event::LeaveForProfile(id("win"))).is_empty());
+        enter_win(&mut r);
+        assert!(handle(&mut r, Event::LeaveForProfile(id("mini"))).is_empty());
+        assert_eq!(
+            handle(&mut r, Event::LeaveForProfile(id("win"))),
+            vec![
+                Action::Leave { device: id("win") },
+                Action::Ungrab {
+                    warp_to: Point::new(1511.0, 500.0),
+                },
+                Action::ControlReturned(ReturnReason::ProfileChanged(id("win"))),
+            ]
+        );
+        // Its session ends next: nothing more comes back.
+        assert!(handle(&mut r, Event::PeerLost(id("win"))).is_empty());
     }
 
     #[test]

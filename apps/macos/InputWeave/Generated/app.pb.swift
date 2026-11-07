@@ -375,6 +375,12 @@ nonisolated enum Inputweave_App_V1_ReturnReason: SwiftProtobuf.Enum, Swift.CaseI
   /// (DeviceStatus.offline_for_now), or this one was, while it controlled
   /// another: last_return_device_id is then this device.
   case offlineForNow // = 10
+
+  /// The profile in use changed, and it does not connect the controlled
+  /// device (last_return_device_id), or it is paused. The UI says nothing of
+  /// it: when the profile changed by itself, it tells of that
+  /// (Status.profile_switches).
+  case profileChanged // = 11
   case UNRECOGNIZED(Int)
 
   init() {
@@ -394,6 +400,7 @@ nonisolated enum Inputweave_App_V1_ReturnReason: SwiftProtobuf.Enum, Swift.CaseI
     case 8: self = .captureEnded
     case 9: self = .peerPaused
     case 10: self = .offlineForNow
+    case 11: self = .profileChanged
     default: self = .UNRECOGNIZED(rawValue)
     }
   }
@@ -411,6 +418,7 @@ nonisolated enum Inputweave_App_V1_ReturnReason: SwiftProtobuf.Enum, Swift.CaseI
     case .captureEnded: return 8
     case .peerPaused: return 9
     case .offlineForNow: return 10
+    case .profileChanged: return 11
     case .UNRECOGNIZED(let i): return i
     }
   }
@@ -428,6 +436,93 @@ nonisolated enum Inputweave_App_V1_ReturnReason: SwiftProtobuf.Enum, Swift.CaseI
     .captureEnded,
     .peerPaused,
     .offlineForNow,
+    .profileChanged,
+  ]
+
+}
+
+/// The kind of network (Network.kind).
+nonisolated enum Inputweave_App_V1_NetworkKind: SwiftProtobuf.Enum, Swift.CaseIterable {
+  typealias RawValue = Int
+  case unspecified // = 0
+  case wired // = 1
+  case wifi // = 2
+
+  /// Its route goes through a link with no hardware address: a VPN, or
+  /// another tunnel.
+  case vpn // = 3
+  case UNRECOGNIZED(Int)
+
+  init() {
+    self = .unspecified
+  }
+
+  init?(rawValue: Int) {
+    switch rawValue {
+    case 0: self = .unspecified
+    case 1: self = .wired
+    case 2: self = .wifi
+    case 3: self = .vpn
+    default: self = .UNRECOGNIZED(rawValue)
+    }
+  }
+
+  var rawValue: Int {
+    switch self {
+    case .unspecified: return 0
+    case .wired: return 1
+    case .wifi: return 2
+    case .vpn: return 3
+    case .UNRECOGNIZED(let i): return i
+    }
+  }
+
+  // The compiler won't synthesize support with the UNRECOGNIZED case.
+  static let allCases: [Inputweave_App_V1_NetworkKind] = [
+    .unspecified,
+    .wired,
+    .wifi,
+    .vpn,
+  ]
+
+}
+
+nonisolated enum Inputweave_App_V1_ProfileKind: SwiftProtobuf.Enum, Swift.CaseIterable {
+  typealias RawValue = Int
+
+  /// One of the user's own.
+  case custom // = 0
+  case `default` // = 1
+  case otherNetworks // = 2
+  case UNRECOGNIZED(Int)
+
+  init() {
+    self = .custom
+  }
+
+  init?(rawValue: Int) {
+    switch rawValue {
+    case 0: self = .custom
+    case 1: self = .default
+    case 2: self = .otherNetworks
+    default: self = .UNRECOGNIZED(rawValue)
+    }
+  }
+
+  var rawValue: Int {
+    switch self {
+    case .custom: return 0
+    case .default: return 1
+    case .otherNetworks: return 2
+    case .UNRECOGNIZED(let i): return i
+    }
+  }
+
+  // The compiler won't synthesize support with the UNRECOGNIZED case.
+  static let allCases: [Inputweave_App_V1_ProfileKind] = [
+    .custom,
+    .default,
+    .otherNetworks,
   ]
 
 }
@@ -1289,7 +1384,9 @@ nonisolated struct Inputweave_App_V1_SetDeviceName: Sendable {
 /// 1,000 items, counting those still going from this device; "too_large"
 /// over 10,000 files and folders or 100 GiB in all; "offline_for_now"
 /// while the device, or this one, is offline for now (SetOfflineForNow);
-/// and, when every item is one that cannot be sent, the first one's reason
+/// "not_in_profile" while the profile in use does not connect the device, or
+/// is paused (DeviceStatus.not_in_profile); "files_off" while files are
+/// turned off with the device, or in the profile in use; and, when every item is one that cannot be sent, the first one's reason
 /// ("not_a_file", "unreadable", "symlink").
 nonisolated struct Inputweave_App_V1_SendFiles: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
@@ -1588,7 +1685,9 @@ nonisolated struct Inputweave_App_V1_SetLocked: Sendable {
 /// "input_unavailable" for one no input from here reaches now
 /// (DeviceStatus.input_unavailable), and with "offline_for_now" for a
 /// device taken offline for now, or any while this one is
-/// (SetOfflineForNow).
+/// (SetOfflineForNow), with "not_in_profile" for a device the profile in use
+/// does not connect, and with "profile_paused" for any other device while
+/// the profile in use is paused.
 nonisolated struct Inputweave_App_V1_JumpTo: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
@@ -1847,7 +1946,8 @@ nonisolated struct Inputweave_App_V1_SetDeviceSpeed: Sendable {
 /// this one how to wake it, "not_sent" when no packet could be sent, as
 /// without a network (its wake state is then WAKE_STATE_NOT_WOKEN), and
 /// "offline_for_now" while it, or this device, is offline for now
-/// (SetOfflineForNow).
+/// (SetOfflineForNow), "not_in_profile" while the profile in use does not
+/// connect it, and "profile_paused" while the profile in use is paused.
 nonisolated struct Inputweave_App_V1_WakeDevice: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
@@ -1907,6 +2007,238 @@ nonisolated struct Inputweave_App_V1_SetOfflineForNow: Sendable {
   var deviceID: String = String()
 
   var offline: Bool = false
+
+  var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  init() {}
+}
+
+/// Profiles (Status.profiles): named sets of settings this device picks by
+/// the network it is on, or that the user picks. Each says whether this
+/// device shares at all (paused: it neither announces itself nor connects
+/// to any device, pairings kept), which paired devices it connects to (the
+/// others see this device offline, and it them), and whether the clipboard
+/// and files go. Profiles stay on this device; no other device is told.
+/// There are always two that cannot be renamed or removed: Default, and
+/// Other networks, used on every network not in another profile.
+///
+/// Adds a profile named `name`, sharing, with every paired device connected,
+/// the clipboard and files on, and no networks; made unique with " 2",
+/// " 3"… after the name when a profile has it. Added at the end of the
+/// profiles of the user's own, before Other networks. Answered with Status,
+/// whose profiles list it. Refused with "invalid_name" for a name of 0 or
+/// more than 64 characters, or with control characters, with "name_taken"
+/// for one of the fixed profiles' names in English or Chinese ("Default",
+/// "Other networks", whatever the case), and with "too_many_profiles" once
+/// there are 32.
+nonisolated struct Inputweave_App_V1_AddProfile: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  var name: String = String()
+
+  var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  init() {}
+}
+
+/// Changes what the fields that are set say of a profile. Answered with
+/// Status once it has the change. Refused with "unknown_profile", with
+/// "fixed_profile" to rename Default or Other networks, with "invalid_name",
+/// with "name_taken" for a name another profile has, or one of the fixed
+/// profiles' (compared whatever the case), and with "unknown_device" for a
+/// device neither trusted nor listed in the profile.
+nonisolated struct Inputweave_App_V1_EditProfile: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  var profileID: String = String()
+
+  var name: String {
+    get {_name ?? String()}
+    set {_name = newValue}
+  }
+  /// Returns true if `name` has been explicitly set.
+  var hasName: Bool {self._name != nil}
+  /// Clears the value of `name`. Subsequent reads from it will return its default value.
+  mutating func clearName() {self._name = nil}
+
+  /// Pause: this device neither announces itself nor connects to any device
+  /// in the profile.
+  var paused: Bool {
+    get {_paused ?? false}
+    set {_paused = newValue}
+  }
+  /// Returns true if `paused` has been explicitly set.
+  var hasPaused: Bool {self._paused != nil}
+  /// Clears the value of `paused`. Subsequent reads from it will return its default value.
+  mutating func clearPaused() {self._paused = nil}
+
+  var clipboard: Bool {
+    get {_clipboard ?? false}
+    set {_clipboard = newValue}
+  }
+  /// Returns true if `clipboard` has been explicitly set.
+  var hasClipboard: Bool {self._clipboard != nil}
+  /// Clears the value of `clipboard`. Subsequent reads from it will return its default value.
+  mutating func clearClipboard() {self._clipboard = nil}
+
+  var files: Bool {
+    get {_files ?? false}
+    set {_files = newValue}
+  }
+  /// Returns true if `files` has been explicitly set.
+  var hasFiles: Bool {self._files != nil}
+  /// Clears the value of `files`. Subsequent reads from it will return its default value.
+  mutating func clearFiles() {self._files = nil}
+
+  /// Devices to connect, or not, in the profile.
+  var devices: [Inputweave_App_V1_DeviceInProfile] = []
+
+  var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  init() {}
+
+  fileprivate var _name: String? = nil
+  fileprivate var _paused: Bool? = nil
+  fileprivate var _clipboard: Bool? = nil
+  fileprivate var _files: Bool? = nil
+}
+
+nonisolated struct Inputweave_App_V1_DeviceInProfile: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  var deviceID: String = String()
+
+  var connect: Bool = false
+
+  var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  init() {}
+}
+
+/// Removes a profile of the user's own, its networks with it; when it was
+/// the one chosen (SelectProfile), the choice goes back to Automatic.
+/// Answered with Status. Refused with "unknown_profile" and "fixed_profile".
+nonisolated struct Inputweave_App_V1_RemoveProfile: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  var profileID: String = String()
+
+  var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  init() {}
+}
+
+/// Uses a profile whatever the network until Automatic is chosen again (an
+/// empty id), remembered across restarts. Answered with Status. Refused
+/// with "unknown_profile".
+nonisolated struct Inputweave_App_V1_SelectProfile: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  var profileID: String = String()
+
+  var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  init() {}
+}
+
+/// Adds the network this device is on now (Status.network) to a profile,
+/// taking it from any profile that had it: a network is in one profile at
+/// most. Answered with Status. Refused with "unknown_profile", with
+/// "other_networks" for Other networks, which lists none, with "no_network"
+/// while this device is on none, with "network_unresolved" while the network
+/// is known by its router's address alone (Network.resolved false), which
+/// would match no more once the router resolves, and with
+/// "too_many_networks" once 256 are listed.
+nonisolated struct Inputweave_App_V1_AddNetworkToProfile: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  var profileID: String = String()
+
+  var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  init() {}
+}
+
+/// Takes a network out of the profile that lists it. Answered with Status.
+/// Refused with "unknown_network".
+nonisolated struct Inputweave_App_V1_RemoveNetwork: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  var networkID: String = String()
+
+  var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  init() {}
+}
+
+/// Gives a network listed in a profile a name shown in place of its own, or
+/// with an empty `name` takes it away. Answered with Status. Refused with
+/// "unknown_network" and "invalid_name".
+nonisolated struct Inputweave_App_V1_RenameNetwork: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  var networkID: String = String()
+
+  var name: String = String()
+
+  var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  init() {}
+}
+
+/// Also recognizes networks by their Wi-Fi name, or only by their router
+/// (Status.wifi_names); remembered. On macOS and Windows the app reads the
+/// Wi-Fi name, once the user let it have location access, and tells the
+/// agent (ReportWifiName); on Linux the agent reads it, whatever this says.
+/// Answered with Status.
+nonisolated struct Inputweave_App_V1_SetWifiNames: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  var on: Bool = false
+
+  var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  init() {}
+}
+
+/// The app's reading of the Wi-Fi name (SSID) of the network this device is
+/// on, Status.network.id being `network_id` as it read it: empty when it is
+/// not on Wi-Fi. A read that failed is not reported (Status.wifi_name_held
+/// says what the agent holds). Taken while Status.wifi_names is on and
+/// the network is that one, and not while the agent waits to tell whether
+/// the network changed; used once the agent's next reading of the network
+/// still shows it (a couple of seconds), and from then on until the network
+/// changes or another reading replaces it, whether or not the app stays
+/// connected. A name for another network, or of more than 32 bytes or with
+/// control characters, is ignored. Kept in the profiles file only as the
+/// user adds the network to a profile (AddNetworkToProfile). Answered with
+/// Status.
+nonisolated struct Inputweave_App_V1_ReportWifiName: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  var networkID: String = String()
+
+  var ssid: String = String()
 
   var unknownFields = SwiftProtobuf.UnknownStorage()
 
@@ -2738,6 +3070,78 @@ nonisolated struct Inputweave_App_V1_ClientMessage: Sendable {
     set {command = .setOfflineForNow(newValue)}
   }
 
+  var addProfile: Inputweave_App_V1_AddProfile {
+    get {
+      if case .addProfile(let v)? = command {return v}
+      return Inputweave_App_V1_AddProfile()
+    }
+    set {command = .addProfile(newValue)}
+  }
+
+  var editProfile: Inputweave_App_V1_EditProfile {
+    get {
+      if case .editProfile(let v)? = command {return v}
+      return Inputweave_App_V1_EditProfile()
+    }
+    set {command = .editProfile(newValue)}
+  }
+
+  var removeProfile: Inputweave_App_V1_RemoveProfile {
+    get {
+      if case .removeProfile(let v)? = command {return v}
+      return Inputweave_App_V1_RemoveProfile()
+    }
+    set {command = .removeProfile(newValue)}
+  }
+
+  var selectProfile: Inputweave_App_V1_SelectProfile {
+    get {
+      if case .selectProfile(let v)? = command {return v}
+      return Inputweave_App_V1_SelectProfile()
+    }
+    set {command = .selectProfile(newValue)}
+  }
+
+  var addNetworkToProfile: Inputweave_App_V1_AddNetworkToProfile {
+    get {
+      if case .addNetworkToProfile(let v)? = command {return v}
+      return Inputweave_App_V1_AddNetworkToProfile()
+    }
+    set {command = .addNetworkToProfile(newValue)}
+  }
+
+  var removeNetwork: Inputweave_App_V1_RemoveNetwork {
+    get {
+      if case .removeNetwork(let v)? = command {return v}
+      return Inputweave_App_V1_RemoveNetwork()
+    }
+    set {command = .removeNetwork(newValue)}
+  }
+
+  var renameNetwork: Inputweave_App_V1_RenameNetwork {
+    get {
+      if case .renameNetwork(let v)? = command {return v}
+      return Inputweave_App_V1_RenameNetwork()
+    }
+    set {command = .renameNetwork(newValue)}
+  }
+
+  var setWifiNames: Inputweave_App_V1_SetWifiNames {
+    get {
+      if case .setWifiNames(let v)? = command {return v}
+      return Inputweave_App_V1_SetWifiNames()
+    }
+    set {command = .setWifiNames(newValue)}
+  }
+
+  var reportWifiName: Inputweave_App_V1_ReportWifiName {
+    get {
+      if case .reportWifiName(let v)? = command {return v}
+      return Inputweave_App_V1_ReportWifiName()
+    }
+    set {command = .reportWifiName(newValue)}
+  }
+
   var unknownFields = SwiftProtobuf.UnknownStorage()
 
   nonisolated enum OneOf_Command: Equatable, Sendable {
@@ -2793,6 +3197,15 @@ nonisolated struct Inputweave_App_V1_ClientMessage: Sendable {
     case wakeDevice(Inputweave_App_V1_WakeDevice)
     case setWakeOnPush(Inputweave_App_V1_SetWakeOnPush)
     case setOfflineForNow(Inputweave_App_V1_SetOfflineForNow)
+    case addProfile(Inputweave_App_V1_AddProfile)
+    case editProfile(Inputweave_App_V1_EditProfile)
+    case removeProfile(Inputweave_App_V1_RemoveProfile)
+    case selectProfile(Inputweave_App_V1_SelectProfile)
+    case addNetworkToProfile(Inputweave_App_V1_AddNetworkToProfile)
+    case removeNetwork(Inputweave_App_V1_RemoveNetwork)
+    case renameNetwork(Inputweave_App_V1_RenameNetwork)
+    case setWifiNames(Inputweave_App_V1_SetWifiNames)
+    case reportWifiName(Inputweave_App_V1_ReportWifiName)
 
   }
 
@@ -2969,7 +3382,8 @@ nonisolated struct Inputweave_App_V1_DeviceStatus: @unchecked Sendable {
   /// CONNECTION_STATE_OFFLINE whether or not it is connected, as is every
   /// device's while this one is (Status.offline_for_now); it cannot be woken,
   /// and the fields that hold only while connected are as for an offline
-  /// device.
+  /// device. False while this device is offline for now, or the profile in
+  /// use is paused (Profile.paused): every device is just offline then.
   var offlineForNow: Bool {
     get {_storage._offlineForNow}
     set {_uniqueStorage()._offlineForNow = newValue}
@@ -2997,6 +3411,16 @@ nonisolated struct Inputweave_App_V1_DeviceStatus: @unchecked Sendable {
   var offlineUnaware: Bool {
     get {_storage._offlineUnaware}
     set {_uniqueStorage()._offlineUnaware = newValue}
+  }
+
+  /// The profile in use (Status.profile_id) does not connect it, so it is
+  /// offline here and sees this device offline; not while it is offline for
+  /// now, which comes first, nor while this device is, or the profile in use
+  /// is paused, when every device is just offline. It cannot be woken
+  /// meanwhile.
+  var notInProfile: Bool {
+    get {_storage._notInProfile}
+    set {_uniqueStorage()._notInProfile = newValue}
   }
 
   var unknownFields = SwiftProtobuf.UnknownStorage()
@@ -3075,7 +3499,7 @@ nonisolated struct Inputweave_App_V1_Status: @unchecked Sendable {
   }
 
   /// The device involved, for PEER_LOST, REMOTE_ACTIVITY, SCREEN_LOCKED,
-  /// INPUT_UNAVAILABLE, PEER_PAUSED and OFFLINE_FOR_NOW.
+  /// INPUT_UNAVAILABLE, PEER_PAUSED, OFFLINE_FOR_NOW and PROFILE_CHANGED.
   var lastReturnDeviceID: String {
     get {_storage._lastReturnDeviceID}
     set {_uniqueStorage()._lastReturnDeviceID = newValue}
@@ -3371,11 +3795,174 @@ nonisolated struct Inputweave_App_V1_Status: @unchecked Sendable {
     set {_uniqueStorage()._offlineSupported = newValue}
   }
 
+  /// The network this device is on now; unset while it has no route to the
+  /// internet, when Other networks is used.
+  var network: Inputweave_App_V1_Network {
+    get {_storage._network ?? Inputweave_App_V1_Network()}
+    set {_uniqueStorage()._network = newValue}
+  }
+  /// Returns true if `network` has been explicitly set.
+  var hasNetwork: Bool {_storage._network != nil}
+  /// Clears the value of `network`. Subsequent reads from it will return its default value.
+  mutating func clearNetwork() {_uniqueStorage()._network = nil}
+
+  /// Every profile (see AddProfile): Default first, then the user's own in
+  /// the order they were added, then Other networks.
+  var profiles: [Inputweave_App_V1_Profile] {
+    get {_storage._profiles}
+    set {_uniqueStorage()._profiles = newValue}
+  }
+
+  /// The profile in use.
+  var profileID: String {
+    get {_storage._profileID}
+    set {_uniqueStorage()._profileID = newValue}
+  }
+
+  /// The user chose it (SelectProfile), so it stays whatever the network;
+  /// false: Automatic, by the network.
+  var profileChosen: Bool {
+    get {_storage._profileChosen}
+    set {_uniqueStorage()._profileChosen = newValue}
+  }
+
+  /// Counts the times the profile in use changed by itself (Automatic: the
+  /// network changed, or a change to the profiles picks another for it); the
+  /// UI tells the user of the profile in use whenever it increases. Choosing
+  /// a profile, or Automatic, or removing the profile chosen (back to
+  /// Automatic) is not counted, nor is a network coming or going.
+  var profileSwitches: UInt64 {
+    get {_storage._profileSwitches}
+    set {_uniqueStorage()._profileSwitches = newValue}
+  }
+
+  /// This agent knows profiles: the profile commands and fields. Agents from
+  /// before leave it false, and the apps then show nothing of them.
+  var profilesSupported: Bool {
+    get {_storage._profilesSupported}
+    set {_uniqueStorage()._profilesSupported = newValue}
+  }
+
+  /// See SetWifiNames.
+  var wifiNames: Bool {
+    get {_storage._wifiNames}
+    set {_uniqueStorage()._wifiNames = newValue}
+  }
+
+  /// The Wi-Fi name the agent holds from an app (ReportWifiName) for the
+  /// network it is on now; unset while it holds none.
+  var wifiNameHeld: Inputweave_App_V1_WifiNameHeld {
+    get {_storage._wifiNameHeld ?? Inputweave_App_V1_WifiNameHeld()}
+    set {_uniqueStorage()._wifiNameHeld = newValue}
+  }
+  /// Returns true if `wifiNameHeld` has been explicitly set.
+  var hasWifiNameHeld: Bool {_storage._wifiNameHeld != nil}
+  /// Clears the value of `wifiNameHeld`. Subsequent reads from it will return its default value.
+  mutating func clearWifiNameHeld() {_uniqueStorage()._wifiNameHeld = nil}
+
   var unknownFields = SwiftProtobuf.UnknownStorage()
 
   init() {}
 
   fileprivate var _storage = _StorageClass.defaultInstance
+}
+
+/// What the agent took of the apps' readings of the Wi-Fi name
+/// (ReportWifiName) for the network it is on now (Status.network.id): unset
+/// while it holds none, as when names are not used, nothing was reported
+/// since the network changed, or a report came while the agent waited to
+/// tell whether the network changed. An app that has read the name for that
+/// network, or that it is not on Wi-Fi, and sees none held for it here
+/// reports it again, at most every few seconds; once one is held, the app
+/// reports again only when what it reads changes. A report that the device
+/// is not on Wi-Fi does not replace a name in use for the same network while
+/// the agent's own reading says it is on Wi-Fi.
+nonisolated struct Inputweave_App_V1_WifiNameHeld: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  var networkID: String = String()
+
+  /// Empty: the app said this device is not on Wi-Fi.
+  var ssid: String = String()
+
+  /// Confirmed and in use: the agent's readings since still show that
+  /// network, and a name is used only while the network is reached over
+  /// Wi-Fi (one read while a VPN or a wired link carries the traffic is
+  /// held, so it is not reported again, but never used).
+  var inUse: Bool = false
+
+  var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  init() {}
+}
+
+/// A network: the one this device is on (Status.network), or one listed in
+/// a profile.
+nonisolated struct Inputweave_App_V1_Network: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  /// Stands for the network in commands: a hash of its router's address and
+  /// hardware address (never the hardware address itself), or for a VPN of
+  /// the addresses its route goes by.
+  var id: String = String()
+
+  /// What to call it: the name given it here (RenameNetwork), else its Wi-Fi
+  /// name, else on Windows the name Windows gives the network; empty when
+  /// none is known, for the apps to call it by its router.
+  var name: String = String()
+
+  var kind: Inputweave_App_V1_NetworkKind = .unspecified
+
+  /// Its router's IP address; empty where its route has none (a VPN).
+  var router: String = String()
+
+  /// Status.network only: known by its router's hardware address (or with
+  /// no router to resolve), not by the address alone, as for a moment after
+  /// joining a network; only such a network can be added to a profile
+  /// (AddNetworkToProfile). False in a profile's list of networks.
+  var resolved: Bool = false
+
+  var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  init() {}
+}
+
+/// A profile (Status.profiles).
+nonisolated struct Inputweave_App_V1_Profile: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  var id: String = String()
+
+  var kind: Inputweave_App_V1_ProfileKind = .custom
+
+  /// Empty for Default and Other networks, which the apps name.
+  var name: String = String()
+
+  /// This device neither announces itself nor connects to any device in it.
+  var paused: Bool = false
+
+  /// The trusted devices it does not connect; it connects every other one.
+  var offDeviceIds: [String] = []
+
+  /// The clipboard and files go between this device and the others in it;
+  /// the clipboard only while Status.clipboard_sync is on too, and either
+  /// only with devices they are not turned off with (SetDeviceSharing).
+  var clipboard: Bool = false
+
+  var files: Bool = false
+
+  /// The networks it is used on; none for Other networks.
+  var networks: [Inputweave_App_V1_Network] = []
+
+  var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  init() {}
 }
 
 /// A device taken offline for now or brought back (Status.offline_changes).
@@ -4498,7 +5085,15 @@ nonisolated extension Inputweave_App_V1_WakeState: SwiftProtobuf._ProtoNameProvi
 }
 
 nonisolated extension Inputweave_App_V1_ReturnReason: SwiftProtobuf._ProtoNameProviding {
-  static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{2}\0RETURN_REASON_UNSPECIFIED\0\u{1}RETURN_REASON_HOTKEY\0\u{1}RETURN_REASON_PEER_LOST\0\u{1}RETURN_REASON_REMOTE_ACTIVITY\0\u{1}RETURN_REASON_SHARING_PAUSED\0\u{1}RETURN_REASON_LAYOUT_CHANGED\0\u{1}RETURN_REASON_SCREEN_LOCKED\0\u{1}RETURN_REASON_INPUT_UNAVAILABLE\0\u{1}RETURN_REASON_CAPTURE_ENDED\0\u{1}RETURN_REASON_PEER_PAUSED\0\u{1}RETURN_REASON_OFFLINE_FOR_NOW\0")
+  static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{2}\0RETURN_REASON_UNSPECIFIED\0\u{1}RETURN_REASON_HOTKEY\0\u{1}RETURN_REASON_PEER_LOST\0\u{1}RETURN_REASON_REMOTE_ACTIVITY\0\u{1}RETURN_REASON_SHARING_PAUSED\0\u{1}RETURN_REASON_LAYOUT_CHANGED\0\u{1}RETURN_REASON_SCREEN_LOCKED\0\u{1}RETURN_REASON_INPUT_UNAVAILABLE\0\u{1}RETURN_REASON_CAPTURE_ENDED\0\u{1}RETURN_REASON_PEER_PAUSED\0\u{1}RETURN_REASON_OFFLINE_FOR_NOW\0\u{1}RETURN_REASON_PROFILE_CHANGED\0")
+}
+
+nonisolated extension Inputweave_App_V1_NetworkKind: SwiftProtobuf._ProtoNameProviding {
+  static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{2}\0NETWORK_KIND_UNSPECIFIED\0\u{1}NETWORK_KIND_WIRED\0\u{1}NETWORK_KIND_WIFI\0\u{1}NETWORK_KIND_VPN\0")
+}
+
+nonisolated extension Inputweave_App_V1_ProfileKind: SwiftProtobuf._ProtoNameProviding {
+  static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{2}\0PROFILE_KIND_CUSTOM\0\u{1}PROFILE_KIND_DEFAULT\0\u{1}PROFILE_KIND_OTHER_NETWORKS\0")
 }
 
 nonisolated extension Inputweave_App_V1_LicenseState: SwiftProtobuf._ProtoNameProviding {
@@ -5906,6 +6501,350 @@ nonisolated extension Inputweave_App_V1_SetOfflineForNow: SwiftProtobuf.Message,
   }
 }
 
+nonisolated extension Inputweave_App_V1_AddProfile: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  static let protoMessageName: String = _protobuf_package + ".AddProfile"
+  static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}name\0")
+
+  mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeSingularStringField(value: &self.name) }()
+      default: break
+      }
+    }
+  }
+
+  func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    if !self.name.isEmpty {
+      try visitor.visitSingularStringField(value: self.name, fieldNumber: 1)
+    }
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  static func ==(lhs: Inputweave_App_V1_AddProfile, rhs: Inputweave_App_V1_AddProfile) -> Bool {
+    if lhs.name != rhs.name {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
+nonisolated extension Inputweave_App_V1_EditProfile: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  static let protoMessageName: String = _protobuf_package + ".EditProfile"
+  static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}profile_id\0\u{1}name\0\u{1}paused\0\u{1}clipboard\0\u{1}files\0\u{1}devices\0")
+
+  mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeSingularStringField(value: &self.profileID) }()
+      case 2: try { try decoder.decodeSingularStringField(value: &self._name) }()
+      case 3: try { try decoder.decodeSingularBoolField(value: &self._paused) }()
+      case 4: try { try decoder.decodeSingularBoolField(value: &self._clipboard) }()
+      case 5: try { try decoder.decodeSingularBoolField(value: &self._files) }()
+      case 6: try { try decoder.decodeRepeatedMessageField(value: &self.devices) }()
+      default: break
+      }
+    }
+  }
+
+  func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    // The use of inline closures is to circumvent an issue where the compiler
+    // allocates stack space for every if/case branch local when no optimizations
+    // are enabled. https://github.com/apple/swift-protobuf/issues/1034 and
+    // https://github.com/apple/swift-protobuf/issues/1182
+    if !self.profileID.isEmpty {
+      try visitor.visitSingularStringField(value: self.profileID, fieldNumber: 1)
+    }
+    try { if let v = self._name {
+      try visitor.visitSingularStringField(value: v, fieldNumber: 2)
+    } }()
+    try { if let v = self._paused {
+      try visitor.visitSingularBoolField(value: v, fieldNumber: 3)
+    } }()
+    try { if let v = self._clipboard {
+      try visitor.visitSingularBoolField(value: v, fieldNumber: 4)
+    } }()
+    try { if let v = self._files {
+      try visitor.visitSingularBoolField(value: v, fieldNumber: 5)
+    } }()
+    if !self.devices.isEmpty {
+      try visitor.visitRepeatedMessageField(value: self.devices, fieldNumber: 6)
+    }
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  static func ==(lhs: Inputweave_App_V1_EditProfile, rhs: Inputweave_App_V1_EditProfile) -> Bool {
+    if lhs.profileID != rhs.profileID {return false}
+    if lhs._name != rhs._name {return false}
+    if lhs._paused != rhs._paused {return false}
+    if lhs._clipboard != rhs._clipboard {return false}
+    if lhs._files != rhs._files {return false}
+    if lhs.devices != rhs.devices {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
+nonisolated extension Inputweave_App_V1_DeviceInProfile: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  static let protoMessageName: String = _protobuf_package + ".DeviceInProfile"
+  static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}device_id\0\u{1}connect\0")
+
+  mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeSingularStringField(value: &self.deviceID) }()
+      case 2: try { try decoder.decodeSingularBoolField(value: &self.connect) }()
+      default: break
+      }
+    }
+  }
+
+  func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    if !self.deviceID.isEmpty {
+      try visitor.visitSingularStringField(value: self.deviceID, fieldNumber: 1)
+    }
+    if self.connect != false {
+      try visitor.visitSingularBoolField(value: self.connect, fieldNumber: 2)
+    }
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  static func ==(lhs: Inputweave_App_V1_DeviceInProfile, rhs: Inputweave_App_V1_DeviceInProfile) -> Bool {
+    if lhs.deviceID != rhs.deviceID {return false}
+    if lhs.connect != rhs.connect {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
+nonisolated extension Inputweave_App_V1_RemoveProfile: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  static let protoMessageName: String = _protobuf_package + ".RemoveProfile"
+  static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}profile_id\0")
+
+  mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeSingularStringField(value: &self.profileID) }()
+      default: break
+      }
+    }
+  }
+
+  func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    if !self.profileID.isEmpty {
+      try visitor.visitSingularStringField(value: self.profileID, fieldNumber: 1)
+    }
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  static func ==(lhs: Inputweave_App_V1_RemoveProfile, rhs: Inputweave_App_V1_RemoveProfile) -> Bool {
+    if lhs.profileID != rhs.profileID {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
+nonisolated extension Inputweave_App_V1_SelectProfile: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  static let protoMessageName: String = _protobuf_package + ".SelectProfile"
+  static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}profile_id\0")
+
+  mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeSingularStringField(value: &self.profileID) }()
+      default: break
+      }
+    }
+  }
+
+  func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    if !self.profileID.isEmpty {
+      try visitor.visitSingularStringField(value: self.profileID, fieldNumber: 1)
+    }
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  static func ==(lhs: Inputweave_App_V1_SelectProfile, rhs: Inputweave_App_V1_SelectProfile) -> Bool {
+    if lhs.profileID != rhs.profileID {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
+nonisolated extension Inputweave_App_V1_AddNetworkToProfile: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  static let protoMessageName: String = _protobuf_package + ".AddNetworkToProfile"
+  static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}profile_id\0")
+
+  mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeSingularStringField(value: &self.profileID) }()
+      default: break
+      }
+    }
+  }
+
+  func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    if !self.profileID.isEmpty {
+      try visitor.visitSingularStringField(value: self.profileID, fieldNumber: 1)
+    }
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  static func ==(lhs: Inputweave_App_V1_AddNetworkToProfile, rhs: Inputweave_App_V1_AddNetworkToProfile) -> Bool {
+    if lhs.profileID != rhs.profileID {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
+nonisolated extension Inputweave_App_V1_RemoveNetwork: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  static let protoMessageName: String = _protobuf_package + ".RemoveNetwork"
+  static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}network_id\0")
+
+  mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeSingularStringField(value: &self.networkID) }()
+      default: break
+      }
+    }
+  }
+
+  func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    if !self.networkID.isEmpty {
+      try visitor.visitSingularStringField(value: self.networkID, fieldNumber: 1)
+    }
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  static func ==(lhs: Inputweave_App_V1_RemoveNetwork, rhs: Inputweave_App_V1_RemoveNetwork) -> Bool {
+    if lhs.networkID != rhs.networkID {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
+nonisolated extension Inputweave_App_V1_RenameNetwork: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  static let protoMessageName: String = _protobuf_package + ".RenameNetwork"
+  static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}network_id\0\u{1}name\0")
+
+  mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeSingularStringField(value: &self.networkID) }()
+      case 2: try { try decoder.decodeSingularStringField(value: &self.name) }()
+      default: break
+      }
+    }
+  }
+
+  func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    if !self.networkID.isEmpty {
+      try visitor.visitSingularStringField(value: self.networkID, fieldNumber: 1)
+    }
+    if !self.name.isEmpty {
+      try visitor.visitSingularStringField(value: self.name, fieldNumber: 2)
+    }
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  static func ==(lhs: Inputweave_App_V1_RenameNetwork, rhs: Inputweave_App_V1_RenameNetwork) -> Bool {
+    if lhs.networkID != rhs.networkID {return false}
+    if lhs.name != rhs.name {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
+nonisolated extension Inputweave_App_V1_SetWifiNames: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  static let protoMessageName: String = _protobuf_package + ".SetWifiNames"
+  static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}on\0")
+
+  mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeSingularBoolField(value: &self.on) }()
+      default: break
+      }
+    }
+  }
+
+  func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    if self.on != false {
+      try visitor.visitSingularBoolField(value: self.on, fieldNumber: 1)
+    }
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  static func ==(lhs: Inputweave_App_V1_SetWifiNames, rhs: Inputweave_App_V1_SetWifiNames) -> Bool {
+    if lhs.on != rhs.on {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
+nonisolated extension Inputweave_App_V1_ReportWifiName: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  static let protoMessageName: String = _protobuf_package + ".ReportWifiName"
+  static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}network_id\0\u{1}ssid\0")
+
+  mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeSingularStringField(value: &self.networkID) }()
+      case 2: try { try decoder.decodeSingularStringField(value: &self.ssid) }()
+      default: break
+      }
+    }
+  }
+
+  func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    if !self.networkID.isEmpty {
+      try visitor.visitSingularStringField(value: self.networkID, fieldNumber: 1)
+    }
+    if !self.ssid.isEmpty {
+      try visitor.visitSingularStringField(value: self.ssid, fieldNumber: 2)
+    }
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  static func ==(lhs: Inputweave_App_V1_ReportWifiName, rhs: Inputweave_App_V1_ReportWifiName) -> Bool {
+    if lhs.networkID != rhs.networkID {return false}
+    if lhs.ssid != rhs.ssid {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
 nonisolated extension Inputweave_App_V1_SetLoginWindowAccess: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   static let protoMessageName: String = _protobuf_package + ".SetLoginWindowAccess"
   static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}on\0")
@@ -6494,7 +7433,7 @@ nonisolated extension Inputweave_App_V1_RemoveLicense: SwiftProtobuf.Message, Sw
 
 nonisolated extension Inputweave_App_V1_ClientMessage: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   static let protoMessageName: String = _protobuf_package + ".ClientMessage"
-  static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}request_id\0\u{1}hello\0\u{3}get_status\0\u{3}set_sharing\0\u{3}start_pairing\0\u{3}submit_pairing_code\0\u{3}cancel_pairing\0\u{1}unpair\0\u{3}get_nearby\0\u{3}get_pairing\0\u{3}get_arrangement\0\u{3}set_arrangement\0\u{3}set_device_name\0\u{3}set_device_options\0\u{3}set_clipboard_sync\0\u{3}send_files\0\u{3}cancel_transfer\0\u{3}answer_file_offer\0\u{3}get_transfers\0\u{3}set_file_settings\0\u{3}get_diagnostics\0\u{3}set_locked\0\u{3}jump_to\0\u{3}set_edge_options\0\u{3}set_preview_sharing\0\u{3}remove_transfer\0\u{3}clear_transfers\0\u{3}begin_drag\0\u{3}end_drag\0\u{3}accept_drag\0\u{3}decline_drag\0\u{3}set_hotkeys\0\u{3}set_switch_modifier\0\u{3}identify_screens\0\u{3}rename_device\0\u{3}set_device_sharing\0\u{3}set_login_window_access\0\u{3}clipboard_files_placed\0\u{3}paste_clipboard_files\0\u{3}clipboard_files_gone\0\u{3}clipboard_files_place\0\u{3}user_quit_app\0\u{3}set_relative_mouse\0\u{3}set_relative_auto\0\u{3}request_folder_access\0\u{3}request_permission\0\u{3}set_license_key\0\u{3}record_license_result\0\u{3}remove_license\0\u{3}set_device_speed\0\u{3}wake_device\0\u{3}set_wake_on_push\0\u{3}set_offline_for_now\0")
+  static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}request_id\0\u{1}hello\0\u{3}get_status\0\u{3}set_sharing\0\u{3}start_pairing\0\u{3}submit_pairing_code\0\u{3}cancel_pairing\0\u{1}unpair\0\u{3}get_nearby\0\u{3}get_pairing\0\u{3}get_arrangement\0\u{3}set_arrangement\0\u{3}set_device_name\0\u{3}set_device_options\0\u{3}set_clipboard_sync\0\u{3}send_files\0\u{3}cancel_transfer\0\u{3}answer_file_offer\0\u{3}get_transfers\0\u{3}set_file_settings\0\u{3}get_diagnostics\0\u{3}set_locked\0\u{3}jump_to\0\u{3}set_edge_options\0\u{3}set_preview_sharing\0\u{3}remove_transfer\0\u{3}clear_transfers\0\u{3}begin_drag\0\u{3}end_drag\0\u{3}accept_drag\0\u{3}decline_drag\0\u{3}set_hotkeys\0\u{3}set_switch_modifier\0\u{3}identify_screens\0\u{3}rename_device\0\u{3}set_device_sharing\0\u{3}set_login_window_access\0\u{3}clipboard_files_placed\0\u{3}paste_clipboard_files\0\u{3}clipboard_files_gone\0\u{3}clipboard_files_place\0\u{3}user_quit_app\0\u{3}set_relative_mouse\0\u{3}set_relative_auto\0\u{3}request_folder_access\0\u{3}request_permission\0\u{3}set_license_key\0\u{3}record_license_result\0\u{3}remove_license\0\u{3}set_device_speed\0\u{3}wake_device\0\u{3}set_wake_on_push\0\u{3}set_offline_for_now\0\u{4}\u{7}add_profile\0\u{3}edit_profile\0\u{3}remove_profile\0\u{3}select_profile\0\u{3}add_network_to_profile\0\u{3}remove_network\0\u{3}rename_network\0\u{3}set_wifi_names\0\u{3}report_wifi_name\0")
 
   mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -7179,6 +8118,123 @@ nonisolated extension Inputweave_App_V1_ClientMessage: SwiftProtobuf.Message, Sw
           self.command = .setOfflineForNow(v)
         }
       }()
+      case 60: try {
+        var v: Inputweave_App_V1_AddProfile?
+        var hadOneofValue = false
+        if let current = self.command {
+          hadOneofValue = true
+          if case .addProfile(let m) = current {v = m}
+        }
+        try decoder.decodeSingularMessageField(value: &v)
+        if let v = v {
+          if hadOneofValue {try decoder.handleConflictingOneOf()}
+          self.command = .addProfile(v)
+        }
+      }()
+      case 61: try {
+        var v: Inputweave_App_V1_EditProfile?
+        var hadOneofValue = false
+        if let current = self.command {
+          hadOneofValue = true
+          if case .editProfile(let m) = current {v = m}
+        }
+        try decoder.decodeSingularMessageField(value: &v)
+        if let v = v {
+          if hadOneofValue {try decoder.handleConflictingOneOf()}
+          self.command = .editProfile(v)
+        }
+      }()
+      case 62: try {
+        var v: Inputweave_App_V1_RemoveProfile?
+        var hadOneofValue = false
+        if let current = self.command {
+          hadOneofValue = true
+          if case .removeProfile(let m) = current {v = m}
+        }
+        try decoder.decodeSingularMessageField(value: &v)
+        if let v = v {
+          if hadOneofValue {try decoder.handleConflictingOneOf()}
+          self.command = .removeProfile(v)
+        }
+      }()
+      case 63: try {
+        var v: Inputweave_App_V1_SelectProfile?
+        var hadOneofValue = false
+        if let current = self.command {
+          hadOneofValue = true
+          if case .selectProfile(let m) = current {v = m}
+        }
+        try decoder.decodeSingularMessageField(value: &v)
+        if let v = v {
+          if hadOneofValue {try decoder.handleConflictingOneOf()}
+          self.command = .selectProfile(v)
+        }
+      }()
+      case 64: try {
+        var v: Inputweave_App_V1_AddNetworkToProfile?
+        var hadOneofValue = false
+        if let current = self.command {
+          hadOneofValue = true
+          if case .addNetworkToProfile(let m) = current {v = m}
+        }
+        try decoder.decodeSingularMessageField(value: &v)
+        if let v = v {
+          if hadOneofValue {try decoder.handleConflictingOneOf()}
+          self.command = .addNetworkToProfile(v)
+        }
+      }()
+      case 65: try {
+        var v: Inputweave_App_V1_RemoveNetwork?
+        var hadOneofValue = false
+        if let current = self.command {
+          hadOneofValue = true
+          if case .removeNetwork(let m) = current {v = m}
+        }
+        try decoder.decodeSingularMessageField(value: &v)
+        if let v = v {
+          if hadOneofValue {try decoder.handleConflictingOneOf()}
+          self.command = .removeNetwork(v)
+        }
+      }()
+      case 66: try {
+        var v: Inputweave_App_V1_RenameNetwork?
+        var hadOneofValue = false
+        if let current = self.command {
+          hadOneofValue = true
+          if case .renameNetwork(let m) = current {v = m}
+        }
+        try decoder.decodeSingularMessageField(value: &v)
+        if let v = v {
+          if hadOneofValue {try decoder.handleConflictingOneOf()}
+          self.command = .renameNetwork(v)
+        }
+      }()
+      case 67: try {
+        var v: Inputweave_App_V1_SetWifiNames?
+        var hadOneofValue = false
+        if let current = self.command {
+          hadOneofValue = true
+          if case .setWifiNames(let m) = current {v = m}
+        }
+        try decoder.decodeSingularMessageField(value: &v)
+        if let v = v {
+          if hadOneofValue {try decoder.handleConflictingOneOf()}
+          self.command = .setWifiNames(v)
+        }
+      }()
+      case 68: try {
+        var v: Inputweave_App_V1_ReportWifiName?
+        var hadOneofValue = false
+        if let current = self.command {
+          hadOneofValue = true
+          if case .reportWifiName(let m) = current {v = m}
+        }
+        try decoder.decodeSingularMessageField(value: &v)
+        if let v = v {
+          if hadOneofValue {try decoder.handleConflictingOneOf()}
+          self.command = .reportWifiName(v)
+        }
+      }()
       default: break
       }
     }
@@ -7401,6 +8457,42 @@ nonisolated extension Inputweave_App_V1_ClientMessage: SwiftProtobuf.Message, Sw
       guard case .setOfflineForNow(let v)? = self.command else { preconditionFailure() }
       try visitor.visitSingularMessageField(value: v, fieldNumber: 53)
     }()
+    case .addProfile?: try {
+      guard case .addProfile(let v)? = self.command else { preconditionFailure() }
+      try visitor.visitSingularMessageField(value: v, fieldNumber: 60)
+    }()
+    case .editProfile?: try {
+      guard case .editProfile(let v)? = self.command else { preconditionFailure() }
+      try visitor.visitSingularMessageField(value: v, fieldNumber: 61)
+    }()
+    case .removeProfile?: try {
+      guard case .removeProfile(let v)? = self.command else { preconditionFailure() }
+      try visitor.visitSingularMessageField(value: v, fieldNumber: 62)
+    }()
+    case .selectProfile?: try {
+      guard case .selectProfile(let v)? = self.command else { preconditionFailure() }
+      try visitor.visitSingularMessageField(value: v, fieldNumber: 63)
+    }()
+    case .addNetworkToProfile?: try {
+      guard case .addNetworkToProfile(let v)? = self.command else { preconditionFailure() }
+      try visitor.visitSingularMessageField(value: v, fieldNumber: 64)
+    }()
+    case .removeNetwork?: try {
+      guard case .removeNetwork(let v)? = self.command else { preconditionFailure() }
+      try visitor.visitSingularMessageField(value: v, fieldNumber: 65)
+    }()
+    case .renameNetwork?: try {
+      guard case .renameNetwork(let v)? = self.command else { preconditionFailure() }
+      try visitor.visitSingularMessageField(value: v, fieldNumber: 66)
+    }()
+    case .setWifiNames?: try {
+      guard case .setWifiNames(let v)? = self.command else { preconditionFailure() }
+      try visitor.visitSingularMessageField(value: v, fieldNumber: 67)
+    }()
+    case .reportWifiName?: try {
+      guard case .reportWifiName(let v)? = self.command else { preconditionFailure() }
+      try visitor.visitSingularMessageField(value: v, fieldNumber: 68)
+    }()
     case nil: break
     }
     try unknownFields.traverse(visitor: &visitor)
@@ -7466,7 +8558,7 @@ nonisolated extension Inputweave_App_V1_PermissionStatus: SwiftProtobuf.Message,
 
 nonisolated extension Inputweave_App_V1_DeviceStatus: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   static let protoMessageName: String = _protobuf_package + ".DeviceStatus"
-  static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}id\0\u{1}name\0\u{1}state\0\u{1}paired\0\u{1}os\0\u{3}swap_gui_and_control\0\u{3}rtt_ms\0\u{3}jump_slot\0\u{3}reported_name\0\u{3}clipboard_off\0\u{3}files_off\0\u{3}screen_locked\0\u{3}lock_screen_input\0\u{3}pointer_captured\0\u{3}input_unavailable\0\u{3}sharing_paused\0\u{3}speed_percent\0\u{3}can_wake\0\u{1}wake\0\u{3}offline_since_unix_ms\0\u{3}offline_for_now\0\u{3}offline_by_device_id\0\u{3}offline_by_name\0\u{3}offline_unaware\0")
+  static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}id\0\u{1}name\0\u{1}state\0\u{1}paired\0\u{1}os\0\u{3}swap_gui_and_control\0\u{3}rtt_ms\0\u{3}jump_slot\0\u{3}reported_name\0\u{3}clipboard_off\0\u{3}files_off\0\u{3}screen_locked\0\u{3}lock_screen_input\0\u{3}pointer_captured\0\u{3}input_unavailable\0\u{3}sharing_paused\0\u{3}speed_percent\0\u{3}can_wake\0\u{1}wake\0\u{3}offline_since_unix_ms\0\u{3}offline_for_now\0\u{3}offline_by_device_id\0\u{3}offline_by_name\0\u{3}offline_unaware\0\u{4}\u{6}not_in_profile\0")
 
   fileprivate class _StorageClass {
     var _id: String = String()
@@ -7493,6 +8585,7 @@ nonisolated extension Inputweave_App_V1_DeviceStatus: SwiftProtobuf.Message, Swi
     var _offlineByDeviceID: String = String()
     var _offlineByName: String = String()
     var _offlineUnaware: Bool = false
+    var _notInProfile: Bool = false
 
       // This property is used as the initial default value for new instances of the type.
       // The type itself is protecting the reference to its storage via CoW semantics.
@@ -7527,6 +8620,7 @@ nonisolated extension Inputweave_App_V1_DeviceStatus: SwiftProtobuf.Message, Swi
       _offlineByDeviceID = source._offlineByDeviceID
       _offlineByName = source._offlineByName
       _offlineUnaware = source._offlineUnaware
+      _notInProfile = source._notInProfile
     }
   }
 
@@ -7569,6 +8663,7 @@ nonisolated extension Inputweave_App_V1_DeviceStatus: SwiftProtobuf.Message, Swi
         case 22: try { try decoder.decodeSingularStringField(value: &_storage._offlineByDeviceID) }()
         case 23: try { try decoder.decodeSingularStringField(value: &_storage._offlineByName) }()
         case 24: try { try decoder.decodeSingularBoolField(value: &_storage._offlineUnaware) }()
+        case 30: try { try decoder.decodeSingularBoolField(value: &_storage._notInProfile) }()
         default: break
         }
       }
@@ -7649,6 +8744,9 @@ nonisolated extension Inputweave_App_V1_DeviceStatus: SwiftProtobuf.Message, Swi
       if _storage._offlineUnaware != false {
         try visitor.visitSingularBoolField(value: _storage._offlineUnaware, fieldNumber: 24)
       }
+      if _storage._notInProfile != false {
+        try visitor.visitSingularBoolField(value: _storage._notInProfile, fieldNumber: 30)
+      }
     }
     try unknownFields.traverse(visitor: &visitor)
   }
@@ -7682,6 +8780,7 @@ nonisolated extension Inputweave_App_V1_DeviceStatus: SwiftProtobuf.Message, Swi
         if _storage._offlineByDeviceID != rhs_storage._offlineByDeviceID {return false}
         if _storage._offlineByName != rhs_storage._offlineByName {return false}
         if _storage._offlineUnaware != rhs_storage._offlineUnaware {return false}
+        if _storage._notInProfile != rhs_storage._notInProfile {return false}
         return true
       }
       if !storagesAreEqual {return false}
@@ -7693,7 +8792,7 @@ nonisolated extension Inputweave_App_V1_DeviceStatus: SwiftProtobuf.Message, Swi
 
 nonisolated extension Inputweave_App_V1_Status: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   static let protoMessageName: String = _protobuf_package + ".Status"
-  static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}sharing\0\u{3}this_device_id\0\u{3}active_device_id\0\u{1}devices\0\u{3}controlled_by_device_id\0\u{3}this_device_name\0\u{1}capturing\0\u{1}permissions\0\u{3}secure_input\0\u{3}control_returns\0\u{3}last_return\0\u{3}last_return_device_id\0\u{3}clipboard_sync\0\u{3}last_clipboard\0\u{1}locked\0\u{3}edge_dwell_ms\0\u{3}default_dwell_ms\0\u{3}preview_sharing\0\u{3}desktop_pictures_available\0\u{1}dragging\0\u{1}hotkeys\0\u{3}switch_modifier\0\u{3}screen_locked\0\u{3}lock_screen_input\0\u{3}login_window_access\0\u{3}drags_carried\0\u{3}relative_mouse\0\u{3}relative_mouse_automatic\0\u{3}relative_auto\0\u{3}pointer_captured\0\u{3}relative_ends\0\u{3}last_relative_end\0\u{3}relative_supported\0\u{3}folder_access\0\u{3}folder_access_asked\0\u{3}folder_access_round\0\u{1}session\0\u{3}cursor_leaves_at_edges_only\0\u{1}firewall\0\u{1}license\0\u{3}wake_supported\0\u{3}wake_on_push\0\u{3}offline_for_now\0\u{3}offline_by_device_id\0\u{3}offline_by_name\0\u{3}offline_changes\0\u{3}last_offline_change\0\u{3}offline_supported\0")
+  static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}sharing\0\u{3}this_device_id\0\u{3}active_device_id\0\u{1}devices\0\u{3}controlled_by_device_id\0\u{3}this_device_name\0\u{1}capturing\0\u{1}permissions\0\u{3}secure_input\0\u{3}control_returns\0\u{3}last_return\0\u{3}last_return_device_id\0\u{3}clipboard_sync\0\u{3}last_clipboard\0\u{1}locked\0\u{3}edge_dwell_ms\0\u{3}default_dwell_ms\0\u{3}preview_sharing\0\u{3}desktop_pictures_available\0\u{1}dragging\0\u{1}hotkeys\0\u{3}switch_modifier\0\u{3}screen_locked\0\u{3}lock_screen_input\0\u{3}login_window_access\0\u{3}drags_carried\0\u{3}relative_mouse\0\u{3}relative_mouse_automatic\0\u{3}relative_auto\0\u{3}pointer_captured\0\u{3}relative_ends\0\u{3}last_relative_end\0\u{3}relative_supported\0\u{3}folder_access\0\u{3}folder_access_asked\0\u{3}folder_access_round\0\u{1}session\0\u{3}cursor_leaves_at_edges_only\0\u{1}firewall\0\u{1}license\0\u{3}wake_supported\0\u{3}wake_on_push\0\u{3}offline_for_now\0\u{3}offline_by_device_id\0\u{3}offline_by_name\0\u{3}offline_changes\0\u{3}last_offline_change\0\u{3}offline_supported\0\u{2}\u{7}network\0\u{1}profiles\0\u{3}profile_id\0\u{3}profile_chosen\0\u{3}profile_switches\0\u{3}profiles_supported\0\u{3}wifi_names\0\u{3}wifi_name_held\0")
 
   fileprivate class _StorageClass {
     var _sharing: Bool = false
@@ -7744,6 +8843,14 @@ nonisolated extension Inputweave_App_V1_Status: SwiftProtobuf.Message, SwiftProt
     var _offlineChanges: UInt64 = 0
     var _lastOfflineChange: Inputweave_App_V1_OfflineChange? = nil
     var _offlineSupported: Bool = false
+    var _network: Inputweave_App_V1_Network? = nil
+    var _profiles: [Inputweave_App_V1_Profile] = []
+    var _profileID: String = String()
+    var _profileChosen: Bool = false
+    var _profileSwitches: UInt64 = 0
+    var _profilesSupported: Bool = false
+    var _wifiNames: Bool = false
+    var _wifiNameHeld: Inputweave_App_V1_WifiNameHeld? = nil
 
       // This property is used as the initial default value for new instances of the type.
       // The type itself is protecting the reference to its storage via CoW semantics.
@@ -7802,6 +8909,14 @@ nonisolated extension Inputweave_App_V1_Status: SwiftProtobuf.Message, SwiftProt
       _offlineChanges = source._offlineChanges
       _lastOfflineChange = source._lastOfflineChange
       _offlineSupported = source._offlineSupported
+      _network = source._network
+      _profiles = source._profiles
+      _profileID = source._profileID
+      _profileChosen = source._profileChosen
+      _profileSwitches = source._profileSwitches
+      _profilesSupported = source._profilesSupported
+      _wifiNames = source._wifiNames
+      _wifiNameHeld = source._wifiNameHeld
     }
   }
 
@@ -7868,6 +8983,14 @@ nonisolated extension Inputweave_App_V1_Status: SwiftProtobuf.Message, SwiftProt
         case 46: try { try decoder.decodeSingularUInt64Field(value: &_storage._offlineChanges) }()
         case 47: try { try decoder.decodeSingularMessageField(value: &_storage._lastOfflineChange) }()
         case 48: try { try decoder.decodeSingularBoolField(value: &_storage._offlineSupported) }()
+        case 55: try { try decoder.decodeSingularMessageField(value: &_storage._network) }()
+        case 56: try { try decoder.decodeRepeatedMessageField(value: &_storage._profiles) }()
+        case 57: try { try decoder.decodeSingularStringField(value: &_storage._profileID) }()
+        case 58: try { try decoder.decodeSingularBoolField(value: &_storage._profileChosen) }()
+        case 59: try { try decoder.decodeSingularUInt64Field(value: &_storage._profileSwitches) }()
+        case 60: try { try decoder.decodeSingularBoolField(value: &_storage._profilesSupported) }()
+        case 61: try { try decoder.decodeSingularBoolField(value: &_storage._wifiNames) }()
+        case 62: try { try decoder.decodeSingularMessageField(value: &_storage._wifiNameHeld) }()
         default: break
         }
       }
@@ -8024,6 +9147,30 @@ nonisolated extension Inputweave_App_V1_Status: SwiftProtobuf.Message, SwiftProt
       if _storage._offlineSupported != false {
         try visitor.visitSingularBoolField(value: _storage._offlineSupported, fieldNumber: 48)
       }
+      try { if let v = _storage._network {
+        try visitor.visitSingularMessageField(value: v, fieldNumber: 55)
+      } }()
+      if !_storage._profiles.isEmpty {
+        try visitor.visitRepeatedMessageField(value: _storage._profiles, fieldNumber: 56)
+      }
+      if !_storage._profileID.isEmpty {
+        try visitor.visitSingularStringField(value: _storage._profileID, fieldNumber: 57)
+      }
+      if _storage._profileChosen != false {
+        try visitor.visitSingularBoolField(value: _storage._profileChosen, fieldNumber: 58)
+      }
+      if _storage._profileSwitches != 0 {
+        try visitor.visitSingularUInt64Field(value: _storage._profileSwitches, fieldNumber: 59)
+      }
+      if _storage._profilesSupported != false {
+        try visitor.visitSingularBoolField(value: _storage._profilesSupported, fieldNumber: 60)
+      }
+      if _storage._wifiNames != false {
+        try visitor.visitSingularBoolField(value: _storage._wifiNames, fieldNumber: 61)
+      }
+      try { if let v = _storage._wifiNameHeld {
+        try visitor.visitSingularMessageField(value: v, fieldNumber: 62)
+      } }()
     }
     try unknownFields.traverse(visitor: &visitor)
   }
@@ -8081,10 +9228,173 @@ nonisolated extension Inputweave_App_V1_Status: SwiftProtobuf.Message, SwiftProt
         if _storage._offlineChanges != rhs_storage._offlineChanges {return false}
         if _storage._lastOfflineChange != rhs_storage._lastOfflineChange {return false}
         if _storage._offlineSupported != rhs_storage._offlineSupported {return false}
+        if _storage._network != rhs_storage._network {return false}
+        if _storage._profiles != rhs_storage._profiles {return false}
+        if _storage._profileID != rhs_storage._profileID {return false}
+        if _storage._profileChosen != rhs_storage._profileChosen {return false}
+        if _storage._profileSwitches != rhs_storage._profileSwitches {return false}
+        if _storage._profilesSupported != rhs_storage._profilesSupported {return false}
+        if _storage._wifiNames != rhs_storage._wifiNames {return false}
+        if _storage._wifiNameHeld != rhs_storage._wifiNameHeld {return false}
         return true
       }
       if !storagesAreEqual {return false}
     }
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
+nonisolated extension Inputweave_App_V1_WifiNameHeld: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  static let protoMessageName: String = _protobuf_package + ".WifiNameHeld"
+  static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}network_id\0\u{1}ssid\0\u{3}in_use\0")
+
+  mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeSingularStringField(value: &self.networkID) }()
+      case 2: try { try decoder.decodeSingularStringField(value: &self.ssid) }()
+      case 3: try { try decoder.decodeSingularBoolField(value: &self.inUse) }()
+      default: break
+      }
+    }
+  }
+
+  func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    if !self.networkID.isEmpty {
+      try visitor.visitSingularStringField(value: self.networkID, fieldNumber: 1)
+    }
+    if !self.ssid.isEmpty {
+      try visitor.visitSingularStringField(value: self.ssid, fieldNumber: 2)
+    }
+    if self.inUse != false {
+      try visitor.visitSingularBoolField(value: self.inUse, fieldNumber: 3)
+    }
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  static func ==(lhs: Inputweave_App_V1_WifiNameHeld, rhs: Inputweave_App_V1_WifiNameHeld) -> Bool {
+    if lhs.networkID != rhs.networkID {return false}
+    if lhs.ssid != rhs.ssid {return false}
+    if lhs.inUse != rhs.inUse {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
+nonisolated extension Inputweave_App_V1_Network: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  static let protoMessageName: String = _protobuf_package + ".Network"
+  static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}id\0\u{1}name\0\u{1}kind\0\u{1}router\0\u{1}resolved\0")
+
+  mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeSingularStringField(value: &self.id) }()
+      case 2: try { try decoder.decodeSingularStringField(value: &self.name) }()
+      case 3: try { try decoder.decodeSingularEnumField(value: &self.kind) }()
+      case 4: try { try decoder.decodeSingularStringField(value: &self.router) }()
+      case 5: try { try decoder.decodeSingularBoolField(value: &self.resolved) }()
+      default: break
+      }
+    }
+  }
+
+  func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    if !self.id.isEmpty {
+      try visitor.visitSingularStringField(value: self.id, fieldNumber: 1)
+    }
+    if !self.name.isEmpty {
+      try visitor.visitSingularStringField(value: self.name, fieldNumber: 2)
+    }
+    if self.kind != .unspecified {
+      try visitor.visitSingularEnumField(value: self.kind, fieldNumber: 3)
+    }
+    if !self.router.isEmpty {
+      try visitor.visitSingularStringField(value: self.router, fieldNumber: 4)
+    }
+    if self.resolved != false {
+      try visitor.visitSingularBoolField(value: self.resolved, fieldNumber: 5)
+    }
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  static func ==(lhs: Inputweave_App_V1_Network, rhs: Inputweave_App_V1_Network) -> Bool {
+    if lhs.id != rhs.id {return false}
+    if lhs.name != rhs.name {return false}
+    if lhs.kind != rhs.kind {return false}
+    if lhs.router != rhs.router {return false}
+    if lhs.resolved != rhs.resolved {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
+nonisolated extension Inputweave_App_V1_Profile: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  static let protoMessageName: String = _protobuf_package + ".Profile"
+  static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}id\0\u{1}kind\0\u{1}name\0\u{1}paused\0\u{3}off_device_ids\0\u{1}clipboard\0\u{1}files\0\u{1}networks\0")
+
+  mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeSingularStringField(value: &self.id) }()
+      case 2: try { try decoder.decodeSingularEnumField(value: &self.kind) }()
+      case 3: try { try decoder.decodeSingularStringField(value: &self.name) }()
+      case 4: try { try decoder.decodeSingularBoolField(value: &self.paused) }()
+      case 5: try { try decoder.decodeRepeatedStringField(value: &self.offDeviceIds) }()
+      case 6: try { try decoder.decodeSingularBoolField(value: &self.clipboard) }()
+      case 7: try { try decoder.decodeSingularBoolField(value: &self.files) }()
+      case 8: try { try decoder.decodeRepeatedMessageField(value: &self.networks) }()
+      default: break
+      }
+    }
+  }
+
+  func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    if !self.id.isEmpty {
+      try visitor.visitSingularStringField(value: self.id, fieldNumber: 1)
+    }
+    if self.kind != .custom {
+      try visitor.visitSingularEnumField(value: self.kind, fieldNumber: 2)
+    }
+    if !self.name.isEmpty {
+      try visitor.visitSingularStringField(value: self.name, fieldNumber: 3)
+    }
+    if self.paused != false {
+      try visitor.visitSingularBoolField(value: self.paused, fieldNumber: 4)
+    }
+    if !self.offDeviceIds.isEmpty {
+      try visitor.visitRepeatedStringField(value: self.offDeviceIds, fieldNumber: 5)
+    }
+    if self.clipboard != false {
+      try visitor.visitSingularBoolField(value: self.clipboard, fieldNumber: 6)
+    }
+    if self.files != false {
+      try visitor.visitSingularBoolField(value: self.files, fieldNumber: 7)
+    }
+    if !self.networks.isEmpty {
+      try visitor.visitRepeatedMessageField(value: self.networks, fieldNumber: 8)
+    }
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  static func ==(lhs: Inputweave_App_V1_Profile, rhs: Inputweave_App_V1_Profile) -> Bool {
+    if lhs.id != rhs.id {return false}
+    if lhs.kind != rhs.kind {return false}
+    if lhs.name != rhs.name {return false}
+    if lhs.paused != rhs.paused {return false}
+    if lhs.offDeviceIds != rhs.offDeviceIds {return false}
+    if lhs.clipboard != rhs.clipboard {return false}
+    if lhs.files != rhs.files {return false}
+    if lhs.networks != rhs.networks {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }

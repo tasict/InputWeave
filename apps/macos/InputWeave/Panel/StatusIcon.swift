@@ -12,7 +12,8 @@ enum StatusIcon {
         case controlling
         /// Controlled from elsewhere: the whole icon knocked out of a tile.
         case controlled
-        /// Sharing paused: the stitches are gone.
+        /// Sharing paused, or the profile in use pauses it: the stitches
+        /// are gone.
         case paused
         /// This computer is offline for now: drawn as paused, as it neither
         /// controls nor is controlled then either; only the words differ.
@@ -114,6 +115,10 @@ extension StatusIcon.State {
         let status = model.status
         if !model.missingPermissions.isEmpty {
             self = .attention
+        } else if model.profilePaused {
+            // Neither controlling nor controlled, as when paused; the panel's
+            // title names the profile.
+            self = .paused
         } else if model.offlineHere {
             self = .offlineForNow
         } else if !status.sharing {

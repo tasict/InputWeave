@@ -158,6 +158,13 @@ enum CtlCommand {
         device: String,
         state: OnOff,
     },
+    /// Show the profiles and the network this device is on, or change
+    /// them: which devices this device connects, and how, by the network it
+    /// is on, as the app's Profiles page does.
+    Profile {
+        #[command(subcommand)]
+        action: Option<ProfileAction>,
+    },
     /// Move the cursor to the middle of a device's main display.
     Jump {
         /// A device id as `ctl status` lists it, or this device's.
@@ -245,6 +252,54 @@ enum CtlCommand {
 }
 
 #[derive(Subcommand)]
+enum ProfileAction {
+    /// Use a profile whatever the network, until `auto`.
+    Use {
+        /// A profile id as `ctl profile` lists it, or `auto`: by the
+        /// network.
+        profile: String,
+    },
+    /// Add a profile; a name in use gets a number after it.
+    Add { name: String },
+    /// Remove a profile of your own, and its networks.
+    Remove { profile: String },
+    /// Rename a profile of your own.
+    Rename { profile: String, name: String },
+    /// Change what a profile does.
+    Set {
+        profile: String,
+        /// Off: this device is not on the network and connects to no
+        /// device while the profile is in use. Pairings are kept.
+        #[arg(long)]
+        sharing: Option<OnOff>,
+        #[arg(long)]
+        clipboard: Option<OnOff>,
+        #[arg(long)]
+        files: Option<OnOff>,
+        /// Connect this device to these devices in the profile.
+        #[arg(long, value_name = "DEVICE")]
+        connect: Vec<String>,
+        /// Do not connect to these devices in the profile: to each other,
+        /// both are offline.
+        #[arg(long, value_name = "DEVICE")]
+        leave_out: Vec<String>,
+    },
+    /// Add the network this device is on now to a profile, taking it from
+    /// any other.
+    AddNetwork { profile: String },
+    /// Take a network out of the profile that lists it.
+    RemoveNetwork {
+        /// A network id as `ctl profile` lists it.
+        network: String,
+    },
+    /// Give a network a name, or with an empty one take it away.
+    RenameNetwork { network: String, name: String },
+    /// Also recognize networks by the Wi-Fi name the app reads (macOS,
+    /// Windows), or only by their router.
+    WifiNames { state: OnOff },
+}
+
+#[derive(Subcommand)]
 enum LicenseAction {
     /// Enter a license key, read from standard input so it stays out of the
     /// shell's history and the list of processes: paste it at the prompt,
@@ -294,6 +349,75 @@ enum HotkeysAction {
 enum OnOff {
     On,
     Off,
+}
+
+/// The IPC command a `ctl profile` change is.
+#[cfg(any(unix, windows))]
+fn profile_command(action: ProfileAction) -> iw_proto::app::v1::client_message::Command {
+    use iw_proto::app::v1::client_message::Command;
+    use iw_proto::app::v1::{
+        AddNetworkToProfile, AddProfile, DeviceInProfile, EditProfile, RemoveNetwork,
+        RemoveProfile, RenameNetwork, SelectProfile, SetWifiNames,
+    };
+    let on = |state: Option<OnOff>| state.map(|s| matches!(s, OnOff::On));
+    match action {
+        ProfileAction::Use { profile } => Command::SelectProfile(SelectProfile {
+            profile_id: if profile == "auto" {
+                String::new()
+            } else {
+                profile
+            },
+        }),
+        ProfileAction::Add { name } => Command::AddProfile(AddProfile { name }),
+        ProfileAction::Remove { profile } => Command::RemoveProfile(RemoveProfile {
+            profile_id: profile,
+        }),
+        ProfileAction::Rename { profile, name } => Command::EditProfile(EditProfile {
+            profile_id: profile,
+            name: Some(name),
+            ..EditProfile::default()
+        }),
+        ProfileAction::Set {
+            profile,
+            sharing,
+            clipboard,
+            files,
+            connect,
+            leave_out,
+        } => Command::EditProfile(EditProfile {
+            profile_id: profile,
+            name: None,
+            paused: on(sharing).map(|sharing| !sharing),
+            clipboard: on(clipboard),
+            files: on(files),
+            devices: connect
+                .into_iter()
+                .map(|device_id| DeviceInProfile {
+                    device_id,
+                    connect: true,
+                })
+                .chain(leave_out.into_iter().map(|device_id| DeviceInProfile {
+                    device_id,
+                    connect: false,
+                }))
+                .collect(),
+        }),
+        ProfileAction::AddNetwork { profile } => {
+            Command::AddNetworkToProfile(AddNetworkToProfile {
+                profile_id: profile,
+            })
+        }
+        ProfileAction::RemoveNetwork { network } => Command::RemoveNetwork(RemoveNetwork {
+            network_id: network,
+        }),
+        ProfileAction::RenameNetwork { network, name } => Command::RenameNetwork(RenameNetwork {
+            network_id: network,
+            name,
+        }),
+        ProfileAction::WifiNames { state } => Command::SetWifiNames(SetWifiNames {
+            on: matches!(state, OnOff::On),
+        }),
+    }
 }
 
 #[derive(Clone, Copy, clap::ValueEnum)]
@@ -491,7 +615,7 @@ fn run_login_window() -> Result<(), String> {
     let options = Options {
         log_files: vec![PathBuf::from(login_window::LOG_FILE)],
         agent_digest: agent::executable_digest().unwrap_or_default(),
-        ..login_window::options(state.devices, state.offline)
+        ..login_window::options(state.devices, state.offline, state.profiles)
     };
     runtime()?.block_on(async move {
         let agent =
@@ -590,6 +714,7 @@ fn run_agent(config: Option<PathBuf>) -> Result<(), String> {
         devices_file: Some(devices),
         devices: None,
         offline: None,
+        profiles: None,
         previews_unchanged: false,
         // The login window's agent reads only the default folder.
         login_window: inputweave::login_window::support(
@@ -649,6 +774,8 @@ fn run_agent(config: Option<PathBuf>) -> Result<(), String> {
         wake_info: None,
         #[cfg(feature = "test-hooks")]
         wake_target: None,
+        #[cfg(feature = "test-hooks")]
+        fake_discovery: false,
     };
 
     // AppKit asks for clipboard content promised to other apps through the
@@ -1096,6 +1223,15 @@ fn ctl(socket: Option<PathBuf>, command: CtlCommand) -> Result<(), String> {
                     .await
                     .map_err(fail)?;
                 print!("{}", ctl::format_status(&status));
+            }
+            CtlCommand::Profile { action } => {
+                let mut client = ctl::Client::connect(&socket).await.map_err(fail)?;
+                let status = match action {
+                    None => client.status().await,
+                    Some(action) => client.change_profiles(profile_command(action)).await,
+                }
+                .map_err(fail)?;
+                print!("{}", ctl::format_profiles(&status));
             }
             CtlCommand::Jump { device } => {
                 let mut client = ctl::Client::connect(&socket).await.map_err(fail)?;

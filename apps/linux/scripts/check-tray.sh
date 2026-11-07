@@ -1,8 +1,8 @@
 #!/bin/sh
 # Checks the tray icon over D-Bus against the agent with its mock
 # backends: the StatusNotifierItem's icon, pixmaps and tooltip, the
-# dbusmenu layout, and that clicking Pause Sharing pauses sharing in the
-# agent and changes the menu and the icon. Runs in the amd64 Linux
+# dbusmenu layout (with the Profile submenu), and that clicking Pause
+# Sharing pauses sharing in the agent and changes the menu and the icon. Runs in the amd64 Linux
 # container, on Xvfb and a private session bus:
 #
 #   scripts/linux-container.sh run 'sh apps/linux/scripts/check-tray.sh <agent> <app>'
@@ -74,9 +74,13 @@ dbus-run-session -- sh -c '
     check "status line in the menu" "$(layout)" "Sharing keyboard and mouse"
     check "Pause Sharing in the menu" "$(layout)" "Pause Sharing"
     check "Quit in the menu" "$(layout)" "Quit InputWeave"
+    check "the Profile submenu" "$(layout)" "Automatic.*Manage Profiles"
+    check "its check marks" "$(layout)" "toggle-type.: <.checkmark"
     check "icons written" "$(ls "$XDG_RUNTIME_DIR/inputweave/app/icons/hicolor/scalable/status")" "tray-paused-symbolic.svg"
+    # Pause Sharing: after the status line, Send Files… and the Profile
+    # submenu, each with a separator after it.
     gdbus call --session --dest $name --object-path /MenuBar \
-        --method com.canonical.dbusmenu.Event 5 clicked "<0>" 0 > /dev/null
+        --method com.canonical.dbusmenu.Event 7 clicked "<0>" 0 > /dev/null
     sleep 2
     check "the agent paused sharing" "$("$AGENT_BIN" ctl --socket "$DIR/agent.sock" status)" "sharing: *paused"
     check "the menu offers Resume Sharing" "$(layout)" "Resume Sharing"

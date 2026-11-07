@@ -214,7 +214,7 @@ impl Snapshot {
         self.status
             .devices
             .iter()
-            .filter(|d| crate::send_choice::unavailable(d).is_none())
+            .filter(|d| crate::send_choice::unavailable(self, d).is_none())
             .collect()
     }
 

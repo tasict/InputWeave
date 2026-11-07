@@ -291,6 +291,16 @@
         }
       }
     },
+    "%@: sharing paused": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@：已暫停共享"
+          }
+        }
+      }
+    },
     "%lld days ago": {
       "localizations": {
         "en": {
@@ -555,6 +565,16 @@
         }
       }
     },
+    "Add Current Network": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "把目前的網路加到這個情境"
+          }
+        }
+      }
+    },
     "Add Device": {
       "localizations": {
         "zh-Hant": {
@@ -581,6 +601,36 @@
           "stringUnit": {
             "state": "translated",
             "value": "用 IP 位址新增"
+          }
+        }
+      }
+    },
+    "Add Profile": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新增情境"
+          }
+        }
+      }
+    },
+    "Add This Network To…": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "把這個網路加到…"
+          }
+        }
+      }
+    },
+    "Add to Profile": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "加到情境"
           }
         }
       }
@@ -635,6 +685,16 @@
         }
       }
     },
+    "Also recognize networks by Wi-Fi name": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "也以 Wi-Fi 名稱辨認網路"
+          }
+        }
+      }
+    },
     "Always": {
       "localizations": {
         "zh-Hant": {
@@ -675,6 +735,16 @@
         }
       }
     },
+    "Another profile already has this name.": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已經有同名的情境。"
+          }
+        }
+      }
+    },
     "Applies from the next time the login window shows, such as after you log out, as long as you were the last to log in. With FileVault on, a Mac that restarts asks for its password before macOS starts, so it doesn't apply then.": {
       "localizations": {
         "zh-Hant": {
@@ -701,6 +771,36 @@
           "stringUnit": {
             "state": "translated",
             "value": "每次詢問"
+          }
+        }
+      }
+    },
+    "Automatic": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "自動"
+          }
+        }
+      }
+    },
+    "Automatic (now: %@)": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "自動（目前：%@）"
+          }
+        }
+      }
+    },
+    "Automatic picks the profile from the network you’re on. A profile you choose stays until you choose Automatic again.": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "自動時，依所在的網路選情境。手動選的情境不會因為換網路而改變。"
           }
         }
       }
@@ -935,6 +1035,16 @@
         }
       }
     },
+    "Clipboard sync": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "剪貼簿同步"
+          }
+        }
+      }
+    },
     "Clipboard: sent to %@ %@ (%@)": {
       "localizations": {
         "zh-Hant": {
@@ -961,6 +1071,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "電腦依排列由左到右編號，編號顯示在電腦名稱旁邊。錄製時按 Esc 取消，按 Delete 回到預設值。"
+          }
+        }
+      }
+    },
+    "Computers to connect": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "要連的電腦"
           }
         }
       }
@@ -1055,6 +1175,16 @@
         }
       }
     },
+    "Current network: %@": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "目前的網路：%@"
+          }
+        }
+      }
+    },
     "Cursor on %@": {
       "localizations": {
         "zh-Hant": {
@@ -1091,6 +1221,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "已拒絕"
+          }
+        }
+      }
+    },
+    "Default": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "預設"
           }
         }
       }
@@ -1465,12 +1605,42 @@
         }
       }
     },
+    "If clipboard sync is off on the General page, no profile syncs the clipboard.": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "一般頁關掉剪貼簿同步時，所有情境都不同步。"
+          }
+        }
+      }
+    },
+    "In this profile this computer doesn’t show up on the network or connect to any computer. Pairings are kept.": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "這個情境下，這台不會出現在網路上，也不連線任何電腦；配對都會保留。"
+          }
+        }
+      }
+    },
     "InputWeave keeps its settings in another folder here, set in its configuration file, and the login window only reads the usual one.": {
       "localizations": {
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
             "value": "這台 Mac 的 InputWeave 依設定檔把設定放在別的資料夾，登入視窗只讀一般的位置。"
+          }
+        }
+      }
+    },
+    "InputWeave normally recognizes a network by its router. Turn this on to match Wi-Fi names too; macOS asks for location access, used only to read the Wi-Fi name.": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "InputWeave 平常以路由器辨認網路。打開後也比對 Wi-Fi 名稱；macOS 會詢問定位權限，只用來讀 Wi-Fi 名稱。"
           }
         }
       }
@@ -1765,6 +1935,56 @@
         }
       }
     },
+    "Manage Profiles…": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "管理情境…"
+          }
+        }
+      }
+    },
+    "Networks": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "網路"
+          }
+        }
+      }
+    },
+    "Networks not added to any profile use this one.": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "沒有加到任何情境的網路都用這個情境。"
+          }
+        }
+      }
+    },
+    "New Profile": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新的情境"
+          }
+        }
+      }
+    },
+    "No networks in this profile yet.": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "這個情境還沒有網路。"
+          }
+        }
+      }
+    },
     "None of your computers control it or share the clipboard and files with it until someone brings it back. It can bring itself back too.": {
       "localizations": {
         "zh-Hant": {
@@ -1775,12 +1995,122 @@
         }
       }
     },
+    "Not connected to a network.": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "沒有連上網路。"
+          }
+        }
+      }
+    },
+    "Not in this profile": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "不在這個情境"
+          }
+        }
+      }
+    },
     "Offline for now": {
       "localizations": {
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
             "value": "暫時離線"
+          }
+        }
+      }
+    },
+    "Other networks": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "其他網路"
+          }
+        }
+      }
+    },
+    "Pause": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "暫停"
+          }
+        }
+      }
+    },
+    "Profile": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "情境"
+          }
+        }
+      }
+    },
+    "Profile in use": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "使用的情境"
+          }
+        }
+      }
+    },
+    "Profiles": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "情境"
+          }
+        }
+      }
+    },
+    "Remove %@": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "移除 %@"
+          }
+        }
+      }
+    },
+    "Remove Profile": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "移除情境"
+          }
+        }
+      }
+    },
+    "Router %@": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "路由器 %@"
+          }
+        }
+      }
+    },
+    "Send and receive files": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "互傳檔案"
           }
         }
       }
@@ -1841,6 +2171,36 @@
           "stringUnit": {
             "state": "translated",
             "value": "由這台設定。其他電腦不會控制這台，也不會和它同步剪貼簿或互傳檔案。"
+          }
+        }
+      }
+    },
+    "Share": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "共享"
+          }
+        }
+      }
+    },
+    "Switched to %@.": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已切換到「%@」。"
+          }
+        }
+      }
+    },
+    "Switched to %@. Sharing is paused.": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已切換到「%@」，鍵鼠共享已暫停。"
           }
         }
       }
@@ -3965,6 +4325,16 @@
         }
       }
     },
+    "This network isn’t in any profile.": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "這個網路沒有加到任何情境。"
+          }
+        }
+      }
+    },
     "To allow a folder later, turn it on for “InputWeave” in System Settings › Privacy & Security › Files & Folders.": {
       "localizations": {
         "zh-Hant": {
@@ -4061,6 +4431,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "請打開上方的權限，背景服務接著會自動重新啟動。"
+          }
+        }
+      }
+    },
+    "Unchecked computers are treated as offline in this profile, and they see this computer as offline too.": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "沒勾的電腦在這個情境下視同離線，它們也會看到這台離線。"
           }
         }
       }
@@ -4381,6 +4761,26 @@
           "stringUnit": {
             "state": "translated",
             "value": "游標在「%@」上時，滑鼠移動乘上這個倍率。只在這台控制它的時候套用，遊戲用的相對滑鼠不受影響。"
+          }
+        }
+      }
+    },
+    "Wi-Fi network": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wi-Fi 網路"
+          }
+        }
+      }
+    },
+    "Wired network": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "有線網路"
           }
         }
       }

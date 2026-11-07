@@ -8,7 +8,8 @@
 //!   desktop pictures on the displays;
 //! - the accept loop, and one dial loop per trusted device this one dials;
 //! - the pairing coordinator;
-//! - the discovery bridge, feeding mDNS results into the directory;
+//! - discovery: the mDNS announcement and browsing, while the profile in
+//!   use shares, and the bridge feeding what it finds into the directory;
 //! - the IPC server (a Unix socket, or a named pipe on Windows);
 //! - on Windows, the server for the broker, which reads the desktop
 //!   pictures and the clipboard, writes received files, reads the files
@@ -42,6 +43,7 @@ mod pairing;
 mod peers;
 mod previews;
 mod private;
+mod profiles;
 mod queue;
 mod status;
 mod this_device;
@@ -66,8 +68,9 @@ use iw_platform::{
 };
 use tokio::sync::{broadcast, mpsc, oneshot, watch};
 use tokio::task::{JoinHandle, JoinSet};
-use tracing::warn;
+use tracing::{info, warn};
 
+pub use crate::profiles_file::ProfileError;
 pub(crate) use diagnostics::utc;
 pub use digest::executable_digest;
 pub use directory::DeviceError;
@@ -89,20 +92,23 @@ pub use pairing::{Failure, NotWaiting, PairingPeer, PairingStatus};
 pub use previews::{Pictures, Preview};
 pub use status::{
     ArrangedDevice, Arrangement, CursorCrossed, DeviceState, OfflineChange, RelativeEnded,
-    RelativeMode, Status, hotkeys_to_proto,
+    RelativeMode, Status, WifiNameHeld, hotkeys_to_proto,
 };
 pub use wake::{WakeData, WakeState};
 
 use crate::config::{Config, ConfigError};
 use crate::convert;
 use crate::offline_file::OfflineDoc;
+use crate::profiles_file::ProfilesFile;
 use crate::store::DevicesFile;
 use directory::Directory;
+pub use engine::ProfileChange;
 use engine::{Engine, EngineEvent, EngineParts, HotkeysChange, PlatformState};
 use files::Files;
 use pairing::{Pairing, PairingContext};
-use peers::PeerContext;
+use peers::{AbortOnDrop, PeerContext};
 use previews::PreviewFiles;
+use profiles::Reach;
 use this_device::ThisDevice;
 
 pub struct Backends {
@@ -117,6 +123,8 @@ pub struct Backends {
 
 /// How often permissions, secure input and displays are checked.
 const PLATFORM_POLL: Duration = Duration::from_secs(1);
+/// How often the network is read (`watch_network`).
+const NETWORK_POLL: Duration = Duration::from_secs(1);
 
 /// How long a request waits for the engine to apply a change.
 const APPLY_TIMEOUT: Duration = Duration::from_secs(2);
@@ -148,6 +156,9 @@ pub struct Options {
     /// The devices taken offline for now to start from when there is no
     /// `devices_file`, kept in memory only, as `devices` is.
     pub offline: Option<OfflineDoc>,
+    /// The profiles to start from when there is no `devices_file`, kept in
+    /// memory only, as `devices` is.
+    pub profiles: Option<ProfilesFile>,
     /// Tell other devices this agent cannot read its desktop pictures, so
     /// they keep the ones they have of it: the login window's agent runs as
     /// a user's device without that user's desktop.
@@ -253,6 +264,11 @@ pub struct Options {
     /// to. Only with the `test-hooks` feature.
     #[cfg(feature = "test-hooks")]
     pub wake_target: Option<SocketAddr>,
+    /// Announce this device, where the configuration has discovery on, as
+    /// if mDNS ran, without touching the network: whether it would is
+    /// `AgentHandle::announcing`. Only with the `test-hooks` feature.
+    #[cfg(feature = "test-hooks")]
+    pub fake_discovery: bool,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -343,9 +359,29 @@ pub async fn start(
         (None, Some(doc)) => doc.clone(),
         (None, None) => OfflineDoc::default(),
     };
+    // The profiles, in a file of their own beside the devices file, read
+    // as leniently. Until there is one (a first start, or an upgrade from
+    // before profiles), the first network seen goes into Default. One there
+    // that cannot be read is left be until the user changes the profiles.
+    let profiles_path = options
+        .devices_file
+        .as_deref()
+        .map(crate::paths::profiles_file);
+    let (profiles, profiles_kept) = match (&profiles_path, &options.profiles) {
+        (Some(path), _) => match ProfilesFile::load(path) {
+            crate::profiles_file::Loaded::File(file) => (file, engine::Kept::Yes),
+            crate::profiles_file::Loaded::Missing => (ProfilesFile::default(), engine::Kept::No),
+            crate::profiles_file::Loaded::Unreadable => {
+                (ProfilesFile::default(), engine::Kept::Unreadable)
+            }
+        },
+        (None, Some(file)) => (file.clone(), engine::Kept::Yes),
+        (None, None) => (ProfilesFile::default(), engine::Kept::No),
+    };
     let directory = Arc::new(
         Directory::with_wake(&config, options.devices_file, stored, wake_path, wake)
-            .with_offline(offline_path, offline),
+            .with_offline(offline_path, offline)
+            .with_profiles(profiles_path),
     );
     // A damaged license file never keeps the agent from starting. One that
     // cannot be read makes the license unavailable, and is never saved
@@ -484,6 +520,9 @@ pub async fn start(
 
     // Polled by the platform watcher, and asked for permissions through IPC.
     let session: Arc<dyn SessionStatus> = Arc::from(backends.status);
+    // What the profile in use lets this device reach; the engine says.
+    // Nothing until the engine knows the network, and so the profile.
+    let (reach_tx, reach_rx) = watch::channel(Reach::held());
 
     #[cfg(any(unix, windows))]
     if let Some(path) = options.ipc_socket {
@@ -584,6 +623,9 @@ pub async fn start(
         refuses_drags: options.refuses_drags,
         wake_on_push: directory.wake_on_push(),
         wake_wait: options.wake_wait.unwrap_or(wake::WAKE_WAIT),
+        profiles,
+        profiles_kept,
+        reach: reach_tx,
         #[cfg(feature = "test-hooks")]
         lose_relative_motion: options.lose_relative_motion,
         #[cfg(feature = "test-hooks")]
@@ -592,6 +634,7 @@ pub async fn start(
         wake_target: options.wake_target,
     });
     let engine_task = tokio::spawn(engine.run(engine_rx));
+    tasks.spawn(watch_network(session.clone(), engine_tx.clone()));
     // The desktop pictures are read by the poller, now that the endpoint
     // and IPC are up: decoding them can take seconds. Sessions that start
     // before then get Displays without pictures, and again with them.
@@ -620,28 +663,25 @@ pub async fn start(
         },
         files.clone(),
         wake_source,
+        reach_rx.clone(),
     )?);
     tasks.spawn(peers::accept_loop(ctx.clone()));
     tasks.spawn(peers::dial_all(ctx));
 
     if config.network.discovery {
-        let announcement = Announcement {
+        this.announces(Announcement {
             device_id: config.device.id.clone(),
             name: config.device.name.clone(),
             os: convert::this_os(),
             fingerprint,
             addr: local_addr,
             pairable: config.network.allow_pairing,
-        };
-        match Discovery::start(&announcement) {
-            Ok((discovery, events)) => {
-                tasks.spawn(discover(directory.clone(), events));
-                this.announce(discovery, announcement);
-            }
-            Err(e) => {
-                warn!(error = %e, "mDNS is unavailable; other devices must be added by address");
-            }
-        }
+        });
+        #[cfg(feature = "test-hooks")]
+        let fake = options.fake_discovery;
+        #[cfg(not(feature = "test-hooks"))]
+        let fake = false;
+        tasks.spawn(advertise(this.clone(), directory.clone(), reach_rx, fake));
     }
 
     Ok(AgentHandle {
@@ -878,6 +918,24 @@ async fn set_offline_for_now(
         })
         .map_err(|_| OfflineError::Stopping)?;
     let saved = rx.await.map_err(|_| OfflineError::Stopping)??;
+    if let Some(saved) = saved {
+        let _ = tokio::time::timeout(APPLY_TIMEOUT, saved).await;
+    }
+    Ok(())
+}
+
+/// Changes the profiles, or which is used; returns once the status shows it
+/// and it is in the profiles file, or could not be written there (logged),
+/// waiting for the file [`APPLY_TIMEOUT`] at most.
+async fn change_profiles(
+    engine: &mpsc::UnboundedSender<EngineEvent>,
+    change: ProfileChange,
+) -> Result<(), ProfileError> {
+    let (reply, rx) = oneshot::channel();
+    engine
+        .send(EngineEvent::Profiles { change, reply })
+        .map_err(|_| ProfileError::Stopping)?;
+    let saved = rx.await.map_err(|_| ProfileError::Stopping)??;
     if let Some(saved) = saved {
         let _ = tokio::time::timeout(APPLY_TIMEOUT, saved).await;
     }
@@ -1360,6 +1418,26 @@ async fn watch_platform(
     }
 }
 
+/// Reads the network at once and then every [`NETWORK_POLL`], on a task of
+/// its own, so a slow read (NetworkManager on the system bus) holds up
+/// nothing else; the engine waits for the first that settles before it
+/// reaches any device (`Engine::hold_until`). Every reading goes to the
+/// engine, which counts them; none for a read that failed, which leaves the
+/// last one standing.
+async fn watch_network(status: Arc<dyn SessionStatus>, engine: mpsc::UnboundedSender<EngineEvent>) {
+    let mut ticks = tokio::time::interval(NETWORK_POLL);
+    ticks.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+    let mut reads = NetworkReads::default();
+    loop {
+        ticks.tick().await;
+        if let Some(network) = read_network(&status, &mut reads).await
+            && engine.send(EngineEvent::Network(network)).is_err()
+        {
+            return;
+        }
+    }
+}
+
 /// Sends `state` to the engine unless it was the last sent. False once the
 /// engine is gone.
 fn report(
@@ -1375,6 +1453,124 @@ fn report(
     }
     *last = Some(state.clone());
     true
+}
+
+/// Announces this device and browses for others (mDNS) while the profile
+/// in use shares; while it is paused, neither, and the devices seen are
+/// forgotten. `fake` stands in for mDNS in tests.
+async fn advertise(
+    this: Arc<ThisDevice>,
+    directory: Arc<Directory>,
+    mut reach: watch::Receiver<Reach>,
+    fake: bool,
+) {
+    loop {
+        if reach.wait_for(|r| !r.quiet()).await.is_err() {
+            return;
+        }
+        let Some(announcement) = this.announcement() else {
+            return;
+        };
+        let started = if fake {
+            #[cfg(feature = "test-hooks")]
+            {
+                Ok((this_device::Running::Fake, None))
+            }
+            #[cfg(not(feature = "test-hooks"))]
+            unreachable!("a fake discovery only with the test hooks")
+        } else {
+            Discovery::start(&announcement)
+                .map(|(discovery, events)| (this_device::Running::Mdns(discovery), Some(events)))
+        };
+        match started {
+            Ok((running, events)) => {
+                this.announce(running);
+                let feed = events
+                    .map(|events| AbortOnDrop(tokio::spawn(discover(directory.clone(), events))));
+                let ended = reach.wait_for(|r| r.quiet()).await.is_err();
+                this.stop_announcing();
+                drop(feed);
+                directory.clear_nearby();
+                if ended {
+                    return;
+                }
+                info!(
+                    "the profile in use is paused: not announcing this device or looking for others"
+                );
+            }
+            Err(e) => {
+                warn!(error = %e, "mDNS is unavailable; other devices must be added by address");
+                // Tried again once the profile in use paused and shares
+                // again.
+                if reach.wait_for(|r| r.quiet()).await.is_err() {
+                    return;
+                }
+            }
+        }
+    }
+}
+
+/// How often a read of the network that keeps failing the same way is
+/// logged again.
+const NETWORK_ERROR_LOG: Duration = Duration::from_secs(10 * 60);
+
+/// Reads of the network as the platform poller takes them. A read that
+/// fails leaves the last good one standing: only a read that succeeds and
+/// shows no route means no network, or a lasting error (a system call
+/// failing, a file that cannot be read) would switch the profile and drop
+/// every session. A failure is logged once, and again after
+/// [`NETWORK_ERROR_LOG`] or when it says something else.
+#[derive(Debug, Default)]
+struct NetworkReads {
+    error: Option<(String, Instant)>,
+}
+
+impl NetworkReads {
+    /// What to give the engine of `read` at `now`: the reading, or none
+    /// for one that failed; and the failure to log, when that is due.
+    fn take(
+        &mut self,
+        read: Result<Option<iw_platform::network::NetworkSighting>, String>,
+        now: Instant,
+    ) -> (
+        Option<Option<iw_platform::network::NetworkSighting>>,
+        Option<String>,
+    ) {
+        match read {
+            Ok(network) => {
+                self.error = None;
+                (Some(network), None)
+            }
+            Err(e) => {
+                let due = self.error.as_ref().is_none_or(|(last, at)| {
+                    *last != e || now.saturating_duration_since(*at) >= NETWORK_ERROR_LOG
+                });
+                if due {
+                    self.error = Some((e.clone(), now));
+                }
+                (None, due.then_some(e))
+            }
+        }
+    }
+}
+
+/// Reads the network off the async runtime: the reading, or none when it
+/// cannot be read (`NetworkReads`).
+async fn read_network(
+    status: &Arc<dyn SessionStatus>,
+    reads: &mut NetworkReads,
+) -> Option<Option<iw_platform::network::NetworkSighting>> {
+    let status = status.clone();
+    let read = match tokio::task::spawn_blocking(move || status.network()).await {
+        Ok(Ok(network)) => Ok(network),
+        Ok(Err(e)) => Err(e.to_string()),
+        Err(e) => Err(e.to_string()),
+    };
+    let (reading, failure) = reads.take(read, Instant::now());
+    if let Some(e) = failure {
+        warn!(error = %e, "cannot read the network; keeping the last reading");
+    }
+    reading
 }
 
 /// Feeds what mDNS sees into the directory.
@@ -1493,6 +1689,27 @@ impl AgentHandle {
     /// Moves the cursor to the middle of a device's primary display.
     pub async fn jump_to(&self, device: &str) -> Result<(), JumpError> {
         jump_to(&self.engine_tx, device).await
+    }
+
+    /// Changes the profiles, or which is used, as the profile commands do;
+    /// the status shows it once this returns.
+    pub async fn change_profiles(&self, change: ProfileChange) -> Result<(), ProfileError> {
+        change_profiles(&self.engine_tx, change).await
+    }
+
+    /// An app read the Wi-Fi name of the network `network` stands for
+    /// (`ReportWifiName`).
+    pub fn report_wifi_name(&self, network: &str, name: Option<&str>) {
+        let _ = self.engine_tx.send(EngineEvent::WifiName {
+            network: network.to_owned(),
+            name: name.map(str::to_owned),
+        });
+    }
+
+    /// Whether this device announces itself on the network now (mDNS):
+    /// where discovery is on, while the profile in use shares.
+    pub fn announcing(&self) -> bool {
+        self.this.announcing()
     }
 
     /// Sends a wake-up to an offline device that told how to wake it
@@ -1787,8 +2004,10 @@ impl AgentHandle {
     async fn stop(&mut self) {
         // Transfers cut off by stopping are not history.
         self.files.close_history().await;
-        self.this.stop_announcing();
+        // The tasks first, so none announces this device after; one that
+        // did meanwhile is refused (`ThisDevice::stop`).
         self.tasks.shutdown().await;
+        self.this.stop();
         self.endpoint.close();
         let _ = tokio::time::timeout(Duration::from_secs(1), self.endpoint.wait_idle()).await;
     }
@@ -1810,6 +2029,57 @@ mod tests {
     }
 
     const TICK: Duration = PLATFORM_POLL;
+
+    #[test]
+    fn a_failed_read_of_the_network_keeps_the_last_and_is_logged_now_and_then() {
+        use iw_platform::network::{LinkKind, NetworkSighting};
+        let home = NetworkSighting {
+            interface: "en0".to_owned(),
+            kind: LinkKind::Wired,
+            address: None,
+            router: Some(std::net::Ipv4Addr::new(192, 168, 1, 1)),
+            router_mac: Some([2; 6]),
+            wifi_name: None,
+            network_name: None,
+        };
+        let start = Instant::now();
+        let mut reads = NetworkReads::default();
+        assert_eq!(
+            reads.take(Ok(Some(home.clone())), start),
+            (Some(Some(home)), None)
+        );
+        // Failing: nothing for the engine, so the last reading stands;
+        // logged once, then again only later or when it says something else.
+        let failed = || Err("sysctl: cannot allocate memory".to_owned());
+        assert_eq!(
+            reads.take(failed(), start),
+            (None, Some("sysctl: cannot allocate memory".to_owned()))
+        );
+        assert_eq!(reads.take(failed(), start + TICK), (None, None));
+        assert_eq!(
+            reads.take(failed(), start + NETWORK_ERROR_LOG),
+            (None, Some("sysctl: cannot allocate memory".to_owned()))
+        );
+        assert_eq!(
+            reads
+                .take(Err("other".to_owned()), start + NETWORK_ERROR_LOG + TICK)
+                .1
+                .as_deref(),
+            Some("other")
+        );
+        // A read that succeeds and shows no route is no network.
+        assert_eq!(
+            reads.take(Ok(None), start + NETWORK_ERROR_LOG * 2),
+            (Some(None), None)
+        );
+        assert_eq!(
+            reads
+                .take(failed(), start + NETWORK_ERROR_LOG * 2 + TICK)
+                .1
+                .as_deref(),
+            Some("sysctl: cannot allocate memory")
+        );
+    }
 
     #[test]
     fn pictures_are_read_first_thing_then_every_poll() {

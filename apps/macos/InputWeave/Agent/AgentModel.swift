@@ -562,6 +562,107 @@ final class AgentModel {
         }
     }
 
+    /// Adds a profile named `name`, which the service makes unique with
+    /// " 2", " 3"…, before Other networks. Answered with the new profile's
+    /// id, nil when the answer does not list one. A refusal's code says
+    /// why ("invalid_name", "too_many_profiles").
+    @discardableResult
+    func addProfile(named name: String) async throws -> String? {
+        let before = Set(status.profiles.map(\.id))
+        var add = Inputweave_App_V1_AddProfile()
+        add.name = name
+        guard case .status(let status) = try await request(.addProfile(add)) else { return nil }
+        self.status = status
+        return status.profiles.first { !before.contains($0.id) }?.id
+    }
+
+    /// Changes what is given of a profile, and only that: its name, whether
+    /// it pauses sharing, the clipboard and files, and which computers it
+    /// connects. A refusal's code says why ("unknown_profile",
+    /// "fixed_profile" to rename Default or Other networks,
+    /// "invalid_name", "unknown_device").
+    func editProfile(
+        _ id: String, name: String? = nil, paused: Bool? = nil, clipboard: Bool? = nil, files: Bool? = nil,
+        devices: [(id: String, connect: Bool)] = []
+    ) async throws {
+        var edit = Inputweave_App_V1_EditProfile()
+        edit.profileID = id
+        if let name { edit.name = name }
+        if let paused { edit.paused = paused }
+        if let clipboard { edit.clipboard = clipboard }
+        if let files { edit.files = files }
+        edit.devices = devices.map { device in
+            var entry = Inputweave_App_V1_DeviceInProfile()
+            entry.deviceID = device.id
+            entry.connect = device.connect
+            return entry
+        }
+        if case .status(let status) = try await request(.editProfile(edit)) {
+            self.status = status
+        }
+    }
+
+    /// Removes one of the user's own profiles with its networks; removing
+    /// the chosen one goes back to Automatic.
+    func removeProfile(_ id: String) async throws {
+        var remove = Inputweave_App_V1_RemoveProfile()
+        remove.profileID = id
+        if case .status(let status) = try await request(.removeProfile(remove)) {
+            self.status = status
+        }
+    }
+
+    /// Uses a profile whatever the network, or with an empty id goes back
+    /// to Automatic, which picks it by the network.
+    func selectProfile(_ id: String) async throws {
+        var select = Inputweave_App_V1_SelectProfile()
+        select.profileID = id
+        if case .status(let status) = try await request(.selectProfile(select)) {
+            self.status = status
+        }
+    }
+
+    /// Adds the network this Mac is on now to a profile, taking it from the
+    /// one that had it. A refusal's code says why ("other_networks",
+    /// "no_network", "too_many_networks", "unknown_profile").
+    func addNetworkToProfile(_ id: String) async throws {
+        var add = Inputweave_App_V1_AddNetworkToProfile()
+        add.profileID = id
+        if case .status(let status) = try await request(.addNetworkToProfile(add)) {
+            self.status = status
+        }
+    }
+
+    /// Takes a network out of the profile that lists it.
+    func removeNetwork(_ id: String) async throws {
+        var remove = Inputweave_App_V1_RemoveNetwork()
+        remove.networkID = id
+        if case .status(let status) = try await request(.removeNetwork(remove)) {
+            self.status = status
+        }
+    }
+
+    /// Recognizes networks by their Wi-Fi name too, which this app then
+    /// reads and reports (`WifiNameReporter`), or only by their router.
+    func setWifiNames(_ on: Bool) async throws {
+        var set = Inputweave_App_V1_SetWifiNames()
+        set.on = on
+        if case .status(let status) = try await request(.setWifiNames(set)) {
+            self.status = status
+        }
+    }
+
+    /// Tells the service the Wi-Fi name this app read for the network with
+    /// the id `networkID`, empty when this Mac is not on Wi-Fi.
+    func reportWifiName(networkID: String, ssid: String) async throws {
+        var report = Inputweave_App_V1_ReportWifiName()
+        report.networkID = networkID
+        report.ssid = ssid
+        if case .status(let status) = try await request(.reportWifiName(report)) {
+            self.status = status
+        }
+    }
+
     /// Moves devices' desktop origins on the shared canvas.
     func move(_ positions: [(id: String, x: Double, y: Double)]) async throws {
         var set = Inputweave_App_V1_SetArrangement()
@@ -787,9 +888,10 @@ final class AgentModel {
 
     /// Devices files can be sent to right now: those without a reason they
     /// can't (`SendTargets.unavailable`: connected, and files not turned off
-    /// with them).
+    /// with them or in the profile in use).
     var fileReceivers: [DeviceStatus] {
-        status.devices.filter { SendTargets.unavailable($0) == nil }
+        let profileFilesOff = ProfileText.filesOff(status)
+        return status.devices.filter { SendTargets.unavailable($0, profileFilesOff: profileFilesOff) == nil }
     }
 
     /// Whether files can be sent to a computer right now.

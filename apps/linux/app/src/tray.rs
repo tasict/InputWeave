@@ -31,13 +31,18 @@ const MENU_PATH: &str = "/MenuBar";
 const WATCHER: &str = "org.kde.StatusNotifierWatcher";
 
 /// What a menu item does.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum TrayAction {
     Open,
     SendFiles,
     ToggleSharing,
     /// Takes this computer offline for now, or brings it back.
     ToggleOffline,
+    /// Uses this profile whatever the network; an empty id goes back to
+    /// Automatic.
+    SelectProfile(String),
+    /// Opens the Profiles page.
+    ManageProfiles,
     ToggleLock,
     IdentifyScreens,
     AddDevice,
@@ -52,19 +57,48 @@ pub struct MenuItem {
     pub label: String,
     pub enabled: bool,
     pub action: Option<TrayAction>,
+    /// Whether it shows a check mark, and whether it is checked; `None`
+    /// for an item with no check mark.
+    pub checked: Option<bool>,
+    /// The items of the submenu it opens; empty for an item that opens
+    /// none.
+    pub children: Vec<MenuItem>,
 }
 
 impl MenuItem {
+    pub fn new(label: String, enabled: bool, action: TrayAction) -> MenuItem {
+        MenuItem {
+            label,
+            enabled,
+            action: Some(action),
+            checked: None,
+            children: Vec::new(),
+        }
+    }
+
+    /// An item that opens a submenu of `children`.
+    pub fn submenu(label: String, children: Vec<MenuItem>) -> MenuItem {
+        MenuItem {
+            label,
+            enabled: true,
+            action: None,
+            checked: None,
+            children,
+        }
+    }
+
     pub fn separator() -> MenuItem {
         MenuItem {
             label: String::new(),
             enabled: true,
             action: None,
+            checked: None,
+            children: Vec::new(),
         }
     }
 
     fn is_separator(&self) -> bool {
-        self.action.is_none() && self.label.is_empty()
+        self.action.is_none() && self.label.is_empty() && self.children.is_empty()
     }
 }
 
@@ -242,20 +276,74 @@ fn properties(item: &MenuItem) -> Properties {
     );
     props.insert(
         "enabled".into(),
-        owned(Variant::from(item.enabled && item.action.is_some())),
+        owned(Variant::from(
+            item.enabled && (item.action.is_some() || !item.children.is_empty()),
+        )),
     );
+    if !item.children.is_empty() {
+        props.insert("children-display".into(), owned(Variant::from("submenu")));
+    }
+    if let Some(checked) = item.checked {
+        props.insert("toggle-type".into(), owned(Variant::from("checkmark")));
+        props.insert(
+            "toggle-state".into(),
+            owned(Variant::from(i32::from(checked))),
+        );
+    }
     props
 }
 
-/// Menu item ids are their place plus one; 0 is the root.
+/// Menu item ids: a top-level item's is its place plus one (0 is the
+/// root), so it stays the same whatever a submenu holds; an item of a
+/// submenu's is its parent's times this, plus its place plus one.
+const SUBMENU_IDS: i32 = 1000;
+
+/// The item with id `id`, at the top level or in a submenu.
+fn find(menu: &[MenuItem], id: i32) -> Option<&MenuItem> {
+    if id <= 0 {
+        return None;
+    }
+    if id < SUBMENU_IDS {
+        return menu.get((id - 1) as usize);
+    }
+    let parent = find(menu, id / SUBMENU_IDS)?;
+    parent
+        .children
+        .get(((id % SUBMENU_IDS) as usize).wrapping_sub(1))
+}
+
+/// Every item's id, submenus' included.
+fn ids(menu: &[MenuItem]) -> Vec<i32> {
+    let mut all = Vec::new();
+    for (i, item) in menu.iter().enumerate() {
+        let id = i as i32 + 1;
+        all.push(id);
+        all.extend((0..item.children.len()).map(|j| id * SUBMENU_IDS + j as i32 + 1));
+    }
+    all
+}
+
+/// The layout of `item`, numbered `id`, with its submenu's.
+fn layout_of(item: &MenuItem, id: i32) -> Layout {
+    let children = item
+        .children
+        .iter()
+        .enumerate()
+        .map(|(j, child)| {
+            owned(Variant::from(layout_of(
+                child,
+                id * SUBMENU_IDS + j as i32 + 1,
+            )))
+        })
+        .collect();
+    (id, properties(item), children)
+}
+
 fn layout(menu: &[MenuItem]) -> Layout {
     let children = menu
         .iter()
         .enumerate()
-        .map(|(i, item)| {
-            let child: Layout = (i as i32 + 1, properties(item), Vec::new());
-            owned(Variant::from(child))
-        })
+        .map(|(i, item)| owned(Variant::from(layout_of(item, i as i32 + 1))))
         .collect();
     let mut root = Properties::new();
     root.insert("children-display".into(), owned(Variant::from("submenu")));
@@ -299,9 +387,8 @@ impl Menu {
         if parent_id == 0 {
             return Ok((shared.revision, full));
         }
-        let index = parent_id as usize;
-        match shared.model.menu.get(index.wrapping_sub(1)) {
-            Some(item) => Ok((shared.revision, (parent_id, properties(item), Vec::new()))),
+        match find(&shared.model.menu, parent_id) {
+            Some(item) => Ok((shared.revision, layout_of(item, parent_id))),
             None => Err(fdo::Error::InvalidArgs(format!("no item {parent_id}"))),
         }
     }
@@ -313,22 +400,15 @@ impl Menu {
     ) -> Vec<(i32, Properties)> {
         let shared = lock(&self.state);
         let menu = &shared.model.menu;
-        let all: Vec<i32> = (1..=menu.len() as i32).collect();
-        let ids = if ids.is_empty() { all } else { ids };
+        let ids = if ids.is_empty() { self::ids(menu) } else { ids };
         ids.into_iter()
-            .filter_map(|id| {
-                menu.get((id as usize).wrapping_sub(1))
-                    .map(|item| (id, properties(item)))
-            })
+            .filter_map(|id| find(menu, id).map(|item| (id, properties(item))))
             .collect()
     }
 
     fn get_property(&self, id: i32, name: String) -> fdo::Result<OwnedVariant> {
         let shared = lock(&self.state);
-        shared
-            .model
-            .menu
-            .get((id as usize).wrapping_sub(1))
+        find(&shared.model.menu, id)
             .and_then(|item| properties(item).remove(&name))
             .ok_or_else(|| fdo::Error::InvalidArgs(format!("no {name} on {id}")))
     }
@@ -342,9 +422,9 @@ impl Menu {
             action: Some(action),
             enabled: true,
             ..
-        }) = shared.model.menu.get((id as usize).wrapping_sub(1))
+        }) = find(&shared.model.menu, id)
         {
-            let _ = shared.actions.try_send(*action);
+            let _ = shared.actions.try_send(action.clone());
         }
     }
 
@@ -553,11 +633,7 @@ mod tests {
     #[test]
     fn the_layout_numbers_items_from_one() {
         let menu = vec![
-            MenuItem {
-                label: "Pause_Sharing".into(),
-                enabled: true,
-                action: Some(TrayAction::ToggleSharing),
-            },
+            MenuItem::new("Pause_Sharing".into(), true, TrayAction::ToggleSharing),
             MenuItem::separator(),
         ];
         let (root, props, children) = layout(&menu);
@@ -571,5 +647,62 @@ mod tests {
             "underscores are not mnemonics"
         );
         assert!(properties(&menu[1]).contains_key("type"));
+    }
+
+    #[test]
+    fn submenus_number_their_items_apart_and_check_them() {
+        let choice = |label: &str, id: &str, checked: bool| MenuItem {
+            checked: Some(checked),
+            ..MenuItem::new(label.into(), true, TrayAction::SelectProfile(id.into()))
+        };
+        let menu = vec![
+            MenuItem::separator(),
+            MenuItem::submenu(
+                "Profile".into(),
+                vec![
+                    choice("Automatic", "", true),
+                    choice("Office", "office", false),
+                    MenuItem::separator(),
+                    MenuItem::new("Manage Profiles…".into(), true, TrayAction::ManageProfiles),
+                ],
+            ),
+            MenuItem::new("Quit".into(), true, TrayAction::Quit),
+        ];
+        // The top level keeps its numbers whatever the submenu holds.
+        assert_eq!(
+            find(&menu, 3).and_then(|i| i.action.clone()),
+            Some(TrayAction::Quit)
+        );
+        assert_eq!(
+            find(&menu, 2002).and_then(|i| i.action.clone()),
+            Some(TrayAction::SelectProfile("office".into()))
+        );
+        assert_eq!(
+            find(&menu, 2004).and_then(|i| i.action.clone()),
+            Some(TrayAction::ManageProfiles)
+        );
+        assert!(find(&menu, 2005).is_none() && find(&menu, 2000).is_none());
+        assert!(find(&menu, 1001).is_none() && find(&menu, 0).is_none());
+        assert_eq!(ids(&menu), [1, 2, 2001, 2002, 2003, 2004, 3]);
+        let (_, _, top) = layout(&menu);
+        assert_eq!(top.len(), 3);
+        let parent = properties(&menu[1]);
+        assert_eq!(
+            <&str>::try_from(&*parent["children-display"]).unwrap(),
+            "submenu"
+        );
+        assert!(<bool>::try_from(&*parent["enabled"]).unwrap());
+        let (id, _, children) = layout_of(&menu[1], 2);
+        assert_eq!(id, 2);
+        assert_eq!(children.len(), 4);
+        let automatic = properties(&menu[1].children[0]);
+        assert_eq!(
+            <&str>::try_from(&*automatic["toggle-type"]).unwrap(),
+            "checkmark"
+        );
+        assert_eq!(<i32>::try_from(&*automatic["toggle-state"]).unwrap(), 1);
+        let office = properties(&menu[1].children[1]);
+        assert_eq!(<i32>::try_from(&*office["toggle-state"]).unwrap(), 0);
+        assert!(!properties(&menu[2]).contains_key("toggle-type"));
     }
 }

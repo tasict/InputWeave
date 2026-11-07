@@ -27,6 +27,7 @@ use super::folder_access::{Access, UserFolder};
 use super::wake::WakeData;
 use crate::config::{Config, PlacementConfig};
 use crate::offline_file::{Full, Merged, OfflineDoc, TakenBy};
+use crate::profiles_file::ProfilesFile;
 use crate::store::{
     DeviceSharing, DevicesFile, FolderAccessFile, HotkeysFile, KnownDisplays, PairedDevice, Side,
 };
@@ -145,8 +146,8 @@ pub(crate) enum OfflineTaken {
     Changed(Option<Unsaved>),
 }
 
-/// A change to the devices file, the wake file or the offline file made
-/// without writing it:
+/// A change to the devices file, the wake file, the offline file or the
+/// profiles file made without writing it:
 /// the file as it was then, numbered among that file's changes
 /// (`Directory::save`).
 #[must_use = "the change is not in the file until it is saved"]
@@ -160,6 +161,7 @@ enum Contents {
     Devices(Box<DevicesFile>),
     Wake(WakeFile),
     Offline(OfflineDoc),
+    Profiles(Box<ProfilesFile>),
 }
 
 pub(crate) struct Directory {
@@ -187,6 +189,12 @@ pub(crate) struct Directory {
     offline: Mutex<OfflineDoc>,
     offline_changes: AtomicU64,
     offline_written: Mutex<u64>,
+    /// Where the profiles are kept (`profiles_file`), with their changes
+    /// counted and written the same way. The engine alone keeps and
+    /// changes them; the directory only numbers and writes them.
+    profiles_path: Option<PathBuf>,
+    profiles_changes: AtomicU64,
+    profiles_written: Mutex<u64>,
     peers: watch::Sender<TrustedDevices>,
     nearby: watch::Sender<Arc<Vec<Found>>>,
     /// Saved hotkeys from before relative mode left its hotkey off; said
@@ -253,6 +261,9 @@ impl Directory {
             offline: Mutex::new(OfflineDoc::default()),
             offline_changes: AtomicU64::new(0),
             offline_written: Mutex::new(0),
+            profiles_path: None,
+            profiles_changes: AtomicU64::new(0),
+            profiles_written: Mutex::new(0),
             peers: watch::Sender::new(TrustedDevices::default()),
             nearby: watch::Sender::new(Arc::new(Vec::new())),
             relative_left_off_told: AtomicBool::new(false),
@@ -285,6 +296,25 @@ impl Directory {
         self.offline_path = path;
         *self.offline.get_mut().unwrap() = doc;
         self
+    }
+
+    /// Keeps the profiles in the profiles file at `path`; with no file,
+    /// in memory only.
+    pub(crate) fn with_profiles(mut self, path: Option<PathBuf>) -> Self {
+        self.profiles_path = path;
+        self
+    }
+
+    /// The profiles file to write with `file` in it, numbered among its
+    /// changes, if there is a file. The engine, which alone changes the
+    /// profiles, asks in the order it changes them.
+    pub(crate) fn profiles_unsaved(&self, file: &ProfilesFile) -> Option<Unsaved> {
+        let path = self.profiles_path.clone()?;
+        Some(Unsaved {
+            path,
+            file: Contents::Profiles(Box::new(file.clone())),
+            number: self.profiles_changes.fetch_add(1, Ordering::Relaxed) + 1,
+        })
     }
 
     pub(crate) fn peers(&self) -> Arc<Vec<Peer>> {
@@ -359,6 +389,17 @@ impl Directory {
             }
             list.sort_by(|a, b| (&a.name, &a.device_id).cmp(&(&b.name, &b.device_id)));
             *nearby = Arc::new(list);
+            true
+        });
+    }
+
+    /// Forgets every device seen on the network: discovery stopped.
+    pub(crate) fn clear_nearby(&self) {
+        self.nearby.send_if_modified(|nearby| {
+            if nearby.is_empty() {
+                return false;
+            }
+            *nearby = Arc::new(Vec::new());
             true
         });
     }
@@ -1164,6 +1205,7 @@ impl Directory {
             Contents::Devices(_) => &self.written,
             Contents::Wake(_) => &self.wake_written,
             Contents::Offline(_) => &self.offline_written,
+            Contents::Profiles(_) => &self.profiles_written,
         };
         off_async_threads(|| {
             let mut written = written.lock().unwrap();
@@ -1176,9 +1218,10 @@ impl Directory {
                 Contents::Devices(file) => file.save(&path),
                 Contents::Wake(file) => file.save(&path),
                 Contents::Offline(file) => file.save(&path),
+                Contents::Profiles(file) => file.save(&path),
             };
             saved.map(|()| *written = number).inspect_err(|e| {
-                warn!(path = %path.display(), error = %e, "cannot save the devices, wake or offline file");
+                warn!(path = %path.display(), error = %e, "cannot save the devices, wake, offline or profiles file");
             })
         })
     }

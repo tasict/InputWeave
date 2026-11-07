@@ -106,6 +106,9 @@ public partial class App : Application
     /// <summary>Checks for new versions and installs them.</summary>
     internal Updater Updater { get; private set; } = null!;
 
+    /// <summary>Reads the Wi-Fi name for the service, once the user lets it (Profiles).</summary>
+    internal WifiNameReporter WifiNames { get; private set; } = null!;
+
     /// <summary>
     /// Transfer problems the panel no longer lists: dismissed by the user,
     /// or already there when the app first connected. Kept across restarts.
@@ -144,6 +147,13 @@ public partial class App : Application
 
         Model = AgentModel.ForThisSession($"windows-ui/{Version}", takesClipboardFiles: true);
         Model.Changed += (_, _) => QueueRefresh();
+        // Asking for location access changes what the switch shows, which
+        // no status from the service says.
+        WifiNames = new WifiNameReporter(Model, dispatcher, () =>
+        {
+            main?.Invalidate();
+            RefreshNow();
+        });
         var polar = new HttpPolarTransport(launch.PolarServer ?? HttpPolarTransport.DefaultServer, $"InputWeave/{Version}");
         if (launch.PolarServer is { } server)
         {
@@ -270,7 +280,9 @@ public partial class App : Application
         () => ShowMain(null),
         () => _ = CheckForUpdatesAsync(),
         ShowAbout,
-        AskToQuit);
+        AskToQuit,
+        SelectProfile,
+        () => ShowMain(MainPage.Profiles));
 
     /// <summary>The HUD, the locator, a notification and drags of files, shown or simulated on request, for testing.</summary>
     private async void ShowSamples(Launch launch)
@@ -730,6 +742,7 @@ public partial class App : Application
         ShowOverlays(snapshot);
         StartPromises(snapshot);
         notifier.Update(snapshot, serviceState, now, () => ShowMain(MainPage.Files));
+        WifiNames.Tick(snapshot);
         TickLicense();
         Updater.Tick();
         if (snapshot.Link == AgentLink.Connected && whenConnected.Count != 0)
@@ -934,6 +947,23 @@ public partial class App : Application
     /// </summary>
     internal void SetOfflineForNow(string id, bool offline) =>
         Send($"offline for now {id}: {offline}", () => Model.SetOfflineForNowAsync(id, offline));
+
+    /// <summary>
+    /// Uses a profile whatever the network, or Automatic again with an empty
+    /// id (the Profile submenu, Profiles' "Profile in use"). The status the
+    /// service answers with shows it; a refusal is only logged.
+    /// </summary>
+    internal void SelectProfile(string id) =>
+        Send($"select profile {(id.Length == 0 ? "automatic" : id)}", () => Model.SelectProfileAsync(id));
+
+    /// <summary>
+    /// Adds the network this computer is on to a profile, taking it from any
+    /// other (Add to Profile, Add Current Network, the panel's Add This
+    /// Network To…). When the profile picked by the network changes with
+    /// it, the HUD says so.
+    /// </summary>
+    internal void AddNetworkToProfile(string id) =>
+        Send($"add the network to profile {id}", () => Model.AddNetworkToProfileAsync(id));
 
     private void ToggleLock()
     {

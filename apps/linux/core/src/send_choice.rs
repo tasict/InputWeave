@@ -7,6 +7,7 @@
 use iw_proto::app::v1::{ConnectionState, DeviceStatus};
 
 use crate::device_text;
+use crate::profiles;
 use crate::snapshot::Snapshot;
 use crate::text::{UiText, keys};
 use crate::ui;
@@ -16,25 +17,31 @@ use crate::ui;
 pub enum Unavailable {
     /// It was taken offline for now, here or anywhere in the group.
     OfflineForNow,
+    /// The profile in use does not connect it.
+    NotInProfile,
     /// It is not connected.
     Offline,
     /// File transfer with it is turned off on this computer
-    /// (`SetDeviceSharing`).
+    /// (`SetDeviceSharing`), or with every computer in the profile in use.
     FilesOff,
 }
 
 /// Why files can't go to `device` now, the first reason that applies;
 /// `None` when they can.
-pub fn unavailable(device: &DeviceStatus) -> Option<Unavailable> {
-    // Before offline: the service reports it offline as well. While this
-    // computer is offline for now, every other one is just offline.
+pub fn unavailable(model: &Snapshot, device: &DeviceStatus) -> Option<Unavailable> {
+    // Before offline: the service reports both offline as well. While this
+    // computer is offline for now, or the profile in use is paused, every
+    // other one is just offline.
     if device.offline_for_now {
         return Some(Unavailable::OfflineForNow);
+    }
+    if device.not_in_profile {
+        return Some(Unavailable::NotInProfile);
     }
     if device.state() != ConnectionState::Connected {
         return Some(Unavailable::Offline);
     }
-    if device.files_off {
+    if device.files_off || profiles::files_off(model) {
         return Some(Unavailable::FilesOff);
     }
     None
@@ -44,6 +51,7 @@ pub fn unavailable(device: &DeviceStatus) -> Option<Unavailable> {
 pub fn reason(why: Unavailable) -> UiText {
     match why {
         Unavailable::OfflineForNow => ui!(keys::CONNECTION_OFFLINE_FOR_NOW),
+        Unavailable::NotInProfile => ui!(keys::CONNECTION_NOT_IN_PROFILE),
         Unavailable::Offline => ui!(keys::CONNECTION_OFFLINE),
         Unavailable::FilesOff => ui!(keys::SEND_REASON_FILES_OFF),
     }
@@ -68,7 +76,7 @@ pub fn targets(model: &Snapshot) -> Vec<Target> {
         .devices
         .iter()
         .map(|d| {
-            let why = unavailable(d);
+            let why = unavailable(model, d);
             Target {
                 id: d.id.clone(),
                 name: d.name.clone(),
@@ -103,7 +111,7 @@ pub fn choice(model: &Snapshot) -> Choice {
         .status
         .devices
         .iter()
-        .filter(|d| unavailable(d).is_none());
+        .filter(|d| unavailable(model, d).is_none());
     match (available.next(), available.next()) {
         (Some(only), None) => Choice::Only {
             id: only.id.clone(),
@@ -252,6 +260,8 @@ mod tests {
     #[test]
     fn the_reason_is_the_first_that_applies() {
         use ConnectionState::{Connected, Incompatible, Offline};
+        let none = model(vec![]);
+        let unavailable = |d: &DeviceStatus| unavailable(&none, d);
         assert_eq!(unavailable(&device("a", Connected, false, 3)), None);
         assert_eq!(
             unavailable(&device("a", Connected, true, 3)),
@@ -278,8 +288,22 @@ mod tests {
             Some(Unavailable::OfflineForNow),
             "offline for now before offline and files off"
         );
+        let mut left_out = device("a", Offline, true, 0);
+        left_out.not_in_profile = true;
+        assert_eq!(
+            unavailable(&left_out),
+            Some(Unavailable::NotInProfile),
+            "not in this profile before offline and files off"
+        );
+        left_out.offline_for_now = true;
+        assert_eq!(unavailable(&left_out), Some(Unavailable::OfflineForNow));
         for (why, en, zh) in [
             (Unavailable::OfflineForNow, "Offline for now", "暫時離線"),
+            (
+                Unavailable::NotInProfile,
+                "Not in this profile",
+                "不在這個情境",
+            ),
             (Unavailable::Offline, "Offline", "離線"),
             (
                 Unavailable::FilesOff,
@@ -424,6 +448,57 @@ mod tests {
             rows(&apart)
                 .iter()
                 .all(|(_, available, status)| !available && status == "離線")
+        );
+    }
+
+    #[test]
+    fn computers_the_profile_leaves_out_or_files_off_in_it_say_so() {
+        let rows = |model: &Snapshot| -> Vec<(String, bool, String)> {
+            targets(model)
+                .iter()
+                .map(|t| (t.id.clone(), t.available, t.status.to_string()))
+                .collect()
+        };
+        let row =
+            |id: &str, available: bool, status: &str| (id.to_owned(), available, status.to_owned());
+        let mut left_out = crate::sample::not_in_profile(std::time::SystemTime::now());
+        assert_eq!(
+            rows(&left_out),
+            [
+                row("mac", true, "Connected · 3 ms"),
+                row("pc", false, "Not in this profile"),
+                row("laptop", false, "Offline"),
+            ]
+        );
+        assert_eq!(
+            choice(&left_out),
+            Choice::Only {
+                id: "mac".into(),
+                name: "Mac mini".into()
+            }
+        );
+        // Files off in the profile in use: every connected computer as one
+        // files are turned off with, so the picker says why, Send off.
+        for profile in &mut left_out.status.profiles {
+            profile.files = false;
+        }
+        assert_eq!(
+            rows(&left_out),
+            [
+                row("mac", false, "File transfer with this computer is off"),
+                row("pc", false, "Not in this profile"),
+                row("laptop", false, "Offline"),
+            ]
+        );
+        assert_eq!(choice(&left_out), Choice::Ask);
+        assert!(left_out.file_receivers().is_empty());
+        // The profile in use paused: nobody connected, nowhere to send.
+        let paused = crate::sample::profile_paused(std::time::SystemTime::now(), false);
+        assert_eq!(choice(&paused), Choice::Nowhere);
+        assert!(
+            rows(&paused)
+                .iter()
+                .all(|(_, available, s)| !available && s == "Offline")
         );
     }
 

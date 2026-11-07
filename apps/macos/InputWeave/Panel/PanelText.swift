@@ -1,6 +1,6 @@
 import Foundation
 
-/// The panel's headline and subtitle.
+/// The panel's headline, the profile capsule after it, and the subtitle.
 enum PanelText {
     @MainActor
     static func title(_ model: AgentModel) -> String {
@@ -16,6 +16,11 @@ enum PanelText {
             break
         }
         let status = model.status
+        // A paused profile keeps this computer off the network altogether,
+        // whatever else holds.
+        if let profile = model.profileInUse, profile.paused {
+            return ProfileText.pausedTitle(profile)
+        }
         // Offline for now, this computer neither controls another nor is
         // controlled, whatever sharing says.
         if model.offlineHere {
@@ -41,9 +46,23 @@ enum PanelText {
         return String(localized: "Sharing keyboard and mouse")
     }
 
+    /// The profile in use, in a capsule after every title but a paused
+    /// profile's, which names it; none until the service answers.
+    @MainActor
+    static func capsule(_ model: AgentModel) -> String? {
+        guard model.link == .connected else { return nil }
+        return ProfileText.capsule(model.status)
+    }
+
     @MainActor
     static func subtitle(_ model: AgentModel) -> String? {
         guard model.link == .connected else { return nil }
+        if model.profilePaused {
+            // Only when Automatic picked Other networks for a network in no
+            // profile, with a way to add it to one; a profile the user chose
+            // says nothing more.
+            return ProfileText.offersAddingNetwork(model.status) ? ProfileText.notInAnyProfile() : nil
+        }
         if model.offlineHere {
             return OfflineText.panelSubtitle(model.status)
         }

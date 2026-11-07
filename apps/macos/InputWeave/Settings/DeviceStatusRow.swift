@@ -4,7 +4,8 @@ import SwiftUI
 /// another computer is offline, how long it has been, Wake when it can be
 /// woken, and a note on waking it (`WakeText`); while it is taken offline
 /// for now, which computer did it, and the computers that still control it
-/// (`OfflineText`).
+/// (`OfflineText`); and that the profile in use leaves it out
+/// (`ProfileText`).
 struct DeviceStatusRow: View {
     @Environment(AgentModel.self) private var model
     let deviceID: String
@@ -16,6 +17,16 @@ struct DeviceStatusRow: View {
         } else if let device = model.device(deviceID) {
             if OfflineText.shows(device, status: model.status) {
                 OfflineForNowStatus(device: device)
+            } else if ProfileText.shows(device, status: model.status) {
+                // Neither woken nor taken offline from here meanwhile.
+                LabeledContent("Status") {
+                    HStack(spacing: 6) {
+                        // The words say it.
+                        Image(systemName: ProfileText.symbol)
+                            .accessibilityHidden(true)
+                        Text(ProfileText.notInProfile())
+                    }
+                }
             } else if device.state == .connected {
                 LabeledContent("Status") {
                     Text(ConnectionText.connected(
@@ -36,9 +47,10 @@ struct DeviceStatusRow: View {
     private func offline(_ device: DeviceStatus) -> some View {
         let supported = model.wakeSupported
         let offer = model.wakeOffer(deviceID)
-        // While this computer is offline for now, every other one is
-        // plainly offline, and none can be woken from here.
-        let note = model.offlineHere ? nil : WakeText.note(device, supported: supported)
+        // While this computer is offline for now, or the profile in use is
+        // paused, every other one is plainly offline, and none can be woken
+        // from here.
+        let note = model.offlineHere || model.profilePaused ? nil : WakeText.note(device, supported: supported)
         return TimelineView(.periodic(from: .now, by: 30)) { context in
             let text = WakeText.offlineStatus(device, supported: supported, now: context.date)
             let waking = WakeText.waking(device, supported: supported)

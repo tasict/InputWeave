@@ -12,6 +12,7 @@
 
 use iw_proto::app::v1::{DeviceStatus, SetOfflineForNow, client_message::Command};
 
+use crate::profiles;
 use crate::snapshot::Snapshot;
 use crate::text::{UiText, keys};
 use crate::ui;
@@ -115,12 +116,13 @@ pub fn unaware_warnings(model: &Snapshot, id: &str) -> Vec<UiText> {
 
 /// Taking `id` offline for now, or bringing it back, in the inspector and
 /// the arrangement's menu: `None` where it is not offered (this computer,
-/// one the service does not list, from a service before it, and every
-/// other computer while this one is offline for now: it can only bring
-/// itself back); else whether `id` is offline for now, so the button
+/// one the service does not list, from a service before it, one the
+/// profile in use leaves out, and every other computer while this one is
+/// offline for now, as it can only bring itself back, or while the profile
+/// in use is paused); else whether `id` is offline for now, so the button
 /// brings it back.
 pub fn offer(model: &Snapshot, id: &str) -> Option<bool> {
-    if this_offline(model) {
+    if this_offline(model) || profiles::paused(model) || profiles::not_in_profile(model, id) {
         return None;
     }
     other(model, id).map(|d| d.offline_for_now)

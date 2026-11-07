@@ -6,9 +6,9 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use iw_proto::app::v1::{
     ArrangedDevice, Arrangement, BackendRole, ClipboardActivity, ConnectionState, DeviceStatus,
-    FailedFile, FileTransfer, FirewallState, FirewallStatus, NearbyDevice, PairingPhase,
-    PairingState, Permission, PermissionAsk, PermissionStatus, Screen, SessionBackend, SessionInfo,
-    SessionType, Status, TransferState, Transfers, WakeState,
+    FailedFile, FileTransfer, FirewallState, FirewallStatus, NearbyDevice, Network, NetworkKind,
+    PairingPhase, PairingState, Permission, PermissionAsk, PermissionStatus, Profile, ProfileKind,
+    Screen, SessionBackend, SessionInfo, SessionType, Status, TransferState, Transfers, WakeState,
 };
 
 use crate::shortcut;
@@ -41,6 +41,57 @@ fn device(
         speed_percent: 100,
         ..Default::default()
     }
+}
+
+/// A network as a profile lists it.
+fn network(id: &str, name: &str, kind: NetworkKind, router: &str) -> Network {
+    Network {
+        id: id.into(),
+        name: name.into(),
+        kind: kind as i32,
+        router: router.into(),
+        resolved: false,
+    }
+}
+
+/// `network` as the one this computer is on, known by more than its
+/// router's address, so it can be added to a profile.
+fn current(network: Network) -> Network {
+    Network {
+        resolved: true,
+        ..network
+    }
+}
+
+/// The office's Wi-Fi, the network this computer is on in the sample.
+fn office_wifi() -> Network {
+    network("n-office", "Office-5G", NetworkKind::Wifi, "172.16.0.1")
+}
+
+/// Default (with the home network, known by its router alone), the user's
+/// Office (with the office's Wi-Fi) and Other networks, every computer
+/// connected in each.
+fn profiles() -> Vec<Profile> {
+    let profile = |id: &str, kind: ProfileKind, name: &str, networks: Vec<Network>| Profile {
+        id: id.into(),
+        kind: kind as i32,
+        name: name.into(),
+        paused: false,
+        off_device_ids: Vec::new(),
+        clipboard: true,
+        files: true,
+        networks,
+    };
+    vec![
+        profile(
+            "default",
+            ProfileKind::Default,
+            "",
+            vec![network("n-home", "", NetworkKind::Wired, "192.168.1.1")],
+        ),
+        profile("office", ProfileKind::Custom, "Office", vec![office_wifi()]),
+        profile("other", ProfileKind::OtherNetworks, "", Vec::new()),
+    ]
 }
 
 fn screen(id: &str, x: f64, width: f64, height: f64, scale: f64, primary: bool) -> Screen {
@@ -105,6 +156,10 @@ pub fn snapshot(now: SystemTime) -> Snapshot {
         relative_supported: true,
         wake_supported: true,
         offline_supported: true,
+        profiles_supported: true,
+        profiles: profiles(),
+        profile_id: "office".into(),
+        network: Some(current(office_wifi())),
         ..Default::default()
     };
     let arranged = |id: &str,
@@ -461,6 +516,67 @@ pub fn this_offline(now: SystemTime) -> Snapshot {
     model.status.offline_for_now = true;
     model.status.offline_by_device_id = "mac".into();
     model.status.offline_by_name = "Mac mini".into();
+    model.status.last_clipboard = None;
+    for device in &mut model.status.devices {
+        device.state = ConnectionState::Offline as i32;
+        device.rtt_ms = 0;
+        device.can_wake = false;
+        device.offline_since_unix_ms = 0;
+    }
+    let mut arrangement = (*model.arrangement).clone();
+    for device in &mut arrangement.devices {
+        if !device.this_device {
+            device.connected = false;
+        }
+    }
+    model.arrangement = Arc::new(arrangement);
+    model
+}
+
+/// The sample with the Studio PC left out of the profile in use (Office).
+pub fn not_in_profile(now: SystemTime) -> Snapshot {
+    let mut model = snapshot(now);
+    for profile in &mut model.status.profiles {
+        if profile.id == "office" {
+            profile.off_device_ids = vec!["pc".into()];
+        }
+    }
+    for device in &mut model.status.devices {
+        if device.id == "pc" {
+            device.state = ConnectionState::Offline as i32;
+            device.rtt_ms = 0;
+            device.not_in_profile = true;
+        }
+    }
+    let mut arrangement = (*model.arrangement).clone();
+    for device in &mut arrangement.devices {
+        if device.id == "pc" {
+            device.connected = false;
+        }
+    }
+    model.arrangement = Arc::new(arrangement);
+    model
+}
+
+/// The sample at a café whose network is in no profile, so the profile in
+/// use is Other networks, set to pause sharing: picked by the service, or
+/// chosen by the user (`chosen`). Every other computer is offline, and none
+/// to wake.
+pub fn profile_paused(now: SystemTime, chosen: bool) -> Snapshot {
+    let mut model = snapshot(now);
+    for profile in &mut model.status.profiles {
+        if profile.id == "other" {
+            profile.paused = true;
+        }
+    }
+    model.status.profile_id = "other".into();
+    model.status.profile_chosen = chosen;
+    model.status.network = Some(current(network(
+        "n-cafe",
+        "Cafe-Guest",
+        NetworkKind::Wifi,
+        "198.51.100.1",
+    )));
     model.status.last_clipboard = None;
     for device in &mut model.status.devices {
         device.state = ConnectionState::Offline as i32;

@@ -4,6 +4,8 @@ namespace InputWeave.Main;
 public enum MainPage
 {
     General,
+    /// <summary>Shown only for a service that knows profiles.</summary>
+    Profiles,
     Devices,
     Arrangement,
     Files,

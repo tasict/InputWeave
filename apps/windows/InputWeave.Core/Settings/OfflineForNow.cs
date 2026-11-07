@@ -41,10 +41,12 @@ public static class OfflineForNow
     /// <summary>
     /// Whether another computer can be taken offline for now, or brought
     /// back, from here: one this computer trusts, while this one is not
-    /// offline for now itself (it can then only bring itself back).
+    /// offline for now itself (it can then only bring itself back), and the
+    /// profile in use connects it and is not paused.
     /// </summary>
     public static bool Offered(AgentSnapshot model, string id) =>
-        Supported(model) && !ThisOffline(model) && id != model.ThisDeviceId && model.Device(id) is not null;
+        Supported(model) && !ThisOffline(model) && id != model.ThisDeviceId && model.Device(id) is not null
+        && !Profiles.CutOff(model, id);
 
     /// <summary>What the button and the context menu item say for another computer: Take Offline, or Bring Back Online.</summary>
     public static string ActionKey(AgentSnapshot model, string id) =>

@@ -28,6 +28,7 @@ use iw_core::router::{self, Action, Event, RelativeStart, Router, RouterConfig};
 use iw_core::speed::CursorSpeed;
 use iw_keymap::ModifierRemap;
 use iw_net::Fingerprint;
+use iw_platform::network::NetworkSighting;
 use iw_platform::{
     Clipboard, ClipboardContent, ClipboardFormat, ClipboardPromise, Firewall, InputCapture,
     InputEmulation, PermissionState, PlatformError, SessionInfo,
@@ -63,9 +64,10 @@ use super::local_clipboard::{
 };
 use super::peers::LastHeard;
 use super::previews::{self, Pictures, PreviewFiles};
+use super::profiles::{self as profile_choice, Reach, Tracker};
 use super::status::{
     ArrangedDevice, Arrangement, ClipboardActivity, CursorCrossed, DeviceState, LazyStats,
-    OfflineChange, RelativeEnded, RelativeMode, Status,
+    OfflineChange, RelativeEnded, RelativeMode, Status, WifiNameHeld,
 };
 use super::this_device::ThisDevice;
 use super::transfer::ClipboardTransfer;
@@ -73,6 +75,7 @@ use super::wake::{self, INFO_INTERVAL, WakeData, WakeState, Wakes};
 use crate::config::{Config, PlacementConfig};
 use crate::convert;
 use crate::offline_file::{Entry as OfflineEntry, Full, OfflineDoc, TakenBy};
+use crate::profiles_file::{Network, Profile, ProfileEdit, ProfileError, ProfilesFile};
 
 /// Makes new hotkeys of those in effect (`EngineEvent::SetHotkeys`).
 pub(crate) type HotkeysChange = Box<dyn FnOnce(&Hotkeys) -> Result<Hotkeys, HotkeyError> + Send>;
@@ -85,6 +88,9 @@ pub(crate) enum EngineEvent {
     Capture(InputEvent),
     /// What the platform poller saw changed.
     Platform(PlatformState),
+    /// The platform poller's reading of the network, about once a second,
+    /// every one that succeeded (`agent::NetworkReads`).
+    Network(Option<NetworkSighting>),
     /// The platform poller's tick, about once a second whatever changed:
     /// injection catches up with the session (`InputEmulation::refresh`),
     /// and capture says whether it still captures
@@ -169,6 +175,20 @@ pub(crate) enum EngineEvent {
         device: String,
         offline: bool,
         reply: oneshot::Sender<Result<Option<Saved>, OfflineError>>,
+    },
+    /// The user changed the profiles, or which is used; the status shows
+    /// it before the reply, which carries, when the profiles file is to be
+    /// written, what says once it is.
+    Profiles {
+        change: ProfileChange,
+        reply: oneshot::Sender<Result<Option<Saved>, ProfileError>>,
+    },
+    /// An app read the Wi-Fi name of the network `network` stands for:
+    /// `name`, or none when it is not on Wi-Fi or cannot read it
+    /// (`ReportWifiName`). Checked already.
+    WifiName {
+        network: String,
+        name: Option<String>,
     },
     /// The user moved devices on the canvas.
     Rearrange {
@@ -377,6 +397,12 @@ pub enum JumpError {
     /// idle keyboard and mouse would take nothing anywhere.
     #[error("{0:?} is controlling this device")]
     ControlledBy(String),
+    /// The profile in use does not connect that device.
+    #[error("the profile in use does not connect {0:?}")]
+    NotInProfile(String),
+    /// The profile in use is paused: it connects no device.
+    #[error("the profile in use is paused")]
+    ProfilePaused,
     #[error(transparent)]
     Refused(#[from] router::JumpError),
     #[error("the agent is stopping")]
@@ -391,6 +417,66 @@ const SAVES_WAIT: Duration = Duration::from_secs(2);
 /// written down (`Engine::stamp_connected`), besides as they go offline and
 /// as the agent stops.
 const LAST_SEEN_STAMP: Duration = Duration::from_secs(10 * 60);
+
+/// A Wi-Fi name an app read, for the network it says (its id as the app
+/// had it from the status). It holds while that network is the one now,
+/// until another reading replaces it, the app gone or not; it is used only
+/// once [`CONFIRM_READINGS`] readings of the network the agent made after
+/// it still show that network, none of them waiting, so a name read on a
+/// network the agent has not seen yet never goes to the one before. Never
+/// kept in the profiles file but as the user adds the network.
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct WifiReport {
+    network: String,
+    name: Option<String>,
+    /// Readings since it came that showed its network, none waiting, up to
+    /// `CONFIRM_READINGS`.
+    readings: u32,
+}
+
+impl WifiReport {
+    fn confirmed(&self) -> bool {
+        self.readings >= CONFIRM_READINGS
+    }
+}
+
+/// Readings of the network after an app's Wi-Fi name came that must show
+/// the same network before it is used: the first may have been taken before
+/// the app read the name, the second was not.
+const CONFIRM_READINGS: u32 = 2;
+
+/// The longest the agent waits, as it starts, to know the network, and so
+/// the profile, before it reaches any device or announces itself
+/// (`Engine::hold_until`): the first reading comes at once, and one whose
+/// router is not resolved yet settles within `profiles::GRACE`. Should
+/// none come (the network cannot be read), it goes on with what it knows.
+const HOLD_AT_START: Duration = Duration::from_secs(10);
+
+/// Whether the profiles were kept already (`EngineParts::profiles_kept`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Kept {
+    /// Not yet: the first network seen goes into Default, and they are
+    /// kept from then on.
+    No,
+    /// In the profiles file, or the login window's copy of it.
+    Yes,
+    /// The profiles file is there but cannot be read: the profiles start
+    /// from the defaults, and the file is left be (no first network, no
+    /// save) until the user changes the profiles, which writes it anew.
+    Unreadable,
+}
+
+/// Why the profile in use is picked anew (`Engine::reselect`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Pick {
+    /// As the agent starts: no switch.
+    Start,
+    /// By itself: the network changed, or the profiles did. Counted
+    /// (`Status::profile_switches`) when it picks another.
+    Automatic,
+    /// The user chose a profile, or Automatic: not counted.
+    Chosen,
+}
 
 /// Why a session's link goes (`Engine::on_peer_down`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -417,6 +503,12 @@ pub enum WakeError {
     /// That device, or this one, is taken offline for now: it is not woken.
     #[error("{0:?} or this device is offline for now")]
     OfflineForNow(String),
+    /// The profile in use does not connect that device.
+    #[error("the profile in use does not connect {0:?}")]
+    NotInProfile(String),
+    /// The profile in use is paused.
+    #[error("the profile in use is paused")]
+    ProfilePaused,
     #[error("the agent is stopping")]
     Stopping,
 }
@@ -430,6 +522,8 @@ impl WakeError {
             Self::NoWakeData(_) => "no_wake_data",
             Self::NotSent(_) => "not_sent",
             Self::OfflineForNow(_) => "offline_for_now",
+            Self::NotInProfile(_) => "not_in_profile",
+            Self::ProfilePaused => "profile_paused",
             Self::Stopping => "agent_stopping",
         }
     }
@@ -531,6 +625,21 @@ pub(crate) const LICENSE_SINCE: u32 = 6;
 /// (`OfflineDevices`); a device before it is only told that sharing is
 /// paused (`SessionState.sharing_paused`) while either end is offline.
 pub(crate) const OFFLINE_SINCE: u32 = 7;
+
+/// A change to the profiles, from the app or `ctl` (`EngineEvent::Profiles`).
+#[derive(Clone, Debug)]
+pub enum ProfileChange {
+    Add(String),
+    Edit(String, ProfileEdit),
+    Remove(String),
+    /// A profile to use whatever the network; none: Automatic.
+    Choose(Option<String>),
+    /// Lists the network this device is on now in the profile.
+    AddNetwork(String),
+    RemoveNetwork(String),
+    RenameNetwork(String, String),
+    WifiNames(bool),
+}
 
 /// A change to this computer's license, from the app or `ctl`.
 #[derive(Debug)]
@@ -792,6 +901,14 @@ pub(crate) struct EngineParts {
     pub(crate) wake_on_push: bool,
     /// How long a device being woken has to connect.
     pub(crate) wake_wait: Duration,
+    /// The profiles, and whether they were kept already (a profiles file,
+    /// or the login window's copy of one): until then, the first network
+    /// seen goes into Default.
+    pub(crate) profiles: ProfilesFile,
+    pub(crate) profiles_kept: Kept,
+    /// Where the dialer, the accept loop and discovery learn what the
+    /// profile in use lets this device reach.
+    pub(crate) reach: watch::Sender<Reach>,
     /// Every this many relative movements one is not sent, as if lost; 0
     /// sends them all. For tests.
     #[cfg(feature = "test-hooks")]
@@ -823,7 +940,11 @@ struct FilesPull {
 struct ClipboardSync {
     /// The local clipboard, on a thread of its own.
     local: Option<LocalClipboard>,
+    /// Whether sync is on here, as the user's switch says.
     on: bool,
+    /// Whether the local clipboard was last told sync is on: the user's
+    /// switch and the profile in use's together (`sync_local_clipboard`).
+    told: bool,
     max: usize,
     relay: ClipboardRelay,
     next_request: u64,
@@ -1005,7 +1126,35 @@ pub(crate) struct Engine {
     /// for the apps to tell.
     offline_changes: u64,
     last_offline_change: Option<OfflineChange>,
-    /// Writes of the devices, wake or offline file going on
+    /// The profiles, which only the engine changes; whether they were kept
+    /// already (see `EngineParts::profiles_kept`).
+    profiles: ProfilesFile,
+    profiles_kept: Kept,
+    /// The network as the platform last read it, and as taken.
+    reading: Option<NetworkSighting>,
+    tracker: Tracker,
+    /// The Wi-Fi name an app last read (`WifiReport`), and one that came
+    /// while the network was being waited on, taken once the wait ends if
+    /// its network is the one then.
+    wifi_report: Option<WifiReport>,
+    wifi_held: Option<(String, Option<String>)>,
+    /// Until when nothing is reached, as the agent starts: until the first
+    /// reading of the network that settles (`Tracker::waiting`), or this,
+    /// whichever comes first (`HOLD_AT_START`). The profile is then put in
+    /// effect, which is no switch the apps tell.
+    hold_until: Option<Instant>,
+    /// The profile in use, and whether a network was known as it was
+    /// picked.
+    active: String,
+    network_known: bool,
+    /// How many times the profile in use changed by itself.
+    profile_switches: u64,
+    /// The network and profiles as the status shows them, made anew only
+    /// as they change (`show_profiles`), not for every status.
+    network_shown: Option<Network>,
+    profiles_shown: Arc<Vec<Profile>>,
+    reach: watch::Sender<Reach>,
+    /// Writes of the devices, wake, offline or profiles file going on
     /// (`save_devices`).
     saves: tokio::task::JoinSet<()>,
     #[cfg(feature = "test-hooks")]
@@ -1062,6 +1211,9 @@ impl Engine {
             input_available,
             wake_on_push,
             wake_wait,
+            profiles,
+            profiles_kept,
+            reach,
             #[cfg(feature = "test-hooks")]
             lose_relative_motion,
             #[cfg(feature = "test-hooks")]
@@ -1175,6 +1327,7 @@ impl Engine {
             clipboard: ClipboardSync {
                 local: clipboard.map(|c| LocalClipboard::start(c, events.clone())),
                 on: clipboard_on,
+                told: clipboard_on,
                 max: clipboard_max,
                 relay: ClipboardRelay::new(relay_device),
                 next_request: 1,
@@ -1213,6 +1366,19 @@ impl Engine {
             offline,
             offline_changes: 0,
             last_offline_change: None,
+            tracker: Tracker::new(&profiles.salt),
+            reading: None,
+            wifi_report: None,
+            wifi_held: None,
+            hold_until: Some(Instant::now() + HOLD_AT_START),
+            active: profile_choice::select(&profiles, None).to_owned(),
+            network_known: false,
+            profiles,
+            profiles_kept,
+            profile_switches: 0,
+            network_shown: None,
+            profiles_shown: Arc::new(Vec::new()),
+            reach,
             saves: tokio::task::JoinSet::new(),
             #[cfg(feature = "test-hooks")]
             lose_relative_motion,
@@ -1224,6 +1390,8 @@ impl Engine {
         if engine.offline_here() {
             info!("this device is offline for now, as the group last said");
         }
+        // The profile as the agent starts, which is no switch.
+        engine.reselect(Pick::Start);
         engine.take_last_seen();
         engine.start_capture();
         engine.rebuild_layout();
@@ -1730,6 +1898,7 @@ impl Engine {
         stamps.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
         loop {
             let wake_deadline = self.wakes.next_deadline();
+            let hold_until = self.hold_until;
             tokio::select! {
                 event = events.recv() => match event {
                     None | Some(EngineEvent::Shutdown) => break,
@@ -1766,6 +1935,7 @@ impl Engine {
                         info!(%device, "a device being woken did not connect in time");
                     }
                 }
+                () = sleep_until(hold_until), if hold_until.is_some() => self.end_hold(),
             }
             self.publish();
         }
@@ -1788,6 +1958,10 @@ impl Engine {
             EngineEvent::RefreshInjection => {
                 self.follow_capture();
                 self.emulation.refresh();
+            }
+            EngineEvent::Network(reading) => {
+                self.reading = reading;
+                self.network_read();
             }
             EngineEvent::SetLoginWindowAccess(on) => self.login_window_access = on,
             EngineEvent::PullClipboard {
@@ -1848,9 +2022,7 @@ impl Engine {
             EngineEvent::Renamed => self.publish_arrangement(),
             EngineEvent::SetClipboardSync(on) => {
                 self.clipboard.on = on;
-                if let Some(local) = &self.clipboard.local {
-                    local.ask(LocalOp::SetSync(on));
-                }
+                self.sync_local_clipboard();
             }
             EngineEvent::SetPreviewSharing(on) => self.set_preview_sharing(on),
             EngineEvent::SetLocked(locked) => match self.router {
@@ -1983,6 +2155,13 @@ impl Engine {
                 self.publish();
                 let _ = reply.send(saved);
             }
+            EngineEvent::Profiles { change, reply } => {
+                let result = self.change_profiles(change);
+                // The client reads the status as soon as it has the reply.
+                self.publish();
+                let _ = reply.send(result);
+            }
+            EngineEvent::WifiName { network, name } => self.on_wifi_name(network, name),
             EngineEvent::SetOfflineForNow {
                 device,
                 offline,
@@ -2426,6 +2605,12 @@ impl Engine {
             // ends the session.
             return;
         }
+        if !self.reach.borrow().allows(device.as_str()) {
+            // The profile in use came to leave it out while the session was
+            // being set up.
+            debug!(%device, "the profile in use does not connect it; ending its session");
+            return;
+        }
         info!(%device, "peer connected");
         let _ = tx.send(Outbound::Control(self.displays_message()));
         let _ = tx.send(Outbound::Control(layout_message(&self.directory.layout())));
@@ -2515,6 +2700,15 @@ impl Engine {
             .map(|old| old.id.clone())
             .collect();
         self.peers = peers;
+        // Not trusted any more, they are not listed in profiles either.
+        if self
+            .profiles
+            .forget_devices(|d| gone.iter().any(|g| g == d))
+        {
+            self.save_profiles(false);
+            self.apply_profile();
+            self.show_profiles();
+        }
         for id in gone {
             self.peer_pictures.remove(&DeviceId::new(&id));
             self.preview_files.remove(&id);
@@ -2650,6 +2844,14 @@ impl Engine {
         if self.offline_between(&DeviceId::new(device)) {
             return Err(WakeError::OfflineForNow(device.to_owned()));
         }
+        let reach = self.reach.borrow();
+        if reach.paused {
+            return Err(WakeError::ProfilePaused);
+        }
+        if !reach.connects(device) {
+            return Err(WakeError::NotInProfile(device.to_owned()));
+        }
+        drop(reach);
         if self.links.contains_key(&DeviceId::new(device)) {
             return Err(WakeError::Connected(device.to_owned()));
         }
@@ -3066,10 +3268,11 @@ impl Engine {
     }
 
     /// Whether the clipboard goes neither to `device` nor from it: this
-    /// device's user turned it off with that device, or either is taken
-    /// offline for now.
+    /// device's user turned it off with that device, or in the profile in
+    /// use, or either is taken offline for now.
     fn clipboard_off(&self, device: &DeviceId) -> bool {
         self.offline_between(device)
+            || self.profile_in_use().is_some_and(|p| !p.clipboard)
             || self
                 .peers
                 .iter()
@@ -3086,10 +3289,11 @@ impl Engine {
     }
 
     /// Whether files go neither to `device` nor from it: this device's user
-    /// turned them off with that device, or either is taken offline for
-    /// now.
+    /// turned them off with that device, or in the profile in use, or
+    /// either is taken offline for now.
     fn files_off(&self, device: &DeviceId) -> bool {
         self.offline_between(device)
+            || self.profile_in_use().is_some_and(|p| !p.files)
             || self
                 .peers
                 .iter()
@@ -4502,6 +4706,16 @@ impl Engine {
             };
             return Err(router::JumpError::OfflineForNow(which).into());
         }
+        // Then the profile, connected or not, as the apps show it.
+        if !here {
+            let reach = self.reach.borrow();
+            if reach.paused {
+                return Err(JumpError::ProfilePaused);
+            }
+            if !reach.connects(&device) {
+                return Err(JumpError::NotInProfile(device));
+            }
+        }
         let router = self
             .router
             .as_mut()
@@ -4935,13 +5149,16 @@ impl Engine {
     }
 
     /// The devices the router may wake by a push: those that told how,
-    /// but none taken offline for now, and none at all while this one is.
+    /// but none taken offline for now or that the profile in use does not
+    /// connect, and none at all while this one is offline for now or the
+    /// profile is paused.
     fn wakeable_now(&self) -> Vec<DeviceId> {
-        if self.offline_here() {
+        let reach = self.reach.borrow();
+        if self.offline_here() || reach.paused {
             return Vec::new();
         }
         wakeable(&self.peers)
-            .filter(|d| !self.offline_for_now(d))
+            .filter(|d| !self.offline_for_now(d) && reach.connects(d.as_str()))
             .collect()
     }
 
@@ -5144,6 +5361,415 @@ impl Engine {
         }
         self.refresh_exits();
         self.publish_arrangement();
+    }
+
+    /// The profile in use: none while the agent, as it starts, waits to
+    /// know the network (`hold_until`), when none is in effect and nothing
+    /// of any shows; else Other networks should it be gone, which cannot
+    /// be.
+    fn profile_in_use(&self) -> Option<&Profile> {
+        if self.hold_until.is_some() {
+            return None;
+        }
+        let profile = self
+            .profiles
+            .profile(&self.active)
+            .or_else(|| self.profiles.profiles.last())
+            .expect("the profiles always hold Other networks");
+        Some(profile)
+    }
+
+    /// The network as taken now, with the Wi-Fi name an app read on it
+    /// (`WifiReport`) while networks are recognized by it too (the
+    /// platform's own, on Linux, comes with the network), and the name
+    /// given it here where it is listed.
+    fn network(&self) -> Option<Network> {
+        let mut network = self.tracker.current()?.clone();
+        if network.wifi_name.is_none()
+            && let Some(report) = &self.wifi_report
+            && self.report_in_effect(report)
+        {
+            network.wifi_name = report.name.clone();
+        }
+        network.name = self
+            .profiles
+            .network(&network.id)
+            .and_then(|n| n.name.clone());
+        Some(network)
+    }
+
+    /// Whether `report` says what the network now is called: names are
+    /// used, it is confirmed, it is of the network now, and a name only
+    /// while that is a Wi-Fi link. An app reads the Wi-Fi name whatever the
+    /// route, so one read while a VPN or a wired link carries it (a VPN
+    /// taking all traffic over the home Wi-Fi) is kept, so the app is told
+    /// it came (`Status::wifi_name_held`), but never says anything of that
+    /// network.
+    fn report_in_effect(&self, report: &WifiReport) -> bool {
+        let Some(current) = self.tracker.current() else {
+            return false;
+        };
+        self.profiles.wifi_names
+            && report.confirmed()
+            && report.network == current.id
+            && (report.name.is_none() || current.kind == crate::profiles_file::NetworkKind::Wifi)
+    }
+
+    /// A reading of the network, about once a second: the profile follows
+    /// when the network changed (`profiles::Tracker`), and the Wi-Fi name an
+    /// app read is confirmed, held over or dropped (`WifiReport`).
+    fn network_read(&mut self) {
+        let changed = self.tracker.observe(self.reading.as_ref(), Instant::now());
+        let current = self.tracker.current().map(|n| n.id.clone());
+        let waiting = self.tracker.waiting();
+        let mut pick = changed;
+        if changed {
+            // Never the names, which say where the user is.
+            match self.tracker.current() {
+                Some(network) => {
+                    info!(network = %network.id, kind = ?network.kind, "the network changed")
+                }
+                None => info!("no network now"),
+            }
+        }
+        let gone = |network: &str| current.as_deref() != Some(network);
+        // Read on another network: nothing of this one.
+        if self.wifi_report.as_ref().is_some_and(|r| gone(&r.network)) {
+            self.wifi_report = None;
+        }
+        if waiting {
+            // Not confirmed by a reading that waits, which may be of the
+            // next network already.
+            if self.wifi_report.as_ref().is_some_and(|r| !r.confirmed()) {
+                self.wifi_report = None;
+            }
+        } else {
+            // One that came while the network was waited on, still of the
+            // network now: counted from here.
+            if let Some((network, name)) = self.wifi_held.take()
+                && !gone(&network)
+            {
+                pick |= self.take_wifi_name(network, name);
+            }
+            if let Some(report) = self.wifi_report.as_mut()
+                && !report.confirmed()
+            {
+                report.readings += 1;
+                pick |= report.confirmed();
+            }
+        }
+        // The first reading that settles ends the hold of the start: the
+        // profile it picks is put in effect, which is no switch.
+        if !waiting && self.hold_until.take().is_some() {
+            info!(
+                network = current.is_some(),
+                "the network is known; reaching other devices as the profile in use says"
+            );
+            self.reselect(Pick::Start);
+        } else if pick {
+            self.reselect(Pick::Automatic);
+        }
+    }
+
+    /// Ends the hold of the start without a reading that settled: the
+    /// network cannot be read, or not soon enough.
+    fn end_hold(&mut self) {
+        if self.hold_until.take().is_some() {
+            warn!(
+                "the network is not known yet; reaching other devices as the profile in use says now"
+            );
+            self.reselect(Pick::Start);
+        }
+    }
+
+    /// An app read the Wi-Fi name of the network `network` stands for:
+    /// taken while names are used and it is the network now; one that comes
+    /// while a reading of the network waits (it may be of the next network
+    /// already) is held until the wait ends. Used once confirmed
+    /// (`WifiReport`).
+    fn on_wifi_name(&mut self, network: String, name: Option<String>) {
+        if !self.profiles.wifi_names {
+            debug!("passing over a Wi-Fi name: names are not used");
+            return;
+        }
+        if self.tracker.waiting() {
+            debug!("holding a Wi-Fi name until the network is known");
+            self.wifi_held = Some((network, name));
+            return;
+        }
+        if self.tracker.current().map(|n| n.id.as_str()) != Some(network.as_str()) {
+            debug!("passing over a Wi-Fi name read on another network");
+            return;
+        }
+        if self.take_wifi_name(network, name) {
+            self.reselect(Pick::Automatic);
+        }
+    }
+
+    /// Takes a Wi-Fi name an app read on the network now, to be confirmed;
+    /// whether the name in use until now goes (the profile is picked anew).
+    fn take_wifi_name(&mut self, network: String, name: Option<String>) -> bool {
+        if self
+            .wifi_report
+            .as_ref()
+            .is_some_and(|r| r.network == network && r.name == name)
+        {
+            return false;
+        }
+        // "Not on Wi-Fi" while this device's own reading says it is: the app
+        // lost the name for a moment (a brief disconnect). The name in use
+        // stays; only another network, or names turned off, clears it.
+        let on_wifi = self
+            .tracker
+            .current()
+            .is_some_and(|n| n.kind == crate::profiles_file::NetworkKind::Wifi);
+        if name.is_none()
+            && on_wifi
+            && self
+                .wifi_report
+                .as_ref()
+                .is_some_and(|r| r.network == network && r.name.is_some() && r.confirmed())
+        {
+            debug!("keeping the Wi-Fi name in use: the app read none on Wi-Fi");
+            return false;
+        }
+        debug!(known = name.is_some(), "an app read the Wi-Fi name");
+        let in_use = self.wifi_report.as_ref().is_some_and(WifiReport::confirmed);
+        self.wifi_report = Some(WifiReport {
+            network,
+            name,
+            readings: 0,
+        });
+        in_use
+    }
+
+    /// Picks the profile to use, for `pick`'s reason, and puts it in
+    /// effect. Until the profiles were kept, the first network seen goes
+    /// into Default, so on a first start, and as InputWeave is upgraded
+    /// from before profiles, nothing changes until the user changes
+    /// something. A listed network takes the names it lacked.
+    ///
+    /// A change by itself is counted, for the apps to tell, only from one
+    /// network to another (or as the profiles change on one): not as a
+    /// network comes, as after starting or waking from sleep, nor as the
+    /// last one goes, when nothing is reached anyway.
+    fn reselect(&mut self, pick: Pick) {
+        let network = self.network();
+        let known_before = std::mem::replace(&mut self.network_known, network.is_some());
+        let mut changed = false;
+        // Kept as the platform read it with the route (NetworkManager's
+        // Wi-Fi name, Windows' name for the network), never with a name an
+        // app read.
+        if let Some(read) = self.tracker.current().cloned() {
+            // Only by its id with the router resolved, which it keeps: one
+            // made of the router's address alone would match no more once
+            // it resolves. Until then, Default waits for one.
+            if self.profiles_kept == Kept::No
+                && self.tracker.resolved()
+                && self.profiles.listing(&read.id).is_none()
+                && self
+                    .profiles
+                    .add_network(crate::profiles_file::DEFAULT, &read)
+                    .unwrap_or(false)
+            {
+                info!(network = %read.id, "the first network seen is Default's");
+                changed = true;
+            }
+            changed |= self.profiles.learn(&read);
+            // A Wi-Fi name an app read and the agent confirmed fills in a
+            // listed network that has none (one listed before names were
+            // used), never over one.
+            if let Some(report) = &self.wifi_report
+                && self.report_in_effect(report)
+                && let Some(name) = &report.name
+            {
+                changed |= self.profiles.fill_wifi_name(&read.id, name);
+            }
+        }
+        let active = profile_choice::select(&self.profiles, network.as_ref()).to_owned();
+        // What this device picks by itself by a Wi-Fi name is noted, to be
+        // picked there again before the name is known (as the agent starts,
+        // and at the login window, where no app tells it).
+        if profile_choice::picked_by_name(&self.profiles, network.as_ref())
+            && let Some(network) = &network
+        {
+            changed |= self.profiles.picked(&network.id, &active);
+        }
+        if changed {
+            self.save_profiles(false);
+        }
+        if active != self.active {
+            info!(
+                profile = %active,
+                chosen = self.profiles.chosen.is_some(),
+                "the profile in use changed"
+            );
+            if pick == Pick::Automatic && known_before && network.is_some() {
+                self.profile_switches += 1;
+            }
+            self.active = active;
+        }
+        self.apply_profile();
+        self.show_profiles();
+    }
+
+    /// Makes anew what the status shows of the network and the profiles,
+    /// where it changed: after anything that may change them.
+    fn show_profiles(&mut self) {
+        self.network_shown = self.network();
+        if *self.profiles_shown != self.profiles.profiles {
+            self.profiles_shown = Arc::new(self.profiles.profiles.clone());
+        }
+    }
+
+    /// Puts the profile in use in effect: files follow its switch, and the
+    /// devices it does not connect (every one, paused) are let go of as if
+    /// their sessions ended, which they do, while those it connects again
+    /// are dialed and taken again (`Reach`, which the dialer, the accept
+    /// loop and discovery follow). The clipboard follows its switch where
+    /// it is checked (`clipboard_off`), and the local clipboard is told
+    /// (`sync_local_clipboard`).
+    fn apply_profile(&mut self) {
+        self.sync_local_clipboard();
+        let profile = self.profile_in_use();
+        let reach = profile.map_or_else(Reach::held, Reach::of);
+        let files = profile.is_none_or(|p| p.files);
+        self.files.profile_changed(&reach, files);
+        if *self.reach.borrow() == reach {
+            return;
+        }
+        if reach.paused != self.reach.borrow().paused {
+            info!(
+                paused = reach.paused,
+                "the profile in use pauses sharing, or no longer"
+            );
+        }
+        let gone: Vec<DeviceId> = self
+            .links
+            .keys()
+            .filter(|device| !reach.allows(device.as_str()))
+            .cloned()
+            .collect();
+        // Control comes back from them first, for that reason, and they
+        // let go of everything (`Leave`), before their sessions end.
+        for device in &gone {
+            self.route(Event::LeaveForProfile(device.clone()));
+        }
+        let away: Vec<String> = self
+            .peers
+            .iter()
+            .filter(|p| !reach.connects(&p.id))
+            .map(|p| p.id.clone())
+            .collect();
+        self.reach.send_replace(reach);
+        for device in gone {
+            info!(%device, "the profile in use does not connect it; ending its session");
+            self.on_peer_down(device, Gone::Offline);
+        }
+        // Not woken meanwhile, nor shown being woken once back.
+        for id in away {
+            self.wakes.forget(&id);
+        }
+        let wakeable = self.wakeable_now();
+        if let Some(router) = self.router.as_mut() {
+            router.set_wakeable(wakeable);
+        }
+        self.refresh_exits();
+        self.publish_arrangement();
+    }
+
+    /// Tells the local clipboard whether sync is on, which takes the user's
+    /// switch and the profile in use's both: one that reads ahead (the
+    /// Windows broker) reads nothing while it is off, and once it is on
+    /// again reads what was copied meanwhile, to be offered as the cursor
+    /// next leaves. Told only as it changes.
+    fn sync_local_clipboard(&mut self) {
+        // None in effect while the agent starts: as the user's switch says.
+        let on = self.clipboard.on && self.profile_in_use().is_none_or(|p| p.clipboard);
+        if on == self.clipboard.told {
+            return;
+        }
+        self.clipboard.told = on;
+        if let Some(local) = &self.clipboard.local {
+            local.ask(LocalOp::SetSync(on));
+        }
+    }
+
+    /// Changes the profiles as the user asked; what says once the profiles
+    /// file has it, when it is to be written.
+    fn change_profiles(&mut self, change: ProfileChange) -> Result<Option<Saved>, ProfileError> {
+        let mut file = self.profiles.clone();
+        // Choosing, and removing the profile chosen (back to Automatic),
+        // are the user's doing: no switch for the apps to tell.
+        let pick = match &change {
+            ProfileChange::Choose(_) => Pick::Chosen,
+            ProfileChange::Remove(id) if file.chosen.as_ref() == Some(id) => Pick::Chosen,
+            _ => Pick::Automatic,
+        };
+        let changed = match change {
+            ProfileChange::Add(name) => {
+                let id = file.add(&name)?;
+                info!(profile = %id, "a profile was added");
+                true
+            }
+            ProfileChange::Edit(id, edit) => {
+                file.edit(&id, &edit, |d| self.peers.iter().any(|p| p.id == d))?
+            }
+            ProfileChange::Remove(id) => {
+                file.remove(&id)?;
+                info!(profile = %id, "a profile was removed");
+                true
+            }
+            ProfileChange::Choose(id) => file.choose(id.as_deref())?,
+            ProfileChange::AddNetwork(id) => {
+                let network = self.network().ok_or(ProfileError::NoNetwork)?;
+                // Not by the router's address alone, which would match no
+                // more once it resolves.
+                if !self.tracker.resolved() {
+                    return Err(ProfileError::NetworkUnresolved);
+                }
+                file.add_network(&id, &network)?
+            }
+            ProfileChange::RemoveNetwork(id) => {
+                file.remove_network(&id)?;
+                true
+            }
+            ProfileChange::RenameNetwork(id, name) => file.rename_network(&id, &name)?,
+            ProfileChange::WifiNames(on) => {
+                let changed = file.wifi_names != on;
+                file.wifi_names = on;
+                if !on {
+                    // Not kept once names are not used, nor what was picked
+                    // by them.
+                    self.wifi_report = None;
+                    self.wifi_held = None;
+                    file.picks.clear();
+                }
+                changed
+            }
+        };
+        if !changed {
+            return Ok(None);
+        }
+        self.profiles = file;
+        let saved = self.save_profiles(true);
+        self.reselect(pick);
+        Ok(saved)
+    }
+
+    /// Writes the profiles, off this loop, if there is a file; from now on
+    /// they are kept. A profiles file that could not be read is written
+    /// over only for a change the user made (`by_user`): until then the
+    /// changes the agent makes by itself (a name learned, a device
+    /// forgotten) last until it stops.
+    fn save_profiles(&mut self, by_user: bool) -> Option<Saved> {
+        if self.profiles_kept == Kept::Unreadable && !by_user {
+            debug!("not writing over the profiles file that could not be read");
+            return None;
+        }
+        self.profiles_kept = Kept::Yes;
+        let unsaved = self.directory.profiles_unsaved(&self.profiles)?;
+        Some(self.save_devices(unsaved))
     }
 
     /// Ends what this device has going on with `device` once it is gone, or
@@ -5387,6 +6013,7 @@ impl Engine {
             Some(iw_core::router::State::Remote { device, .. }) => device.to_string(),
             _ => self.local.to_string(),
         };
+        let reach = self.reach.borrow().clone();
         let status = Status {
             sharing: self.sharing,
             this_device: self.local.to_string(),
@@ -5410,25 +6037,36 @@ impl Engine {
                     // shown offline, and not as one that can be woken.
                     let cut_off = self.offline_between(&id);
                     let link = session.filter(|_| !cut_off);
-                    // While this device is offline for now, every other
-                    // one is just offline here, taken offline or not.
+                    // While this device is offline for now, or the profile
+                    // in use is paused, every other one is just offline
+                    // here, taken offline or not.
                     let taken_by = self
                         .offline
                         .taken_by(&p.id)
-                        .filter(|_| !self.offline_here());
+                        .filter(|_| !self.offline_here() && !reach.paused);
+                    // Nor while the profile in use leaves it out; it says
+                    // so after being offline for now, which comes first,
+                    // and not while the profile is paused, when every
+                    // device is just offline.
+                    let left_out = !reach.connects(&p.id);
+                    let away = cut_off || left_out;
                     DeviceState {
                         connected: link.is_some(),
-                        can_wake: session.is_none() && !cut_off && p.wake.is_some(),
-                        wake: if cut_off {
+                        can_wake: session.is_none() && !away && p.wake.is_some(),
+                        wake: if away {
                             WakeState::None
                         } else {
                             self.wakes.state(&p.id)
                         },
-                        offline_since: if session.is_none() && !cut_off && p.wake.is_some() {
+                        offline_since: if session.is_none() && !away && p.wake.is_some() {
                             self.last_seen.get(&p.id).copied()
                         } else {
                             None
                         },
+                        not_in_profile: left_out
+                            && !reach.paused
+                            && taken_by.is_none()
+                            && !self.offline_here(),
                         offline_for_now: taken_by.is_some(),
                         offline_by: taken_by.map(|entry| self.taken_by(entry)),
                         offline_unaware: session.is_some_and(|l| l.version < OFFLINE_SINCE),
@@ -5485,6 +6123,23 @@ impl Engine {
                 .map(|entry| self.taken_by(entry)),
             offline_changes: self.offline_changes,
             last_offline_change: self.last_offline_change.clone(),
+            network: self.network_shown.clone(),
+            network_resolved: self.tracker.resolved(),
+            profiles: self.profiles_shown.clone(),
+            // None yet while the agent starts (`hold_until`).
+            profile: if self.hold_until.is_some() {
+                String::new()
+            } else {
+                self.active.clone()
+            },
+            profile_chosen: self.profiles.chosen.is_some(),
+            profile_switches: self.profile_switches,
+            wifi_names: self.profiles.wifi_names,
+            wifi_name_held: self.wifi_report.as_ref().map(|report| WifiNameHeld {
+                network: report.network.clone(),
+                name: report.name.clone(),
+                in_use: self.report_in_effect(report),
+            }),
         };
         self.status.send_if_modified(|current| {
             if *current == status {

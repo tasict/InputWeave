@@ -23,6 +23,7 @@ use iw_platform::{PermissionState, SessionStatus};
 use crate::agent::{AgentError, Options};
 use crate::config::{BackendConfig, ClipboardConfig, Config, NetworkConfig, PathsConfig};
 use crate::offline_file::OfflineDoc;
+use crate::profiles_file::ProfilesFile;
 use crate::store::DevicesFile;
 
 /// The user's InputWeave folder below their home, as `paths::config_dir`
@@ -88,6 +89,8 @@ const MAX_DEVICES: u64 = 4 << 20;
 const MAX_IDENTITY: u64 = 64 << 10;
 #[cfg(unix)]
 const MAX_OFFLINE: u64 = crate::offline_file::MAX_FILE;
+#[cfg(unix)]
+const MAX_PROFILES: u64 = 1 << 20;
 
 /// What the agent at the login window runs as: the user's device.
 pub struct UserState {
@@ -98,6 +101,10 @@ pub struct UserState {
     /// last knew them; none when it kept no such file or it cannot be read
     /// (other devices tell the newest anyway as they connect).
     pub offline: OfflineDoc,
+    /// The user's profiles, so the login window's agent connects only as
+    /// the profile in use there lets it, and not at all while it is paused;
+    /// none when the user's agent kept none, or they cannot be read.
+    pub profiles: Option<ProfilesFile>,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -203,11 +210,24 @@ pub fn load(home: &std::path::Path, uid: u32) -> Result<Option<UserState>, LoadE
             OfflineDoc::default()
         }
     };
+    let profiles = match read(&dir, "profiles.toml", "profiles.toml", MAX_PROFILES) {
+        Ok(Some(text)) => ProfilesFile::parse(&text)
+            .inspect_err(|e| {
+                tracing::warn!(error = %e, "the profiles file is not one; starting without it");
+            })
+            .ok(),
+        Ok(None) => None,
+        Err(e) => {
+            tracing::warn!(error = %e, "cannot read the profiles file; starting without it");
+            None
+        }
+    };
     Ok(Some(UserState {
         config: config_for(config),
         identity: iw_net::Identity::from_files(cert, key),
         devices,
         offline,
+        profiles,
     }))
 }
 
@@ -241,15 +261,22 @@ pub fn config_for(user: Config) -> Config {
     }
 }
 
-/// How the agent runs at the login window: the user's devices, and the
-/// devices taken offline for now, in memory only, and no socket, broker,
-/// receive folder, transfer history or app. Other devices keep the pictures
-/// of this Mac's desktop they have, since this agent cannot read the
-/// user's.
-pub fn options(devices: DevicesFile, offline: OfflineDoc) -> Options {
+/// How the agent runs at the login window: the user's devices, the devices
+/// taken offline for now and the profiles, in memory only, and no socket,
+/// broker, receive folder, transfer history or app. Other devices keep the
+/// pictures of this Mac's desktop they have, since this agent cannot read
+/// the user's. With no app to tell it Wi-Fi names, it picks on a network
+/// the profile the user's agent last picked there by the name (the
+/// profiles' `picks`), as that agent does as it starts.
+pub fn options(
+    devices: DevicesFile,
+    offline: OfflineDoc,
+    profiles: Option<ProfilesFile>,
+) -> Options {
     Options {
         devices: Some(devices),
         offline: Some(offline),
+        profiles,
         open_app: false,
         previews_unchanged: true,
         ..Options::default()
@@ -420,6 +447,25 @@ mod tests {
             assert_eq!(state.devices.device_name, "Studio");
             let identity = iw_net::Identity::load_or_generate(&folder.join("identity")).unwrap();
             assert_eq!(state.identity.fingerprint(), identity.fingerprint());
+            // No profiles file: none, which the agent starts from as a
+            // first start does.
+            assert_eq!(state.profiles, None);
+            let mut profiles = ProfilesFile::default();
+            profiles.choose(Some(crate::profiles_file::OTHER)).unwrap();
+            // With the salt its networks' ids are made with, and the
+            // profile last picked by the Wi-Fi name on one.
+            profiles.picked(
+                "0123456789abcdef0123456789abcdef",
+                crate::profiles_file::DEFAULT,
+            );
+            profiles.save(&folder.join("profiles.toml")).unwrap();
+            let state = load(home.path(), me()).unwrap().unwrap();
+            assert_eq!(state.profiles, Some(profiles.clone()));
+            let options = options(state.devices, state.offline, state.profiles);
+            assert_eq!(options.profiles, Some(profiles));
+            // One that is not one is passed over.
+            std::fs::write(folder.join("profiles.toml"), "not toml [").unwrap();
+            assert_eq!(load(home.path(), me()).unwrap().unwrap().profiles, None);
         }
 
         #[test]

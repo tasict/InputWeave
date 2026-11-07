@@ -13,6 +13,7 @@ pub mod files;
 pub mod general;
 pub mod inspector;
 pub mod license;
+pub mod profiles;
 pub mod shortcuts;
 pub mod troubleshooting;
 
@@ -77,6 +78,15 @@ impl EntrySync {
     /// it alive through itself.
     pub fn edits(&self) -> Edits {
         Edits(self.edited.clone())
+    }
+
+    /// Shows `text` now, as the model's, even while the focus is in the
+    /// row: the user's change was dropped.
+    pub fn reset(&self, text: &str) {
+        self.edited.set(false);
+        if self.row.text() != text {
+            self.quiet.run(|| self.row.set_text(text));
+        }
     }
 
     /// Shows the model's `text` unless the user is editing.

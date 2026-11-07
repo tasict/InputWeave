@@ -19,6 +19,7 @@ use super::pairing::{PairingPeer, PairingStatus};
 use super::previews::{MAX_ARRANGEMENT_PICTURES, Pictures};
 use super::wake::WakeState;
 use crate::config::Config;
+use crate::profiles_file::{DEFAULT, Network, NetworkKind, OTHER, Profile, ProfilesFile};
 
 /// The cursor crossed an edge of one of this device's displays, going to
 /// or coming from another device (`Event.cursor_crossed`): the apps light
@@ -150,6 +151,37 @@ pub struct Status {
     pub offline_changes: u64,
     /// The last of those.
     pub last_offline_change: Option<OfflineChange>,
+    /// The network this device is on now, if any.
+    pub network: Option<Network>,
+    /// Whether it is known with its router resolved, and so can be added to
+    /// a profile (`ProfileChange::AddNetwork`).
+    pub network_resolved: bool,
+    /// Every profile, Default first and Other networks last; shared, so a
+    /// status made after every event costs no copy of them, and compares
+    /// by pointer while they did not change.
+    pub profiles: std::sync::Arc<Vec<Profile>>,
+    /// The profile in use.
+    pub profile: String,
+    /// The user chose it, rather than Automatic.
+    pub profile_chosen: bool,
+    /// How many times the profile in use changed by itself, so a client
+    /// can tell each time apart.
+    pub profile_switches: u64,
+    /// Networks are also recognized by the Wi-Fi name the app reads.
+    pub wifi_names: bool,
+    /// The Wi-Fi name the agent holds from an app for the network now.
+    pub wifi_name_held: Option<WifiNameHeld>,
+}
+
+/// A Wi-Fi name an app read that the agent holds (`Status::wifi_name_held`).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct WifiNameHeld {
+    pub network: String,
+    /// None: the app said this device is not on Wi-Fi.
+    pub name: Option<String>,
+    /// Confirmed, and in use: a name only while the network is reached
+    /// over Wi-Fi.
+    pub in_use: bool,
 }
 
 /// A device taken offline for now, or brought back, from this device; or
@@ -266,6 +298,9 @@ pub struct DeviceState {
     /// It is connected, and knows nothing of devices taken offline for now
     /// (InputWeave 1.0).
     pub offline_unaware: bool,
+    /// The profile in use does not connect it (and is not paused, nor is
+    /// it or this device offline for now, which say more).
+    pub not_in_profile: bool,
 }
 
 impl DeviceState {
@@ -296,6 +331,7 @@ impl DeviceState {
             offline_for_now: false,
             offline_by: None,
             offline_unaware: false,
+            not_in_profile: false,
         }
     }
 }
@@ -352,7 +388,20 @@ impl Status {
             offline_by: None,
             offline_changes: 0,
             last_offline_change: None,
+            network: None,
+            network_resolved: false,
+            profiles: std::sync::Arc::new(ProfilesFile::default().profiles),
+            profile: DEFAULT.to_owned(),
+            profile_chosen: false,
+            profile_switches: 0,
+            wifi_names: false,
+            wifi_name_held: None,
         }
+    }
+
+    /// The profile in use.
+    pub fn profile_in_use(&self) -> Option<&Profile> {
+        self.profiles.iter().find(|p| p.id == self.profile)
     }
 
     pub fn device(&self, id: &str) -> Option<&DeviceState> {
@@ -404,7 +453,8 @@ impl Status {
                     | ReturnReason::ScreenLocked(d)
                     | ReturnReason::InputUnavailable(d)
                     | ReturnReason::PeerPaused(d)
-                    | ReturnReason::OfflineForNow(d),
+                    | ReturnReason::OfflineForNow(d)
+                    | ReturnReason::ProfileChanged(d),
                 ) => d.to_string(),
                 _ => String::new(),
             },
@@ -449,6 +499,7 @@ impl Status {
                         .map(|(_, name)| name.clone())
                         .unwrap_or_default(),
                     offline_unaware: d.offline_unaware,
+                    not_in_profile: d.not_in_profile,
                 })
                 .collect(),
             locked: self.locked,
@@ -511,7 +562,57 @@ impl Status {
                 }
             }),
             offline_supported: true,
+            network: self.network.as_ref().map(|network| app::Network {
+                resolved: self.network_resolved,
+                ..network_to_proto(network)
+            }),
+            profiles: self.profiles.iter().map(profile_to_proto).collect(),
+            profile_id: self.profile.clone(),
+            profile_chosen: self.profile_chosen,
+            profile_switches: self.profile_switches,
+            profiles_supported: true,
+            wifi_names: self.wifi_names,
+            wifi_name_held: self.wifi_name_held.as_ref().map(|held| app::WifiNameHeld {
+                network_id: held.network.clone(),
+                ssid: held.name.clone().unwrap_or_default(),
+                in_use: held.in_use,
+            }),
         }
+    }
+}
+
+/// A network as clients read it.
+pub fn network_to_proto(network: &Network) -> app::Network {
+    app::Network {
+        id: network.id.clone(),
+        name: network.shown_name().unwrap_or_default().to_owned(),
+        kind: match network.kind {
+            NetworkKind::Wired => app::NetworkKind::Wired,
+            NetworkKind::Wifi => app::NetworkKind::Wifi,
+            NetworkKind::Vpn => app::NetworkKind::Vpn,
+        }
+        .into(),
+        router: network.router.map(|ip| ip.to_string()).unwrap_or_default(),
+        resolved: false,
+    }
+}
+
+/// A profile as clients read it.
+pub fn profile_to_proto(profile: &Profile) -> app::Profile {
+    app::Profile {
+        id: profile.id.clone(),
+        kind: match profile.id.as_str() {
+            DEFAULT => app::ProfileKind::Default,
+            OTHER => app::ProfileKind::OtherNetworks,
+            _ => app::ProfileKind::Custom,
+        }
+        .into(),
+        name: profile.name.clone(),
+        paused: profile.paused,
+        off_device_ids: profile.off.iter().cloned().collect(),
+        clipboard: profile.clipboard,
+        files: profile.files,
+        networks: profile.networks.iter().map(network_to_proto).collect(),
     }
 }
 
@@ -818,6 +919,7 @@ fn return_reason_to_proto(reason: &ReturnReason) -> app::ReturnReason {
         ReturnReason::InputUnavailable(_) => app::ReturnReason::InputUnavailable,
         ReturnReason::PeerPaused(_) => app::ReturnReason::PeerPaused,
         ReturnReason::OfflineForNow(_) => app::ReturnReason::OfflineForNow,
+        ReturnReason::ProfileChanged(_) => app::ReturnReason::ProfileChanged,
         ReturnReason::CaptureEnded => app::ReturnReason::CaptureEnded,
     }
 }

@@ -3,29 +3,35 @@ import Foundation
 /// Where files sent from Finder's Services menu (Send with InputWeave) go:
 /// the computers that can take them, why the others can't, and the words
 /// for the choice. The background service decides whether a computer is
-/// connected and whether files are turned off with it; this only reads
-/// that. The Windows app's `SendTargets` and the Linux app's `send_choice`
-/// decide the same way.
+/// connected, whether files are turned off with it, and whether the profile
+/// in use leaves it out or sends no files; this only reads that. The
+/// Windows app's `SendTargets` and the Linux app's `send_choice` decide the
+/// same way.
 enum SendTargets {
     /// Why files can't go to a computer now.
     enum Unavailable: Equatable {
         /// It was taken offline for now, here or anywhere in the group.
         case offlineForNow
+        /// The profile in use does not connect it.
+        case notInProfile
         /// It is not connected.
         case offline
         /// File transfer with it is turned off on this Mac
-        /// (`SetDeviceSharing`).
+        /// (`SetDeviceSharing`), or in the profile in use.
         case filesOff
     }
 
     /// Why files can't go to `device` now, the first reason that applies;
-    /// nil when they can.
-    static func unavailable(_ device: DeviceStatus) -> Unavailable? {
-        // Before offline: the service reports it offline as well. While this
-        // Mac is offline for now, every other computer is just offline.
+    /// nil when they can. `profileFilesOff`: the profile in use sends and
+    /// receives no files, with any computer.
+    static func unavailable(_ device: DeviceStatus, profileFilesOff: Bool = false) -> Unavailable? {
+        // Before offline: the service reports both offline as well. While
+        // this Mac is offline for now, or the profile in use is paused,
+        // every other computer is just offline.
         if device.offlineForNow { return .offlineForNow }
+        if device.notInProfile { return .notInProfile }
         if device.state != .connected { return .offline }
-        if device.filesOff { return .filesOff }
+        if device.filesOff || profileFilesOff { return .filesOff }
         return nil
     }
 
@@ -33,6 +39,7 @@ enum SendTargets {
     static func reason(_ why: Unavailable, bundle: Bundle = .main) -> String {
         switch why {
         case .offlineForNow: OfflineText.status(bundle: bundle)
+        case .notInProfile: ProfileText.notInProfile(bundle: bundle)
         case .offline: String(localized: "Offline", bundle: bundle)
         case .filesOff: String(localized: "File transfer with this computer is off", bundle: bundle)
         }
@@ -50,9 +57,9 @@ enum SendTargets {
 
     /// Every other computer, those files can go to first, each group in the
     /// service's order.
-    static func targets(_ devices: [DeviceStatus], bundle: Bundle = .main) -> [Target] {
+    static func targets(_ devices: [DeviceStatus], profileFilesOff: Bool = false, bundle: Bundle = .main) -> [Target] {
         let all = devices.map { device in
-            let why = unavailable(device)
+            let why = unavailable(device, profileFilesOff: profileFilesOff)
             let status = why.map { reason($0, bundle: bundle) } ?? ConnectionText.connected(
                 rttMs: device.rttMs, screenLocked: device.screenLocked, lockScreenInput: device.lockScreenInput,
                 inputUnavailable: device.inputUnavailable, sharingPaused: device.sharingPaused, bundle: bundle)
@@ -73,9 +80,9 @@ enum SendTargets {
         case ask
     }
 
-    static func choice(_ devices: [DeviceStatus]) -> Choice {
+    static func choice(_ devices: [DeviceStatus], profileFilesOff: Bool = false) -> Choice {
         guard devices.contains(where: { $0.state == .connected }) else { return .nowhere }
-        let available = devices.filter { unavailable($0) == nil }
+        let available = devices.filter { unavailable($0, profileFilesOff: profileFilesOff) == nil }
         return available.count == 1 ? .only(available[0].id) : .ask
     }
 

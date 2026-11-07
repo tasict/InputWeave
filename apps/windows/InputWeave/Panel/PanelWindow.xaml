@@ -3,11 +3,14 @@
     x:Class="InputWeave.Panel.PanelWindow"
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:panel="using:InputWeave.Panel"
     Title="InputWeave">
 
-    <!-- State and the sharing switch (and Bring Back Online while this
-         computer is offline for now), the mini map,
-         exceptions, then the footer. 340 wide, as tall as its content. -->
+    <!-- State, the profile in use and the sharing switch (and Bring Back
+         Online while this computer is offline for now, or Add This Network
+         To… while a paused Other networks is in use for a network in no
+         profile), the mini map, exceptions, then the footer. 340 wide, as
+         tall as its content. -->
     <StackPanel x:Name="Root" Width="340" VerticalAlignment="Top" Padding="16,14,16,12" Spacing="12">
         <StackPanel.KeyboardAccelerators>
             <KeyboardAccelerator Key="Escape" Invoked="OnEscape" />
@@ -19,7 +22,25 @@
                 <ColumnDefinition Width="Auto" />
             </Grid.ColumnDefinitions>
             <StackPanel VerticalAlignment="Center" Spacing="2">
-                <TextBlock x:Name="TitleText" Style="{StaticResource BodyStrongTextBlockStyle}" TextWrapping="Wrap" />
+                <!-- The title, and after it the profile in use in a neutral capsule. -->
+                <panel:WrapRow x:Name="TitleRow" Spacing="8">
+                    <TextBlock x:Name="TitleText" Style="{StaticResource BodyStrongTextBlockStyle}" TextWrapping="Wrap" />
+                    <Border
+                        x:Name="ProfileCapsule"
+                        Padding="8,1,8,2"
+                        Background="{ThemeResource ControlFillColorSecondaryBrush}"
+                        BorderBrush="{ThemeResource ControlStrokeColorDefaultBrush}"
+                        BorderThickness="1"
+                        CornerRadius="10"
+                        Visibility="Collapsed">
+                        <TextBlock
+                            x:Name="ProfileCapsuleText"
+                            Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                            MaxWidth="160"
+                            Style="{StaticResource CaptionTextBlockStyle}"
+                            TextTrimming="CharacterEllipsis" />
+                    </Border>
+                </panel:WrapRow>
                 <TextBlock
                     x:Name="SubtitleText"
                     Style="{StaticResource CaptionTextBlockStyle}"
@@ -44,6 +65,14 @@
             Style="{StaticResource AccentButtonStyle}"
             Visibility="Collapsed"
             Click="OnBringBack" />
+
+        <!-- While a paused Other networks is in use for a network in no
+             profile: adds the network to one of the others. -->
+        <DropDownButton x:Name="AddNetworkButton" HorizontalAlignment="Left" Visibility="Collapsed">
+            <DropDownButton.Flyout>
+                <MenuFlyout x:Name="AddNetworkMenu" Placement="BottomEdgeAlignedLeft" Opening="OnAddNetworkOpening" />
+            </DropDownButton.Flyout>
+        </DropDownButton>
 
         <!-- The mini map: the arranged computers, their desktop pictures, the
              seams and the keyboard-and-mouse badge. A click on a computer

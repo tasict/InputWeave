@@ -8,6 +8,7 @@ use std::time::SystemTime;
 use iw_proto::app::v1::DeviceStatus;
 
 use crate::offline;
+use crate::profiles;
 use crate::service::ServiceState;
 use crate::snapshot::{Link, Snapshot};
 use crate::text::{UiText, keys};
@@ -32,6 +33,10 @@ pub fn title(model: &Snapshot, service: ServiceState, now: SystemTime) -> UiText
         Link::Connected => {}
     }
     let status = &model.status;
+    // Not even on the network: before everything else, naming the profile.
+    if let Some(paused) = profiles::paused_title(model) {
+        return paused;
+    }
     // Neither controlling nor controlled, whatever sharing says.
     if offline::this_offline(model) {
         return ui!(keys::TITLE_THIS_OFFLINE);
@@ -66,6 +71,11 @@ pub fn title(model: &Snapshot, service: ServiceState, now: SystemTime) -> UiText
 pub fn subtitle(model: &Snapshot) -> Option<UiText> {
     if !model.connected() {
         return None;
+    }
+    // Under the paused profile's title, only that the network is in no
+    // profile, where the service picked it for that.
+    if profiles::paused(model) {
+        return profiles::paused_subtitle(model);
     }
     if let Some(offline) = offline::this_subtitle(model) {
         return Some(offline);
@@ -128,17 +138,18 @@ impl Problem {
     }
 }
 
-/// The computers out of reach: offline, but not offline for now (that is
-/// someone's choice, not a fault), and none while this computer is offline
-/// for now, which keeps every other one offline.
+/// The computers out of reach: offline, but neither offline for now nor
+/// left out of the profile in use (that is someone's choice, not a fault),
+/// and none while this computer is offline for now or the profile in use is
+/// paused, which keep every other one offline.
 fn unreachable(model: &Snapshot) -> Vec<&DeviceStatus> {
-    if offline::this_offline(model) {
+    if offline::this_offline(model) || profiles::paused(model) {
         return Vec::new();
     }
     model
         .offline_devices()
         .into_iter()
-        .filter(|d| !offline::is_offline(model, &d.id))
+        .filter(|d| !offline::is_offline(model, &d.id) && !profiles::not_in_profile(model, &d.id))
         .collect()
 }
 
@@ -190,6 +201,10 @@ pub struct MenuState {
     /// it (`offline::this_item`).
     pub offline: Option<(&'static str, bool)>,
     pub offline_enabled: bool,
+    /// The Profile submenu's choices (`profiles::menu`); empty from a
+    /// service before profiles, when there is no submenu.
+    pub profiles: Vec<profiles::Choice>,
+    pub profiles_enabled: bool,
 }
 
 impl MenuState {
@@ -202,23 +217,29 @@ impl MenuState {
             } else {
                 keys::MENU_PAUSE_SHARING
             },
-            pause_enabled: connected,
+            // While the profile in use is paused, another profile is the way
+            // to share again.
+            pause_enabled: connected && !profiles::paused(model),
             lock_key: if status.locked {
                 keys::MENU_UNLOCK
             } else {
                 keys::MENU_LOCK
             },
             // While another computer controls this one, its lock is the one
-            // that holds the cursor; while this one is offline for now,
-            // there is nowhere else for it to go.
+            // that holds the cursor; while this one is offline for now, or
+            // the profile in use is paused, there is nowhere else for it to
+            // go.
             lock_enabled: connected
                 && status.sharing
                 && !model.controlled_from_elsewhere()
-                && !offline::this_offline(model),
+                && !offline::this_offline(model)
+                && !profiles::paused(model),
             identify_enabled: connected,
             send_enabled: connected && !model.file_receivers().is_empty(),
             offline: offline::this_item(model),
             offline_enabled: connected,
+            profiles: profiles::menu(model),
+            profiles_enabled: connected,
         }
     }
 }
@@ -255,9 +276,10 @@ impl TrayState {
         if !model.missing_permissions().is_empty() {
             return TrayState::Attention;
         }
-        // Offline for now, this computer neither controls nor is controlled,
-        // as when paused; another look would change a second part of it.
-        if !model.status.sharing || offline::this_offline(model) {
+        // Offline for now, or in a paused profile, this computer neither
+        // controls nor is controlled, as when paused; another look would
+        // change a second part of it.
+        if !model.status.sharing || offline::this_offline(model) || profiles::paused(model) {
             return TrayState::Paused;
         }
         if model.controlled_from_elsewhere() {
@@ -272,9 +294,14 @@ impl TrayState {
 
     /// What screen readers say for the icon, and its tooltip's title: as
     /// [`TrayState::description`], but while this computer is offline for
-    /// now (the paused look) that, not that sharing is paused.
+    /// now (the paused look) that, not that sharing is paused; a paused
+    /// profile in use, which the title names first, is sharing paused.
     pub fn description_of(self, model: &Snapshot) -> UiText {
-        if self == TrayState::Paused && offline::this_offline(model) && model.connected() {
+        if self == TrayState::Paused
+            && offline::this_offline(model)
+            && !profiles::paused(model)
+            && model.connected()
+        {
             return ui!(keys::TRAY_THIS_OFFLINE);
         }
         self.description()
@@ -654,6 +681,101 @@ mod tests {
         let m = model();
         let state = TrayState::of(&m, ServiceState::Running, now());
         assert_eq!(state.description_of(&m), ui!(keys::TRAY_NORMAL));
+    }
+
+    #[test]
+    fn a_paused_profile_comes_before_every_other_title() {
+        let service = ServiceState::Running;
+        let zh = crate::text::Catalog::for_language(crate::text::Language::ChineseTaiwan);
+        let mut m = crate::sample::profile_paused(now(), false);
+        // Before this computer offline for now, paused, controlled…
+        m.status.offline_supported = true;
+        m.status.offline_for_now = true;
+        m.status.offline_by_device_id = "mac".into();
+        m.status.offline_by_name = "Mac mini".into();
+        m.status.sharing = false;
+        let said = title(&m, service, now());
+        assert_eq!(
+            (said.to_string(), zh.render(&said)),
+            (
+                "Other networks: sharing paused".to_owned(),
+                "其他網路：已暫停共享".to_owned()
+            )
+        );
+        assert_eq!(
+            subtitle(&m).map(|s| s.to_string()),
+            Some("This network isn’t in any profile.".into())
+        );
+        // Chosen by the user: the title alone.
+        m.status.profile_chosen = true;
+        assert_eq!(subtitle(&m), None);
+        // Not paused: as ever.
+        let m = crate::sample::snapshot(now());
+        assert_eq!(
+            title(&m, service, now()).to_string(),
+            "Sharing keyboard and mouse"
+        );
+        // From a service before profiles: as ever too.
+        let mut old = crate::sample::profile_paused(now(), false);
+        old.status.profiles_supported = false;
+        assert_eq!(
+            title(&old, service, now()).to_string(),
+            "Sharing keyboard and mouse"
+        );
+    }
+
+    #[test]
+    fn computers_left_out_are_no_problem_nor_any_while_the_profile_is_paused() {
+        let m = crate::sample::not_in_profile(now());
+        // The ThinkPad is asleep: out of reach; the Studio PC is left out.
+        let listed: Vec<String> = problems(&m, true)
+            .iter()
+            .map(|p| p.text.to_string())
+            .collect();
+        assert_eq!(listed, ["ThinkPad can't be reached."]);
+        let paused = crate::sample::profile_paused(now(), false);
+        assert!(problems(&paused, true).is_empty());
+        assert!(problems(&paused, false).is_empty());
+        let mut old = paused.clone();
+        old.status.profiles_supported = false;
+        assert_eq!(problems(&old, true).len(), 3);
+    }
+
+    #[test]
+    fn a_paused_profile_turns_pause_and_lock_off_and_shows_the_paused_icon() {
+        let m = crate::sample::snapshot(now());
+        let menu = MenuState::of(&m);
+        assert!(menu.pause_enabled && menu.lock_enabled && menu.profiles_enabled);
+        let ids: Vec<&str> = menu.profiles.iter().map(|c| c.id.as_str()).collect();
+        assert_eq!(ids, ["", "default", "office", "other"]);
+        let paused = crate::sample::profile_paused(now(), true);
+        let menu = MenuState::of(&paused);
+        assert!(!menu.pause_enabled && !menu.lock_enabled);
+        assert_eq!(menu.pause_key, keys::MENU_PAUSE_SHARING);
+        let checked: Vec<&str> = menu
+            .profiles
+            .iter()
+            .filter(|c| c.checked)
+            .map(|c| c.id.as_str())
+            .collect();
+        assert_eq!(checked, ["other"]);
+        let state = TrayState::of(&paused, ServiceState::Running, now());
+        assert_eq!(state, TrayState::Paused);
+        assert_eq!(state.description_of(&paused), ui!(keys::TRAY_PAUSED));
+        // This computer offline for now as well: still sharing paused, as
+        // the title says.
+        let mut both = paused.clone();
+        both.status.offline_supported = true;
+        both.status.offline_for_now = true;
+        assert_eq!(both_description(&both), ui!(keys::TRAY_PAUSED));
+        // A service before profiles: no submenu.
+        let mut old = crate::sample::snapshot(now());
+        old.status.profiles_supported = false;
+        assert!(MenuState::of(&old).profiles.is_empty());
+    }
+
+    fn both_description(m: &Snapshot) -> UiText {
+        TrayState::of(m, ServiceState::Running, now()).description_of(m)
     }
 
     #[test]

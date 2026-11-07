@@ -1549,4 +1549,145 @@
   <data name="HudTookThisOfflineAnother" xml:space="preserve">
     <value>另一台電腦把這台設為暫時離線。</value>
   </data>
+  <data name="NavProfiles" xml:space="preserve">
+    <value>情境</value>
+  </data>
+  <data name="ProfilesInUse" xml:space="preserve">
+    <value>使用的情境</value>
+  </data>
+  <data name="ProfilesInUseHint" xml:space="preserve">
+    <value>自動時，依所在的網路選情境。手動選的情境不會因為換網路而改變。</value>
+  </data>
+  <data name="ProfilesAutomatic" xml:space="preserve">
+    <value>自動</value>
+  </data>
+  <data name="ProfilesAutomaticNow" xml:space="preserve">
+    <value>自動（目前：{0}）</value>
+  </data>
+  <data name="ProfilesCurrentNetwork" xml:space="preserve">
+    <value>目前的網路：{0}</value>
+  </data>
+  <data name="ProfilesNoNetwork" xml:space="preserve">
+    <value>沒有連上網路。</value>
+  </data>
+  <data name="ProfilesRouter" xml:space="preserve">
+    <value>路由器 {0}</value>
+  </data>
+  <data name="ProfilesVpn" xml:space="preserve">
+    <value>VPN</value>
+  </data>
+  <data name="ProfilesWiredNetwork" xml:space="preserve">
+    <value>有線網路</value>
+  </data>
+  <data name="ProfilesWifiNetwork" xml:space="preserve">
+    <value>Wi-Fi 網路</value>
+  </data>
+  <data name="ProfilesAddTo" xml:space="preserve">
+    <value>加到情境</value>
+  </data>
+  <data name="ProfilesAll" xml:space="preserve">
+    <value>所有情境</value>
+  </data>
+  <data name="ProfilesAdd" xml:space="preserve">
+    <value>新增情境</value>
+  </data>
+  <data name="ProfilesInUseBadge" xml:space="preserve">
+    <value>使用中</value>
+  </data>
+  <data name="ProfilesListJoin" xml:space="preserve">
+    <value>{0}，{1}</value>
+  </data>
+  <data name="ProfilesWifiNames" xml:space="preserve">
+    <value>也以 Wi-Fi 名稱辨認網路</value>
+  </data>
+  <data name="ProfilesWifiNamesHint" xml:space="preserve">
+    <value>InputWeave 平常以路由器辨認網路。打開後也比對 Wi-Fi 名稱；Windows 會詢問定位權限，只用來讀 Wi-Fi 名稱。</value>
+  </data>
+  <data name="ProfileDefault" xml:space="preserve">
+    <value>預設</value>
+  </data>
+  <data name="ProfileOtherNetworks" xml:space="preserve">
+    <value>其他網路</value>
+  </data>
+  <data name="ProfileNewName" xml:space="preserve">
+    <value>新的情境</value>
+  </data>
+  <data name="ProfileName" xml:space="preserve">
+    <value>名稱</value>
+  </data>
+  <data name="ProfileNameTaken" xml:space="preserve">
+    <value>已經有同名的情境。</value>
+  </data>
+  <data name="ProfileSharing" xml:space="preserve">
+    <value>鍵鼠共享</value>
+  </data>
+  <data name="ProfileShare" xml:space="preserve">
+    <value>共享</value>
+  </data>
+  <data name="ProfilePause" xml:space="preserve">
+    <value>暫停</value>
+  </data>
+  <data name="ProfilePausedHint" xml:space="preserve">
+    <value>這個情境下，這台不會出現在網路上，也不連線任何電腦；配對都會保留。</value>
+  </data>
+  <data name="ProfileSharingPaused" xml:space="preserve">
+    <value>鍵鼠共享已暫停</value>
+  </data>
+  <data name="ProfileComputers" xml:space="preserve">
+    <value>要連的電腦</value>
+  </data>
+  <data name="ProfileComputersHint" xml:space="preserve">
+    <value>沒勾的電腦在這個情境下視同離線，它們也會看到這台離線。</value>
+  </data>
+  <data name="ProfileClipboard" xml:space="preserve">
+    <value>剪貼簿同步</value>
+  </data>
+  <data name="ProfileFiles" xml:space="preserve">
+    <value>互傳檔案</value>
+  </data>
+  <data name="ProfileClipboardHint" xml:space="preserve">
+    <value>一般頁關掉剪貼簿同步時，所有情境都不同步。</value>
+  </data>
+  <data name="ProfileNetworks" xml:space="preserve">
+    <value>網路</value>
+  </data>
+  <data name="ProfileNoNetworks" xml:space="preserve">
+    <value>這個情境還沒有網路。</value>
+  </data>
+  <data name="ProfileOtherNetworksHint" xml:space="preserve">
+    <value>沒有加到任何情境的網路都用這個情境。</value>
+  </data>
+  <data name="ProfileAddCurrentNetwork" xml:space="preserve">
+    <value>把目前的網路加到這個情境</value>
+  </data>
+  <data name="ProfileRemoveNetwork" xml:space="preserve">
+    <value>移除 {0}</value>
+  </data>
+  <data name="ProfileRemove" xml:space="preserve">
+    <value>移除情境</value>
+  </data>
+  <data name="MenuProfile" xml:space="preserve">
+    <value>情境</value>
+  </data>
+  <data name="MenuManageProfiles" xml:space="preserve">
+    <value>管理情境…</value>
+  </data>
+  <data name="TitleProfilePaused" xml:space="preserve">
+    <value>{0}：已暫停共享</value>
+  </data>
+  <data name="SubtitleNetworkInNoProfile" xml:space="preserve">
+    <value>這個網路沒有加到任何情境。</value>
+  </data>
+  <data name="PanelAddNetworkTo" xml:space="preserve">
+    <value>把這個網路加到…</value>
+  </data>
+  <data name="ConnectionNotInProfile" xml:space="preserve">
+    <value>不在這個情境</value>
+  </data>
+  <data name="HudProfileSwitched" xml:space="preserve">
+    <value>已切換到「{0}」。</value>
+  </data>
+  <data name="HudProfileSwitchedPaused" xml:space="preserve">
+    <value>已切換到「{0}」，鍵鼠共享已暫停。</value>
+  </data>
 </root>

@@ -30,7 +30,9 @@ use super::APPLY_TIMEOUT;
 use super::app_clipboard::{AppClipboard, AppEvent, AppSession, Pasting};
 use super::directory::Directory;
 use super::drag::{DragEnd, DragEvent};
-use super::engine::{DragError, EngineEvent, JumpError, RearrangeError, RelativeError};
+use super::engine::{
+    DragError, EngineEvent, JumpError, ProfileChange, RearrangeError, RelativeError,
+};
 use super::files::{FileSettings, Files, RemoveError};
 use super::folder_access::FolderAsker;
 use super::listing::{ItemKind, Manifest};
@@ -176,6 +178,22 @@ async fn client(conn: IpcConnection, ctx: IpcContext) {
                         }
                     }
                     _ if !greeted => error("hello_required", "send Hello first"),
+                    Some(Command::ReportWifiName(report)) => {
+                        // Untrusted: a name that is none is passed over, and
+                        // none is logged.
+                        let name = if report.ssid.is_empty() {
+                            Some(None)
+                        } else {
+                            iw_platform::network::wifi_name_of(report.ssid.as_bytes()).map(Some)
+                        };
+                        if let Some(name) = name {
+                            let _ = ctx.engine.send(EngineEvent::WifiName {
+                                network: report.network_id,
+                                name,
+                            });
+                        }
+                        response::Result::Status(ctx.status.borrow().to_proto())
+                    }
                     Some(command) => respond(command, &ctx, holding(&ctx, &holder)).await,
                     None => error("unknown_command", "unrecognized or missing command"),
                 };
@@ -798,6 +816,44 @@ async fn respond(
                 Err(e) => error(e.code(), &e.to_string()),
             }
         }
+        Command::AddProfile(add) => profiles_result(ctx, ProfileChange::Add(add.name)).await,
+        Command::EditProfile(edit) => {
+            let change = ProfileChange::Edit(
+                edit.profile_id,
+                crate::profiles_file::ProfileEdit {
+                    name: edit.name,
+                    paused: edit.paused,
+                    clipboard: edit.clipboard,
+                    files: edit.files,
+                    devices: edit
+                        .devices
+                        .into_iter()
+                        .map(|d| (d.device_id, d.connect))
+                        .collect(),
+                },
+            );
+            profiles_result(ctx, change).await
+        }
+        Command::RemoveProfile(remove) => {
+            profiles_result(ctx, ProfileChange::Remove(remove.profile_id)).await
+        }
+        Command::SelectProfile(select) => {
+            let id = (!select.profile_id.is_empty()).then_some(select.profile_id);
+            profiles_result(ctx, ProfileChange::Choose(id)).await
+        }
+        Command::AddNetworkToProfile(add) => {
+            profiles_result(ctx, ProfileChange::AddNetwork(add.profile_id)).await
+        }
+        Command::RemoveNetwork(remove) => {
+            profiles_result(ctx, ProfileChange::RemoveNetwork(remove.network_id)).await
+        }
+        Command::RenameNetwork(rename) => {
+            let change = ProfileChange::RenameNetwork(rename.network_id, rename.name);
+            profiles_result(ctx, change).await
+        }
+        Command::SetWifiNames(set) => profiles_result(ctx, ProfileChange::WifiNames(set.on)).await,
+        // Answered as it comes in (`client`).
+        Command::ReportWifiName(_) => status(),
         Command::SetLoginWindowAccess(set) => {
             if let Err(e) = super::set_login_window_access(
                 &ctx.directory,
@@ -983,6 +1039,16 @@ async fn respond(
     }
 }
 
+/// The status once a change to the profiles is in it, or why it was
+/// refused.
+async fn profiles_result(ctx: &IpcContext, change: ProfileChange) -> response::Result {
+    match super::change_profiles(&ctx.engine, change).await {
+        // In the status by now, perhaps with a later change too.
+        Ok(()) => response::Result::Status(ctx.status.borrow().to_proto()),
+        Err(e) => error(e.code(), &e.to_string()),
+    }
+}
+
 fn drag_error(e: &DragError) -> response::Result {
     error(e.code(), &e.to_string())
 }
@@ -1026,6 +1092,8 @@ fn jump_error_code(e: &JumpError) -> &'static str {
         JumpError::NotCapturing => "not_capturing",
         JumpError::EdgeOnly => "edge_only",
         JumpError::ControlledBy(_) => "controlled",
+        JumpError::NotInProfile(_) => "not_in_profile",
+        JumpError::ProfilePaused => "profile_paused",
         JumpError::Stopping => "agent_stopping",
         JumpError::Refused(Refused::SharingPaused) => "sharing_paused",
         JumpError::Refused(Refused::Locked) => "locked",

@@ -56,11 +56,12 @@ use tokio::sync::{oneshot, watch};
 use tracing::{debug, info, warn};
 
 use super::app::{AppOpener, Need};
-use super::directory::Directory;
+use super::directory::{Directory, Peer};
 use super::history::{self, HistoryStore, HistoryWriter};
 use super::listing::{
     self, ItemKind, LocalLister, MAX_BYTES, MAX_FILES, MAX_ITEMS, MAX_LISTED_FAILURES, Manifest,
 };
+use super::profiles::Reach;
 use super::queue::SendQueue;
 use super::throttle::{MAX_CHUNK, Pacer, PacingStatus};
 use super::transfer::FRAME_LIMIT;
@@ -398,6 +399,9 @@ pub enum SendError {
     /// That device, or this one, is taken offline for now.
     #[error("{0} or this device is offline for now")]
     OfflineForNow(String),
+    /// The profile in use does not connect that device, or is paused.
+    #[error("the profile in use does not connect {0}")]
+    NotInProfile(String),
     #[error("{0} is not a file or a folder")]
     NotAFile(PathBuf),
     #[error("{0} is a symbolic link")]
@@ -423,6 +427,7 @@ impl SendError {
             Self::UnknownDevice(_) => "unknown_device",
             Self::FilesOff(_) => "files_off",
             Self::OfflineForNow(_) => "offline_for_now",
+            Self::NotInProfile(_) => "not_in_profile",
             Self::NotAFile(_) => "not_a_file",
             Self::Symlink(_) => "symlink",
             Self::NoBroker => "no_broker",
@@ -594,6 +599,10 @@ pub(crate) struct Files {
     /// for every chunk, so without the directory's lock.
     offline: watch::Sender<OfflineDoc>,
     this_device: String,
+    /// What the profile in use lets this device reach, and whether files go
+    /// in it, as the engine last said (`profile_changed`); read for every
+    /// chunk too.
+    profile: watch::Sender<(Reach, bool)>,
     directory: Arc<Directory>,
     /// Opens the app to ask about files when none is connected.
     app: Arc<AppOpener>,
@@ -663,6 +672,7 @@ impl Files {
             store,
             sessions: watch::Sender::new(HashMap::new()),
             offline: watch::Sender::new(directory.offline()),
+            profile: watch::Sender::new((Reach::default(), true)),
             this_device: directory.this_device().to_owned(),
             directory,
             app,
@@ -753,6 +763,40 @@ impl Files {
     /// taken offline for now (`OfflineDoc::between`).
     fn cut_off(&self, device: &str) -> bool {
         self.offline.borrow().between(&self.this_device, device)
+    }
+
+    /// The profile in use changed: what it lets this device reach, and
+    /// whether files go in it. Files to a device it leaves out wait as for
+    /// one not connected, which it is not, and go on once it is again.
+    pub(crate) fn profile_changed(&self, reach: &Reach, files: bool) {
+        let changed = self.profile.send_if_modified(|now| {
+            let next = (reach.clone(), files);
+            let changed = *now != next;
+            *now = next;
+            changed
+        });
+        if changed {
+            self.sessions.send_modify(|_| {});
+        }
+    }
+
+    /// Whether the profile in use does not connect `device`.
+    fn left_out(&self, device: &str) -> bool {
+        !self.profile.borrow().0.connects(device)
+    }
+
+    /// Whether files are turned off with `device`: by this device's user,
+    /// with it or in the profile in use.
+    fn turned_off(&self, peer: &Peer) -> bool {
+        peer.files_off || !self.profile.borrow().1
+    }
+
+    /// Whether files wait for `device`: either is taken offline for now,
+    /// the profile in use does not connect it, or files are off in it.
+    /// Transfers under way stop, both ways, and go on from where they
+    /// stopped once that is over.
+    fn blocked(&self, device: &str) -> bool {
+        self.cut_off(device) || self.left_out(device) || !self.profile.borrow().1
     }
 
     pub(crate) fn session_down(&self, device: &DeviceId, info: &SessionInfo) {
@@ -872,11 +916,18 @@ impl Files {
         device: &str,
         paths: Vec<PathBuf>,
     ) -> Result<Vec<String>, SendError> {
+        // The reason the user gave: taken offline, then left out of the
+        // profile (or it paused), and only then files turned off.
         match self.directory.peer(device) {
             None => return Err(SendError::UnknownDevice(device.to_owned())),
-            Some(peer) if peer.files_off => return Err(SendError::FilesOff(device.to_owned())),
             Some(_) if self.cut_off(device) => {
                 return Err(SendError::OfflineForNow(device.to_owned()));
+            }
+            Some(_) if self.left_out(device) => {
+                return Err(SendError::NotInProfile(device.to_owned()));
+            }
+            Some(peer) if self.turned_off(&peer) => {
+                return Err(SendError::FilesOff(device.to_owned()));
             }
             Some(_) => {}
         }
@@ -1613,7 +1664,7 @@ impl Files {
         loop {
             let info = sessions.borrow_and_update().get(device).cloned();
             if let Some(info) = info
-                && !self.cut_off(device.as_str())
+                && !self.blocked(device.as_str())
             {
                 return info;
             }
@@ -1926,8 +1977,9 @@ impl Files {
             .batch
             .as_ref()
             .map_or(offer.transfer_id.as_str(), |b| b.batch_id.as_str());
-        // Turned off with that device, its files are taken as by a device
-        // that does not receive files, also those of a batch under way.
+        // Turned off with that device by this device's user, its files are
+        // taken as by a device that does not receive files, also those of a
+        // batch under way.
         if self
             .directory
             .peer(from.as_str())
@@ -1936,11 +1988,12 @@ impl Files {
             debug!(device = %from, batch = id, "declining files from a device files are turned off with");
             return Err(FileDecline::Unavailable);
         }
-        // Taken offline for now, it or this device: busy, so the sender
-        // tries again later, as it would were they not connected; one that
-        // knows waits until it is brought back.
-        if self.cut_off(from.as_str()) {
-            debug!(device = %from, batch = id, "turning away files: it or this device is offline for now");
+        // Taken offline for now, it or this device, or files off in the
+        // profile in use: busy, so the sender tries again later, as it would
+        // were they not connected, and goes on from where it stopped once
+        // that is over; one that knows waits until then.
+        if self.blocked(from.as_str()) {
+            debug!(device = %from, batch = id, "turning away files for now: offline for now, or off in the profile in use");
             return Err(FileDecline::Busy);
         }
         let key = (from.clone(), id.to_owned());
@@ -2388,9 +2441,10 @@ async fn offer_file(
             tx.reset(CANCELLED);
             return Ok(TransferState::Cancelled);
         }
-        // Taken offline for now, it or this device: the rest goes once it
-        // is brought back, from where it stopped.
-        if files.cut_off(device.as_str()) {
+        // Taken offline for now, it or this device, or left out of the
+        // profile in use: the rest goes once it is back, from where it
+        // stopped.
+        if files.blocked(device.as_str()) {
             tx.reset(INTERRUPTED);
             return Err(NetError::Protocol("taken offline for now"));
         }
@@ -2739,7 +2793,7 @@ async fn receive_file(
                 }
                 // Taken offline for now, it or this device: what arrived is
                 // kept, for the sender to go on from once it is brought back.
-                if files.cut_off(from.as_str()) {
+                if files.blocked(from.as_str()) {
                     debug!(id, device = %from, "file transfer stopped: taken offline for now");
                     rx.stop(INTERRUPTED);
                     target.close().await;

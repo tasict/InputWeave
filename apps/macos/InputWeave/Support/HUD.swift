@@ -5,8 +5,9 @@ import SwiftUI
 /// why the keyboard and mouse came back,
 /// the cursor being locked or unlocked, relative mode starting and ending,
 /// the take-back hint after the first crossings, files being dragged
-/// to another computer, another computer being woken and waking up, and
-/// computers taken offline for now or brought back.
+/// to another computer, another computer being woken and waking up,
+/// computers taken offline for now or brought back, and the profile in use
+/// changing by itself.
 /// One at a time; a new note replaces the shown one.
 @MainActor
 final class HUDController {
@@ -21,6 +22,7 @@ final class HUDController {
     private var relative = RelativeText.News()
     private var wake = WakeText.Watch()
     private var offline = OfflineText.Watch()
+    private var profiles = ProfileText.Watch()
     private var seenRefusal: UInt64?
     /// The device files from here were last seen dragged over.
     private var draggedOver = ""
@@ -51,6 +53,7 @@ final class HUDController {
             _ = relative.update(nil, at: now, preempted: true)
             _ = wake.update(nil)
             _ = offline.update(nil)
+            _ = profiles.update(nil)
             return nil
         }
         let dragging = status.hasDragging ? status.dragging : Inputweave_App_V1_Dragging()
@@ -73,9 +76,12 @@ final class HUDController {
         } else {
             nil
         }
+        // Changed by itself, the profile in use says so ahead of the rest:
+        // what it does to the keyboard and mouse follows from it.
+        let switched = profiles.update(status)
         // Only what is shown counts as told.
         let relativeNote = relative.update(
-            RelativeText.State(status), at: now, preempted: back != nil || refused != nil)
+            RelativeText.State(status), at: now, preempted: back != nil || refused != nil || switched != nil)
         // Followed with every status, told or not: pressing Wake tells of it
         // here too, from the status the service answers with.
         let wakeNews = wake.update(status)
@@ -84,6 +90,9 @@ final class HUDController {
         let offlineNews = offline.update(status)
         if let message = back ?? refused {
             return message
+        }
+        if let switched {
+            return ProfileText.switched(to: switched)
         }
         if let relativeNote {
             let message = RelativeText.message(relativeNote, model: model)
@@ -149,6 +158,9 @@ final class HUDController {
         // This computer taken offline for now while it controlled another:
         // what took it offline says so.
         case .offlineForNow: status.lastReturnDeviceID == status.thisDeviceID ? nil : OfflineText.wentOffline(name)
+        // The profile in use changed: changed by itself it says so, and
+        // the user who chose it knows.
+        case .profileChanged: nil
         default: nil
         }
     }

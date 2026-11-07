@@ -5,8 +5,9 @@
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     Title="InputWeave">
 
-    <!-- The five pages in a NavigationView on the
-         left, the License page at its foot, under a title bar with the app's name; Mica behind both. -->
+    <!-- The pages in a NavigationView on the left (Profiles only for a
+         service that knows them), the License page at its foot, under a
+         title bar with the app's name; Mica behind both. -->
     <Grid x:Name="Root">
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto" />
@@ -35,6 +36,7 @@
             IsSettingsVisible="False"
             OpenPaneLength="220"
             PaneDisplayMode="Left"
+            ItemInvoked="OnNavigationInvoked"
             SelectionChanged="OnNavigationChanged">
             <NavigationView.Resources>
                 <!-- Mica shows through the pane, as in Windows' Settings. -->
@@ -47,6 +49,11 @@
                 <NavigationViewItem x:Name="GeneralItem" Tag="General">
                     <NavigationViewItem.Icon>
                         <FontIcon Glyph="&#xE713;" />
+                    </NavigationViewItem.Icon>
+                </NavigationViewItem>
+                <NavigationViewItem x:Name="ProfilesItem" Tag="Profiles" Visibility="Collapsed">
+                    <NavigationViewItem.Icon>
+                        <FontIcon Glyph="&#xE81E;" />
                     </NavigationViewItem.Icon>
                 </NavigationViewItem>
                 <NavigationViewItem x:Name="DevicesItem" Tag="Devices">

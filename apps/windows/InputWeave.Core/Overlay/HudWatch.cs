@@ -1,6 +1,7 @@
 using Inputweave.App.V1;
 using InputWeave.Agent;
 using InputWeave.Panel;
+using InputWeave.Settings;
 
 namespace InputWeave.Overlay;
 
@@ -10,13 +11,13 @@ namespace InputWeave.Overlay;
 /// cursor being locked or unlocked, relative mode starting and ending,
 /// the take-back hint the first three
 /// times this computer takes control of another, another computer
-/// being woken and waking up, and computers taken offline for now or
-/// brought back. It compares each state
-/// with the one before, so only a change is news; the first state seen
-/// after the app starts is only remembered, and so are relative mode,
-/// waking and computers taken offline in the first state after the service
-/// is reached again. Windows has no secure keyboard entry, so there is no
-/// note for it.
+/// being woken and waking up, computers taken offline for now or
+/// brought back, and the profile in use changing by itself. It compares
+/// each state with the one before, so only a change is news; the first
+/// state seen after the app starts is only remembered, and so are relative
+/// mode, waking, computers taken offline and the profile in the first state
+/// after the service is reached again. Windows has no secure keyboard
+/// entry, so there is no note for it.
 /// </summary>
 public sealed class HudWatch
 {
@@ -44,6 +45,8 @@ public sealed class HudWatch
     private readonly Dictionary<string, WakeState> wakes = [];
     private bool offlinePrimed;
     private ulong offlineChanges;
+    private bool profilePrimed;
+    private ulong profileSwitches;
 
     /// <summary>What was told about relative mode beginning or ending by itself on a computer.</summary>
     private sealed class Told
@@ -66,6 +69,7 @@ public sealed class HudWatch
             relativePrimed = false;
             wakePrimed = false;
             offlinePrimed = false;
+            profilePrimed = false;
             return null;
         }
         var status = snapshot.Status;
@@ -86,10 +90,11 @@ public sealed class HudWatch
         relativeDevice = status.RelativeMouse;
         relativeEnds = status.RelativeEnds;
         seenRefusal = snapshot.RelativeRefusal?.Serial ?? 0;
-        // Taken in now, so a note told below does not leave waking or a
-        // computer taken offline behind.
+        // Taken in now, so a note told below does not leave waking, a
+        // computer taken offline or a profile switch behind.
         var woken = WakeMessage(snapshot);
         var offline = OfflineMessage(snapshot);
+        var switched = ProfileMessage(snapshot);
         if (first)
         {
             return null;
@@ -99,6 +104,12 @@ public sealed class HudWatch
         if (status.ControlReturns > returnsBefore && ReturnMessage(snapshot) is { } back)
         {
             return back;
+        }
+        // The keyboard and mouse coming back as the profile changed say
+        // nothing themselves: the switch says it.
+        if (switched is not null)
+        {
+            return switched;
         }
         if (seenRefusal > refusalBefore && snapshot.RelativeRefusal is { } refusal)
         {
@@ -231,6 +242,28 @@ public sealed class HudWatch
                 : new UiText(TextKeys.HudTookThisOfflineAnother);
         }
         return null;
+    }
+
+    /// <summary>
+    /// The profile in use changed by itself since the last state, as the
+    /// service counts it (Status.profile_switches, which leaves out the
+    /// user's own choices): "Switched to Office.", or with sharing paused
+    /// when that profile is paused. Only from a service that knows profiles;
+    /// the first state after it is reached again is only remembered, and so
+    /// is a count lower than before, as from a service started again.
+    /// </summary>
+    private UiText? ProfileMessage(AgentSnapshot snapshot)
+    {
+        var status = snapshot.Status;
+        bool primed = profilePrimed;
+        ulong before = profileSwitches;
+        profilePrimed = true;
+        profileSwitches = status.ProfileSwitches;
+        if (!primed || status.ProfileSwitches <= before || Profiles.InUse(snapshot) is not { } profile)
+        {
+            return null;
+        }
+        return new UiText(profile.Paused ? TextKeys.HudProfileSwitchedPaused : TextKeys.HudProfileSwitched, Profiles.Name(profile));
     }
 
     /// <summary>

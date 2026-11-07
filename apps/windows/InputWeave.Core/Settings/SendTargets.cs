@@ -10,10 +10,13 @@ public enum SendUnavailable
     /// <summary>It was taken offline for now, here or anywhere in the group.</summary>
     OfflineForNow,
 
+    /// <summary>The profile in use doesn't connect it.</summary>
+    NotInProfile,
+
     /// <summary>It is not connected.</summary>
     Offline,
 
-    /// <summary>File transfer with it is turned off here (<c>SetDeviceSharing</c>).</summary>
+    /// <summary>File transfer with it is turned off here (<c>SetDeviceSharing</c>), or in the profile in use.</summary>
     FilesOff,
 }
 
@@ -49,20 +52,25 @@ public static class SendTargets
 {
     /// <summary>
     /// Why files can't go to <paramref name="device"/> now, the first reason
-    /// that applies; null when they can. Offline for now comes before
-    /// offline, which the service reports it as too; while this computer is
-    /// offline for now, every other one is just offline.
+    /// that applies; null when they can. Offline for now, then not in the
+    /// profile in use, come before offline, which the service reports them
+    /// as too; while this computer is offline for now, or the profile in use
+    /// is paused, every other one is just offline. With
+    /// <paramref name="profileFilesOff"/>, the profile in use has files
+    /// turned off, so they go to no connected computer.
     /// </summary>
-    public static SendUnavailable? Unavailable(DeviceStatus device) =>
+    public static SendUnavailable? Unavailable(DeviceStatus device, bool profileFilesOff = false) =>
         device.OfflineForNow ? SendUnavailable.OfflineForNow
+        : device.NotInProfile ? SendUnavailable.NotInProfile
         : device.State != ConnectionState.Connected ? SendUnavailable.Offline
-        : device.FilesOff ? SendUnavailable.FilesOff
+        : device.FilesOff || profileFilesOff ? SendUnavailable.FilesOff
         : null;
 
     /// <summary>What the picker says under a computer files can't go to.</summary>
     public static UiText Reason(SendUnavailable why) => why switch
     {
         SendUnavailable.OfflineForNow => new(TextKeys.ConnectionOfflineForNow),
+        SendUnavailable.NotInProfile => new(TextKeys.ConnectionNotInProfile),
         SendUnavailable.FilesOff => new(TextKeys.SendReasonFilesOff),
         _ => new(TextKeys.ConnectionOffline),
     };
@@ -70,9 +78,10 @@ public static class SendTargets
     /// <summary>Every other computer, those files can go to first, each group in the service's order.</summary>
     public static IReadOnlyList<SendTarget> Targets(AgentSnapshot model)
     {
+        bool filesOff = Profiles.FilesOff(model);
         var all = model.Status.Devices.Select(d =>
         {
-            var why = Unavailable(d);
+            var why = Unavailable(d, filesOff);
             var status = why is { } reason
                 ? Reason(reason)
                 : DeviceText.Connected(d.RttMs, d.ScreenLocked, d.LockScreenInput, d.InputUnavailable, d.SharingPaused);
@@ -87,7 +96,7 @@ public static class SendTargets
         {
             return new SendChoice.Nowhere();
         }
-        var available = model.Status.Devices.Where(d => Unavailable(d) is null).ToList();
+        var available = model.FileReceivers;
         return available.Count == 1 ? new SendChoice.Only(available[0].Id) : new SendChoice.Ask();
     }
 

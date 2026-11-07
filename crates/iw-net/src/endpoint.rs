@@ -24,6 +24,9 @@ pub mod close {
     pub const INCOMPATIBLE: u32 = 2;
     pub const TIMEOUT: u32 = 3;
     pub const DUPLICATE: u32 = 4;
+    /// The device does not connect to this one now: its user chose not to
+    /// (profiles), as if it were offline.
+    pub const AWAY: u32 = 5;
 }
 
 /// QUIC keep-alive and idle timeout. They back up the application
@@ -147,6 +150,12 @@ pub struct Accepted {
 }
 
 impl IncomingPeer {
+    /// Drops the attempt without a word: to the device dialing, this one
+    /// is not there.
+    pub fn ignore(self) {
+        self.0.ignore();
+    }
+
     /// Completes the handshake. A session from a device that `is_trusted`
     /// rejects is closed before any stream is opened or read.
     pub async fn finish(

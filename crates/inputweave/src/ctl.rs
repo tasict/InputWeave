@@ -203,6 +203,12 @@ impl Client {
         self.status_request(set).await
     }
 
+    /// Changes the profiles, or which is used: `command` is one of the
+    /// profile commands (`AddProfile` and those after it).
+    pub async fn change_profiles(&mut self, command: Command) -> Result<app::Status, CtlError> {
+        self.status_request(command).await
+    }
+
     /// Has pushing the cursor toward an offline device wake it, or not.
     pub async fn set_wake_on_push(&mut self, on: bool) -> Result<app::Status, CtlError> {
         self.status_request(Command::SetWakeOnPush(SetWakeOnPush { on }))
@@ -1076,11 +1082,143 @@ pub fn format_license(status: &app::Status) -> String {
     out
 }
 
+/// What to call a profile: the user's name for it, or the name of one of
+/// the two fixed ones.
+pub fn profile_name(profile: &app::Profile) -> &str {
+    match app::ProfileKind::try_from(profile.kind) {
+        Ok(app::ProfileKind::Default) => "Default",
+        Ok(app::ProfileKind::OtherNetworks) => "Other networks",
+        _ => &profile.name,
+    }
+}
+
+/// What to call a network: its name, or its router, or with neither, its
+/// kind.
+fn network_name(network: &app::Network) -> String {
+    match (network.name.as_str(), network.router.as_str()) {
+        ("", "") => match app::NetworkKind::try_from(network.kind) {
+            Ok(app::NetworkKind::Wifi) => "Wi-Fi network".to_owned(),
+            Ok(app::NetworkKind::Vpn) => "VPN".to_owned(),
+            _ => "wired network".to_owned(),
+        },
+        ("", router) => format!("router {router}"),
+        (name, _) => name.to_owned(),
+    }
+}
+
+/// A network as `ctl` lists it: what to call it, then its kind and router
+/// where those say more.
+fn network_label(network: &app::Network) -> String {
+    let more = match (network.name.is_empty(), network.router.is_empty()) {
+        // Called by its kind already.
+        (true, true) => String::new(),
+        (false, false) => format!(" ({}, router {})", network_kind(network), network.router),
+        _ => format!(" ({})", network_kind(network)),
+    };
+    format!("{}{more}", network_name(network))
+}
+
+fn network_kind(network: &app::Network) -> &'static str {
+    match app::NetworkKind::try_from(network.kind) {
+        Ok(app::NetworkKind::Wired) => "wired",
+        Ok(app::NetworkKind::Wifi) => "Wi-Fi",
+        Ok(app::NetworkKind::Vpn) => "VPN",
+        _ => "network",
+    }
+}
+
+/// The profile in use, and how it was picked, as `ctl status` says it.
+fn profile_line(status: &app::Status) -> Option<String> {
+    let profile = status.profiles.iter().find(|p| p.id == status.profile_id)?;
+    let how = if status.profile_chosen {
+        "chosen"
+    } else {
+        "automatic"
+    };
+    let paused = if profile.paused {
+        "; paused: not on the network, no device connected"
+    } else {
+        ""
+    };
+    Some(format!(
+        "profile:        {} ({how}){paused}\n",
+        profile_name(profile)
+    ))
+}
+
+/// The network this device is on, as `ctl status` says it.
+fn network_line(status: &app::Status) -> String {
+    match &status.network {
+        None => "network:        none\n".to_owned(),
+        Some(network) => format!(
+            "network:        {}, id {}\n",
+            network_label(network),
+            network.id
+        ),
+    }
+}
+
+/// Human-readable rendering of the profiles (`ctl profile`).
+pub fn format_profiles(status: &app::Status) -> String {
+    let mut out = String::new();
+    out.push_str(&network_line(status));
+    if let Some(line) = profile_line(status) {
+        out.push_str(&line);
+    }
+    let wifi = if status.wifi_names { "on" } else { "off" };
+    out.push_str(&format!("Wi-Fi names:    {wifi}\n"));
+    out.push_str("profiles:\n");
+    let name_of = |id: &str| {
+        status
+            .devices
+            .iter()
+            .find(|d| d.id == id)
+            .map_or_else(|| id.to_owned(), |d| format!("{} ({id})", d.name))
+    };
+    for profile in &status.profiles {
+        let in_use = if profile.id == status.profile_id {
+            ", in use"
+        } else {
+            ""
+        };
+        out.push_str(&format!(
+            "  {} [{}]{in_use}\n",
+            profile_name(profile),
+            profile.id
+        ));
+        let sharing = if profile.paused { "paused" } else { "on" };
+        let on_off = |on: bool| if on { "on" } else { "off" };
+        out.push_str(&format!(
+            "    sharing {sharing}, clipboard {}, files {}\n",
+            on_off(profile.clipboard),
+            on_off(profile.files)
+        ));
+        if !profile.off_device_ids.is_empty() {
+            let off: Vec<String> = profile.off_device_ids.iter().map(|d| name_of(d)).collect();
+            out.push_str(&format!("    not connecting: {}\n", off.join(", ")));
+        }
+        for network in &profile.networks {
+            out.push_str(&format!(
+                "    network: {}, id {}\n",
+                network_label(network),
+                network.id
+            ));
+        }
+    }
+    out
+}
+
 /// Human-readable rendering of a status.
 pub fn format_status(status: &app::Status) -> String {
     let mut out = String::new();
     let on_off = if status.sharing { "on" } else { "paused" };
     out.push_str(&format!("sharing:        {on_off}\n"));
+    if status.profiles_supported {
+        if let Some(line) = profile_line(status) {
+            out.push_str(&line);
+        }
+        out.push_str(&network_line(status));
+    }
     if status.offline_for_now {
         out.push_str(&format!(
             "offline:        for now, {}; no device controls this one or is controlled by it, \
@@ -1199,6 +1337,7 @@ pub fn format_status(status: &app::Status) -> String {
     for d in &status.devices {
         let state = match app::ConnectionState::try_from(d.state) {
             _ if d.offline_for_now => "offline for now".to_owned(),
+            _ if d.not_in_profile => "not in this profile".to_owned(),
             Ok(app::ConnectionState::Connected) if d.rtt_ms > 0 => {
                 format!("connected, {} ms", d.rtt_ms)
             }
@@ -1769,6 +1908,88 @@ mod tests {
         };
         assert!(knows_double_press(&new, Some("double+control")).is_ok());
         assert!(knows_double_press(&new, Some("")).is_ok());
+    }
+
+    #[test]
+    fn profiles_and_networks_are_named_as_people_call_them() {
+        let network = |name: &str, kind: app::NetworkKind, router: &str| app::Network {
+            id: "5f0c".to_owned(),
+            name: name.to_owned(),
+            kind: kind.into(),
+            router: router.to_owned(),
+            resolved: true,
+        };
+        let profile = |id: &str, kind: app::ProfileKind, name: &str| app::Profile {
+            id: id.to_owned(),
+            kind: kind.into(),
+            name: name.to_owned(),
+            clipboard: true,
+            files: true,
+            ..Default::default()
+        };
+        let mut office = profile("p1", app::ProfileKind::Custom, "Office");
+        office.files = false;
+        office.off_device_ids = vec!["win".to_owned(), "gone".to_owned()];
+        office.networks = vec![network("Office-5G", app::NetworkKind::Wifi, "198.51.100.1")];
+        let mut other = profile("other", app::ProfileKind::OtherNetworks, "");
+        other.paused = true;
+        let mut status = app::Status {
+            profiles_supported: true,
+            profiles: vec![
+                profile("default", app::ProfileKind::Default, ""),
+                office,
+                other,
+            ],
+            profile_id: "p1".to_owned(),
+            network: Some(network("", app::NetworkKind::Wired, "192.168.1.1")),
+            devices: vec![app::DeviceStatus {
+                id: "win".to_owned(),
+                name: "Windows PC".to_owned(),
+                not_in_profile: true,
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+        let text = format_profiles(&status);
+        for line in [
+            "network:        router 192.168.1.1 (wired), id 5f0c\n",
+            "profile:        Office (automatic)\n",
+            "Wi-Fi names:    off\n",
+            "  Default [default]\n",
+            "  Office [p1], in use\n",
+            "    sharing on, clipboard on, files off\n",
+            "    not connecting: Windows PC (win), gone\n",
+            "    network: Office-5G (Wi-Fi, router 198.51.100.1), id 5f0c\n",
+            "  Other networks [other]\n",
+            "    sharing paused, clipboard on, files on\n",
+        ] {
+            assert!(text.contains(line), "{line}: {text}");
+        }
+        assert!(format_status(&status).contains(" not in this profile "));
+        // A VPN without a router, and no network at all.
+        status.network = Some(network("", app::NetworkKind::Vpn, ""));
+        status.profile_id = "other".to_owned();
+        status.profile_chosen = true;
+        let text = format_status(&status);
+        assert!(text.contains("network:        VPN, id 5f0c\n"), "{text}");
+        status.network = Some(network("", app::NetworkKind::Wired, ""));
+        assert!(format_status(&status).contains("network:        wired network, id 5f0c\n"));
+        status.network = Some(network("", app::NetworkKind::Wifi, ""));
+        assert!(format_status(&status).contains("network:        Wi-Fi network, id 5f0c\n"));
+        status.network = Some(network("Office-5G", app::NetworkKind::Wifi, "198.51.100.1"));
+        assert!(
+            format_status(&status)
+                .contains("network:        Office-5G (Wi-Fi, router 198.51.100.1), id 5f0c\n")
+        );
+        assert!(
+            text.contains("profile:        Other networks (chosen); paused: not on the network, no device connected\n"),
+            "{text}"
+        );
+        status.network = None;
+        assert!(format_status(&status).contains("network:        none\n"));
+        // An agent from before profiles: nothing of them.
+        status.profiles_supported = false;
+        assert!(!format_status(&status).contains("profile:"));
     }
 
     #[test]

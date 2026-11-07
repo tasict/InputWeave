@@ -135,7 +135,7 @@ struct SendChooserView: View {
     let send: (String) -> Void
 
     var body: some View {
-        let targets = SendTargets.targets(model.status.devices)
+        let targets = SendTargets.targets(model.status.devices, profileFilesOff: ProfileText.filesOff(model.status))
         let chosen = SendTargets.chosen(clicked: items.clicked, shown: items.shown, in: targets)
         // Kept as it is shown: a computer that connects ahead of it does not
         // take its place.

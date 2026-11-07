@@ -4,12 +4,15 @@ import SwiftUI
 /// The main window's pages, in the order its sidebar lists them; License
 /// is the last, in a section of its own (`LicenseSidebarRow`).
 enum Page: String, CaseIterable, Identifiable {
-    case general, devices, arrangement, files, troubleshooting, license
+    case general, profiles, devices, arrangement, files, troubleshooting, license
 
     var id: String { rawValue }
 
-    /// The pages of the sidebar's first section.
-    static let listed: [Page] = [.general, .devices, .arrangement, .files, .troubleshooting]
+    /// The pages of the sidebar's first section; Profiles only with a
+    /// background service that knows them.
+    static func listed(profiles: Bool) -> [Page] {
+        [.general] + (profiles ? [.profiles] : []) + [.devices, .arrangement, .files, .troubleshooting]
+    }
 
     var title: LocalizedStringKey {
         switch self {
@@ -17,6 +20,7 @@ enum Page: String, CaseIterable, Identifiable {
         case .devices: "Devices"
         case .files: "File Transfers"
         case .general: "General"
+        case .profiles: "Profiles"
         case .troubleshooting: "Troubleshooting"
         case .license: "License"
         }
@@ -28,6 +32,7 @@ enum Page: String, CaseIterable, Identifiable {
         case .devices: "desktopcomputer"
         case .files: "arrow.up.arrow.down.circle"
         case .general: "gearshape"
+        case .profiles: ProfileText.symbol
         case .troubleshooting: "stethoscope"
         case .license: "key"
         }
@@ -66,6 +71,9 @@ enum AppActions {
     static let navigation = Navigation()
     /// Sparkle's updater; nil when this build has no update feed.
     static var updater: Updater?
+    /// Reads the Wi-Fi name for the background service once the user lets
+    /// it; nil in previews and snapshots.
+    static var wifiNames: WifiNameReporter?
 
     static func showMain(_ openWindow: OpenWindowAction, page: Page? = nil, addDevice: Bool = false) {
         if let page { navigation.page = page }

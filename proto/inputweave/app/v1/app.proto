@@ -84,7 +84,9 @@ message SetDeviceName {
 // 1,000 items, counting those still going from this device; "too_large"
 // over 10,000 files and folders or 100 GiB in all; "offline_for_now"
 // while the device, or this one, is offline for now (SetOfflineForNow);
-// and, when every item is one that cannot be sent, the first one's reason
+// "not_in_profile" while the profile in use does not connect the device, or
+// is paused (DeviceStatus.not_in_profile); "files_off" while files are
+// turned off with the device, or in the profile in use; and, when every item is one that cannot be sent, the first one's reason
 // ("not_a_file", "unreadable", "symlink").
 message SendFiles {
   string device_id = 1;
@@ -223,7 +225,9 @@ message SetLocked {
 // "input_unavailable" for one no input from here reaches now
 // (DeviceStatus.input_unavailable), and with "offline_for_now" for a
 // device taken offline for now, or any while this one is
-// (SetOfflineForNow).
+// (SetOfflineForNow), with "not_in_profile" for a device the profile in use
+// does not connect, and with "profile_paused" for any other device while
+// the profile in use is paused.
 message JumpTo {
   string device_id = 1;
 }
@@ -378,7 +382,8 @@ message SetDeviceSpeed {
 // this one how to wake it, "not_sent" when no packet could be sent, as
 // without a network (its wake state is then WAKE_STATE_NOT_WOKEN), and
 // "offline_for_now" while it, or this device, is offline for now
-// (SetOfflineForNow).
+// (SetOfflineForNow), "not_in_profile" while the profile in use does not
+// connect it, and "profile_paused" while the profile in use is paused.
 message WakeDevice {
   string device_id = 1;
 }
@@ -417,6 +422,117 @@ message SetWakeOnPush {
 message SetOfflineForNow {
   string device_id = 1;
   bool offline = 2;
+}
+
+// Profiles (Status.profiles): named sets of settings this device picks by
+// the network it is on, or that the user picks. Each says whether this
+// device shares at all (paused: it neither announces itself nor connects
+// to any device, pairings kept), which paired devices it connects to (the
+// others see this device offline, and it them), and whether the clipboard
+// and files go. Profiles stay on this device; no other device is told.
+// There are always two that cannot be renamed or removed: Default, and
+// Other networks, used on every network not in another profile.
+//
+// Adds a profile named `name`, sharing, with every paired device connected,
+// the clipboard and files on, and no networks; made unique with " 2",
+// " 3"… after the name when a profile has it. Added at the end of the
+// profiles of the user's own, before Other networks. Answered with Status,
+// whose profiles list it. Refused with "invalid_name" for a name of 0 or
+// more than 64 characters, or with control characters, with "name_taken"
+// for one of the fixed profiles' names in English or Chinese ("Default",
+// "Other networks", whatever the case), and with "too_many_profiles" once
+// there are 32.
+message AddProfile {
+  string name = 1;
+}
+
+// Changes what the fields that are set say of a profile. Answered with
+// Status once it has the change. Refused with "unknown_profile", with
+// "fixed_profile" to rename Default or Other networks, with "invalid_name",
+// with "name_taken" for a name another profile has, or one of the fixed
+// profiles' (compared whatever the case), and with "unknown_device" for a
+// device neither trusted nor listed in the profile.
+message EditProfile {
+  string profile_id = 1;
+  optional string name = 2;
+  // Pause: this device neither announces itself nor connects to any device
+  // in the profile.
+  optional bool paused = 3;
+  optional bool clipboard = 4;
+  optional bool files = 5;
+  // Devices to connect, or not, in the profile.
+  repeated DeviceInProfile devices = 6;
+}
+
+message DeviceInProfile {
+  string device_id = 1;
+  bool connect = 2;
+}
+
+// Removes a profile of the user's own, its networks with it; when it was
+// the one chosen (SelectProfile), the choice goes back to Automatic.
+// Answered with Status. Refused with "unknown_profile" and "fixed_profile".
+message RemoveProfile {
+  string profile_id = 1;
+}
+
+// Uses a profile whatever the network until Automatic is chosen again (an
+// empty id), remembered across restarts. Answered with Status. Refused
+// with "unknown_profile".
+message SelectProfile {
+  string profile_id = 1;
+}
+
+// Adds the network this device is on now (Status.network) to a profile,
+// taking it from any profile that had it: a network is in one profile at
+// most. Answered with Status. Refused with "unknown_profile", with
+// "other_networks" for Other networks, which lists none, with "no_network"
+// while this device is on none, with "network_unresolved" while the network
+// is known by its router's address alone (Network.resolved false), which
+// would match no more once the router resolves, and with
+// "too_many_networks" once 256 are listed.
+message AddNetworkToProfile {
+  string profile_id = 1;
+}
+
+// Takes a network out of the profile that lists it. Answered with Status.
+// Refused with "unknown_network".
+message RemoveNetwork {
+  string network_id = 1;
+}
+
+// Gives a network listed in a profile a name shown in place of its own, or
+// with an empty `name` takes it away. Answered with Status. Refused with
+// "unknown_network" and "invalid_name".
+message RenameNetwork {
+  string network_id = 1;
+  string name = 2;
+}
+
+// Also recognizes networks by their Wi-Fi name, or only by their router
+// (Status.wifi_names); remembered. On macOS and Windows the app reads the
+// Wi-Fi name, once the user let it have location access, and tells the
+// agent (ReportWifiName); on Linux the agent reads it, whatever this says.
+// Answered with Status.
+message SetWifiNames {
+  bool on = 1;
+}
+
+// The app's reading of the Wi-Fi name (SSID) of the network this device is
+// on, Status.network.id being `network_id` as it read it: empty when it is
+// not on Wi-Fi. A read that failed is not reported (Status.wifi_name_held
+// says what the agent holds). Taken while Status.wifi_names is on and
+// the network is that one, and not while the agent waits to tell whether
+// the network changed; used once the agent's next reading of the network
+// still shows it (a couple of seconds), and from then on until the network
+// changes or another reading replaces it, whether or not the app stays
+// connected. A name for another network, or of more than 32 bytes or with
+// control characters, is ignored. Kept in the profiles file only as the
+// user adds the network to a profile (AddNetworkToProfile). Answered with
+// Status.
+message ReportWifiName {
+  string network_id = 1;
+  string ssid = 2;
 }
 
 // Lets other devices control this Mac at the login window, or stops them;
@@ -698,6 +814,15 @@ message ClientMessage {
     WakeDevice wake_device = 51;
     SetWakeOnPush set_wake_on_push = 52;
     SetOfflineForNow set_offline_for_now = 53;
+    AddProfile add_profile = 60;
+    EditProfile edit_profile = 61;
+    RemoveProfile remove_profile = 62;
+    SelectProfile select_profile = 63;
+    AddNetworkToProfile add_network_to_profile = 64;
+    RemoveNetwork remove_network = 65;
+    RenameNetwork rename_network = 66;
+    SetWifiNames set_wifi_names = 67;
+    ReportWifiName report_wifi_name = 68;
   }
 }
 
@@ -819,7 +944,8 @@ message DeviceStatus {
   // CONNECTION_STATE_OFFLINE whether or not it is connected, as is every
   // device's while this one is (Status.offline_for_now); it cannot be woken,
   // and the fields that hold only while connected are as for an offline
-  // device.
+  // device. False while this device is offline for now, or the profile in
+  // use is paused (Profile.paused): every device is just offline then.
   bool offline_for_now = 21;
   // The device that took it offline for now, this one or another, and what
   // this device calls it: the name this device's user gave it, or else the
@@ -833,6 +959,12 @@ message DeviceStatus {
   // them and is controlled by them, and shares the clipboard and files with
   // them, where they let it.
   bool offline_unaware = 24;
+  // The profile in use (Status.profile_id) does not connect it, so it is
+  // offline here and sees this device offline; not while it is offline for
+  // now, which comes first, nor while this device is, or the profile in use
+  // is paused, when every device is just offline. It cannot be woken
+  // meanwhile.
+  bool not_in_profile = 30;
 }
 
 // Whether a device is being woken (DeviceStatus.wake).
@@ -875,6 +1007,11 @@ enum ReturnReason {
   // (DeviceStatus.offline_for_now), or this one was, while it controlled
   // another: last_return_device_id is then this device.
   RETURN_REASON_OFFLINE_FOR_NOW = 10;
+  // The profile in use changed, and it does not connect the controlled
+  // device (last_return_device_id), or it is paused. The UI says nothing of
+  // it: when the profile changed by itself, it tells of that
+  // (Status.profile_switches).
+  RETURN_REASON_PROFILE_CHANGED = 11;
 }
 
 message Status {
@@ -898,7 +1035,7 @@ message Status {
   uint64 control_returns = 10;
   ReturnReason last_return = 11;
   // The device involved, for PEER_LOST, REMOTE_ACTIVITY, SCREEN_LOCKED,
-  // INPUT_UNAVAILABLE, PEER_PAUSED and OFFLINE_FOR_NOW.
+  // INPUT_UNAVAILABLE, PEER_PAUSED, OFFLINE_FOR_NOW and PROFILE_CHANGED.
   string last_return_device_id = 12;
   bool clipboard_sync = 13;
   // The last time a clipboard moved, or was held back, through this device.
@@ -1014,6 +1151,109 @@ message Status {
   // offline fields of Status and DeviceStatus. Agents from before leave it
   // false, and the apps then show nothing of it.
   bool offline_supported = 48;
+  // The network this device is on now; unset while it has no route to the
+  // internet, when Other networks is used.
+  Network network = 55;
+  // Every profile (see AddProfile): Default first, then the user's own in
+  // the order they were added, then Other networks.
+  repeated Profile profiles = 56;
+  // The profile in use.
+  string profile_id = 57;
+  // The user chose it (SelectProfile), so it stays whatever the network;
+  // false: Automatic, by the network.
+  bool profile_chosen = 58;
+  // Counts the times the profile in use changed by itself (Automatic: the
+  // network changed, or a change to the profiles picks another for it); the
+  // UI tells the user of the profile in use whenever it increases. Choosing
+  // a profile, or Automatic, or removing the profile chosen (back to
+  // Automatic) is not counted, nor is a network coming or going.
+  uint64 profile_switches = 59;
+  // This agent knows profiles: the profile commands and fields. Agents from
+  // before leave it false, and the apps then show nothing of them.
+  bool profiles_supported = 60;
+  // See SetWifiNames.
+  bool wifi_names = 61;
+  // The Wi-Fi name the agent holds from an app (ReportWifiName) for the
+  // network it is on now; unset while it holds none.
+  WifiNameHeld wifi_name_held = 62;
+}
+
+// What the agent took of the apps' readings of the Wi-Fi name
+// (ReportWifiName) for the network it is on now (Status.network.id): unset
+// while it holds none, as when names are not used, nothing was reported
+// since the network changed, or a report came while the agent waited to
+// tell whether the network changed. An app that has read the name for that
+// network, or that it is not on Wi-Fi, and sees none held for it here
+// reports it again, at most every few seconds; once one is held, the app
+// reports again only when what it reads changes. A report that the device
+// is not on Wi-Fi does not replace a name in use for the same network while
+// the agent's own reading says it is on Wi-Fi.
+message WifiNameHeld {
+  string network_id = 1;
+  // Empty: the app said this device is not on Wi-Fi.
+  string ssid = 2;
+  // Confirmed and in use: the agent's readings since still show that
+  // network, and a name is used only while the network is reached over
+  // Wi-Fi (one read while a VPN or a wired link carries the traffic is
+  // held, so it is not reported again, but never used).
+  bool in_use = 3;
+}
+
+// The kind of network (Network.kind).
+enum NetworkKind {
+  NETWORK_KIND_UNSPECIFIED = 0;
+  NETWORK_KIND_WIRED = 1;
+  NETWORK_KIND_WIFI = 2;
+  // Its route goes through a link with no hardware address: a VPN, or
+  // another tunnel.
+  NETWORK_KIND_VPN = 3;
+}
+
+// A network: the one this device is on (Status.network), or one listed in
+// a profile.
+message Network {
+  // Stands for the network in commands: a hash of its router's address and
+  // hardware address (never the hardware address itself), or for a VPN of
+  // the addresses its route goes by.
+  string id = 1;
+  // What to call it: the name given it here (RenameNetwork), else its Wi-Fi
+  // name, else on Windows the name Windows gives the network; empty when
+  // none is known, for the apps to call it by its router.
+  string name = 2;
+  NetworkKind kind = 3;
+  // Its router's IP address; empty where its route has none (a VPN).
+  string router = 4;
+  // Status.network only: known by its router's hardware address (or with
+  // no router to resolve), not by the address alone, as for a moment after
+  // joining a network; only such a network can be added to a profile
+  // (AddNetworkToProfile). False in a profile's list of networks.
+  bool resolved = 5;
+}
+
+enum ProfileKind {
+  // One of the user's own.
+  PROFILE_KIND_CUSTOM = 0;
+  PROFILE_KIND_DEFAULT = 1;
+  PROFILE_KIND_OTHER_NETWORKS = 2;
+}
+
+// A profile (Status.profiles).
+message Profile {
+  string id = 1;
+  ProfileKind kind = 2;
+  // Empty for Default and Other networks, which the apps name.
+  string name = 3;
+  // This device neither announces itself nor connects to any device in it.
+  bool paused = 4;
+  // The trusted devices it does not connect; it connects every other one.
+  repeated string off_device_ids = 5;
+  // The clipboard and files go between this device and the others in it;
+  // the clipboard only while Status.clipboard_sync is on too, and either
+  // only with devices they are not turned off with (SetDeviceSharing).
+  bool clipboard = 6;
+  bool files = 7;
+  // The networks it is used on; none for Other networks.
+  repeated Network networks = 8;
 }
 
 // A device taken offline for now or brought back (Status.offline_changes).

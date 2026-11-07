@@ -549,6 +549,91 @@ final class AgentModelTests: XCTestCase {
         XCTAssertEqual(refused, "unknown_device")
     }
 
+    /// Profiles against the service: two added, named apart; one edited,
+    /// chosen and removed; the fixed ones kept as they are; and the network
+    /// this Mac is on, which the mock backend says it is on none.
+    func testProfiles() async throws {
+        let model = AgentModel(socketPath: directory.appending(path: "a.sock").path)
+        model.start()
+        try await eventually("a connection") { model.link == .connected }
+        try await eventually("the trusted computer") { model.device("pc") != nil }
+        XCTAssertTrue(model.profilesSupported)
+        XCTAssertEqual(model.status.profiles.map(\.kind), [.default, .otherNetworks])
+        // On no network, Automatic uses Other networks.
+        XCTAssertFalse(model.status.hasNetwork)
+        XCTAssertEqual(model.profileInUse?.kind, .otherNetworks)
+        XCTAssertFalse(model.status.profileChosen)
+
+        let first = try await model.addProfile(named: "New Profile")
+        let second = try await model.addProfile(named: "New Profile")
+        let added = model.status.profiles.filter { $0.kind == .custom }
+        XCTAssertEqual(added.map(\.id), [first, second].compactMap { $0 })
+        XCTAssertEqual(added.map(\.name), ["New Profile", "New Profile 2"])
+        // Added before Other networks, sharing with every computer.
+        XCTAssertEqual(model.status.profiles.last?.kind, .otherNetworks)
+        let id = try XCTUnwrap(first)
+        let fresh = try XCTUnwrap(model.status.profiles.first { $0.id == id })
+        XCTAssertFalse(fresh.paused)
+        XCTAssertTrue(fresh.offDeviceIds.isEmpty)
+        XCTAssertTrue(fresh.clipboard && fresh.files)
+
+        try await model.editProfile(id, name: "Office", files: false, devices: [(id: "pc", connect: false)])
+        var office = try XCTUnwrap(model.status.profiles.first { $0.id == id })
+        XCTAssertEqual(office.name, "Office")
+        XCTAssertFalse(office.files)
+        XCTAssertTrue(office.clipboard, "left as it was")
+        XCTAssertEqual(office.offDeviceIds, ["pc"])
+
+        // Chosen, it leaves the computer out.
+        try await model.selectProfile(id)
+        XCTAssertTrue(model.status.profileChosen)
+        XCTAssertEqual(model.status.profileID, id)
+        try await eventually("the computer left out") { model.showsNotInProfile("pc") }
+        XCTAssertEqual(model.device("pc")?.state, .offline)
+        XCTAssertTrue(ProfileText.filesOff(model.status))
+        // Paused, every computer is just offline.
+        try await model.editProfile(id, paused: true)
+        try await eventually("the profile paused") { model.profilePaused }
+        office = try XCTUnwrap(model.status.profiles.first { $0.id == id })
+        XCTAssertTrue(office.paused)
+        try await eventually("no computer said left out") { !model.showsNotInProfile("pc") }
+        XCTAssertTrue(model.status.devices.allSatisfy { $0.state == .offline && !$0.notInProfile })
+        XCTAssertFalse(model.canToggleLock)
+
+        // Removing the one chosen goes back to Automatic.
+        try await model.removeProfile(id)
+        XCTAssertFalse(model.status.profileChosen)
+        XCTAssertFalse(model.status.profiles.contains { $0.id == id })
+
+        func refusal(_ command: () async throws -> Void) async -> String? {
+            do {
+                try await command()
+                return nil
+            } catch {
+                return (error as? AgentRefusal)?.code
+            }
+        }
+        let defaultID = try XCTUnwrap(model.status.profiles.first?.id)
+        let refusedRename = await refusal { try await model.editProfile(defaultID, name: "Home") }
+        XCTAssertEqual(refusedRename, "fixed_profile")
+        let refusedRemove = await refusal { try await model.removeProfile(defaultID) }
+        XCTAssertEqual(refusedRemove, "fixed_profile")
+        let refusedName = await refusal { try await model.addProfile(named: "") }
+        XCTAssertEqual(refusedName, "invalid_name")
+        let refusedNetwork = await refusal { try await model.addNetworkToProfile(defaultID) }
+        XCTAssertEqual(refusedNetwork, "no_network")
+        let refusedUnknown = await refusal { try await model.selectProfile("ghost") }
+        XCTAssertEqual(refusedUnknown, "unknown_profile")
+
+        try await model.setWifiNames(true)
+        XCTAssertTrue(model.status.wifiNames)
+        // A name for a network this Mac is not on is ignored, not refused.
+        try await model.reportWifiName(networkID: "elsewhere", ssid: "Office-5G")
+        XCTAssertFalse(model.status.hasNetwork)
+        try await model.setWifiNames(false)
+        XCTAssertFalse(model.status.wifiNames)
+    }
+
     /// Setup has the background service list the folders macOS protects,
     /// here in the test's own folder, where macOS asks nothing.
     func testFolderAccess() async throws {

@@ -28,6 +28,12 @@ public static class PanelText
                     : new(TextKeys.TitleStarting);
         }
         var status = model.Status;
+        // A paused profile before anything else: this computer is on no
+        // network of InputWeave's then.
+        if (Profiles.PanelTitle(model) is { } paused)
+        {
+            return paused;
+        }
         // Offline for now, nothing crosses whatever the sharing switch says.
         if (OfflineForNow.ThisOffline(model))
         {
@@ -65,6 +71,12 @@ public static class PanelText
             return null;
         }
         var status = model.Status;
+        // Under a paused profile's title, at most that this network is in
+        // no profile.
+        if (Profiles.Paused(model))
+        {
+            return Profiles.PanelSubtitle(model);
+        }
         if (OfflineForNow.PanelSubtitle(model) is { } offline)
         {
             return offline;

@@ -27,10 +27,11 @@ enum OfflineText {
     }
 
     /// Whether `device` shows as taken offline for now. Not while this
-    /// computer is: every other computer is plainly offline then, the way
-    /// a computer not reached is.
+    /// computer is, nor while the profile in use is paused: every other
+    /// computer is plainly offline then, the way a computer not reached is.
     static func shows(_ device: DeviceStatus?, status: AgentStatus) -> Bool {
         status.offlineSupported && !status.offlineForNow && device?.offlineForNow == true
+            && !ProfileText.paused(status)
     }
 
     /// The status of a computer taken offline for now; no round-trip time,
@@ -82,15 +83,18 @@ enum OfflineText {
     /// computer.
     enum Offer: Equatable {
         /// Nothing: this computer, one the service does not know, a service
-        /// from before, or this computer offline for now, which can only
-        /// bring itself back.
+        /// from before, this computer offline for now, which can only
+        /// bring itself back, or a computer the profile in use keeps away
+        /// (`ProfileText.keepsAway`).
         case hidden
         case takeOffline
         case bringBack
     }
 
     static func offer(_ device: DeviceStatus?, status: AgentStatus) -> Offer {
-        guard status.offlineSupported, !status.offlineForNow, let device, device.id != status.thisDeviceID else {
+        guard status.offlineSupported, !status.offlineForNow, let device, device.id != status.thisDeviceID,
+            !ProfileText.keepsAway(device, status: status)
+        else {
             return .hidden
         }
         return device.offlineForNow ? .bringBack : .takeOffline
@@ -154,12 +158,15 @@ enum OfflineText {
     }
 
     /// The computers the panel and Troubleshooting say can't be reached:
-    /// the offline ones, but not one taken offline for now, which is meant
-    /// to be, and none while this computer is offline for now, when every
-    /// other computer shows offline.
+    /// the offline ones, but not one taken offline for now or left out of
+    /// the profile in use, which are meant to be, and none while this
+    /// computer is offline for now or the profile in use is paused, when
+    /// every other computer shows offline.
     static func unreachable(_ status: AgentStatus) -> [DeviceStatus] {
-        if here(status) { return [] }
-        return status.devices.filter { $0.state != .connected && !$0.offlineForNow }
+        if here(status) || ProfileText.paused(status) { return [] }
+        return status.devices.filter {
+            $0.state != .connected && !$0.offlineForNow && !ProfileText.shows($0, status: status)
+        }
     }
 
     /// News about computers taken offline for now for the HUD.
@@ -267,10 +274,12 @@ extension AgentModel {
 
     /// Whether the cursor can be locked or unlocked from the panel's ⋯
     /// menu: not while another computer controls this one, where its lock
-    /// holds the cursor, nor while sharing is paused or this computer is
-    /// offline for now, when it goes nowhere anyway.
+    /// holds the cursor, nor while sharing is paused, this computer is
+    /// offline for now or the profile in use is paused, when it goes
+    /// nowhere anyway.
     var canToggleLock: Bool {
         link == .connected && status.sharing && status.controlledByDeviceID.isEmpty && !offlineHere
+            && !profilePaused
     }
 
     /// The name the HUD gives for `news`: for this computer taken offline

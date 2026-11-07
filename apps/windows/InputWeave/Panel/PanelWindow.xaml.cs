@@ -52,6 +52,7 @@ public sealed partial class PanelWindow : Window
         this.setSharing = setSharing;
         menu = new AppMenu(MoreMenu, actions);
         BringBackButton.Content = Strings.Get(TextKeys.OfflineBringBack);
+        AddNetworkButton.Content = Strings.Get(TextKeys.PanelAddNetworkTo);
         AutomationProperties.SetName(map, Strings.Get(TextKeys.NavArrangement));
         MapFrame.Child = map;
         hwnd = WindowNative.GetWindowHandle(this);
@@ -224,8 +225,9 @@ public sealed partial class PanelWindow : Window
     {
         menu.Update(menuState);
         var title = Strings.Text(PanelText.Title(model, service, now));
+        var capsule = Settings.Profiles.Capsule(model) is { } inUse ? Strings.Text(inUse) : null;
         var clipboard = ClipboardText.Line(model, now, CultureInfo.CurrentCulture) is { } line ? Strings.Text(line) : null;
-        var key = $"{title}|{service}|{clipboard}|{App.Instance.DismissedTransfers.Version}";
+        var key = $"{title}|{capsule}|{service}|{clipboard}|{App.Instance.DismissedTransfers.Version}";
         if (ReferenceEquals(model, shown) && key == shownKey)
         {
             return;
@@ -235,16 +237,29 @@ public sealed partial class PanelWindow : Window
 
         var connected = model.Link == AgentLink.Connected;
         TitleText.Text = title;
+        // After every title but the paused profile's, which names it.
+        ProfileCapsuleText.Text = capsule ?? "";
+        ProfileCapsule.Visibility = capsule is null ? Visibility.Collapsed : Visibility.Visible;
         var subtitle = PanelText.Subtitle(model);
         SubtitleText.Text = subtitle is null ? "" : Strings.Text(subtitle);
         SubtitleText.Visibility = subtitle is null ? Visibility.Collapsed : Visibility.Visible;
 
-        // Offline for now, the switch still shows the user's own choice.
+        // Offline for now, the switch still shows the user's own choice; in
+        // a paused profile it is off, and sharing comes back by changing
+        // the profile.
+        bool profilePaused = Settings.Profiles.Paused(model);
         updating = true;
-        SharingSwitch.IsOn = connected && model.Status.Sharing;
-        SharingSwitch.IsEnabled = connected;
+        SharingSwitch.IsOn = connected && model.Status.Sharing && !profilePaused;
+        SharingSwitch.IsEnabled = connected && !profilePaused;
         updating = false;
-        BringBackButton.Visibility = connected && Settings.OfflineForNow.ThisOffline(model) ? Visibility.Visible : Visibility.Collapsed;
+        // Under the title that says this computer is offline for now, which
+        // a paused profile's title comes before.
+        BringBackButton.Visibility = connected && Settings.OfflineForNow.ThisOffline(model) && !profilePaused
+            ? Visibility.Visible
+            : Visibility.Collapsed;
+        AddNetworkButton.Visibility = Settings.Profiles.NetworkInNoProfile(model) ? Visibility.Visible : Visibility.Collapsed;
+        // Not for the moment the network is known only by its router's address.
+        AddNetworkButton.IsEnabled = Settings.Profiles.CanAddNetwork(model);
 
         MapFrame.Visibility = connected ? Visibility.Visible : Visibility.Collapsed;
         map.Update(model);
@@ -319,6 +334,23 @@ public sealed partial class PanelWindow : Window
         if (shown is { } model && Settings.OfflineForNow.ThisOffline(model))
         {
             App.Instance.SetOfflineForNow(model.ThisDeviceId, offline: false);
+        }
+    }
+
+    /// <summary>Add This Network To…: the profiles the network can go to, but Other networks.</summary>
+    private void OnAddNetworkOpening(object sender, object e)
+    {
+        AddNetworkMenu.Items.Clear();
+        if (shown is not { } model)
+        {
+            return;
+        }
+        foreach (var target in Settings.Profiles.AddTargets(model))
+        {
+            var item = new MenuFlyoutItem { Text = Strings.Text(target.Name) };
+            var id = target.Id;
+            item.Click += (_, _) => App.Instance.AddNetworkToProfile(id);
+            AddNetworkMenu.Items.Add(item);
         }
     }
 

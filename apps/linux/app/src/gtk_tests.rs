@@ -64,6 +64,10 @@ fn gtk_behaviour() {
     the_send_picker_lists_every_computer_and_sends_to_the_one_chosen(&ui);
     offline_for_now_is_offered_sent_and_shown(&ui);
     this_computer_offline_for_now_comes_back_from_general_and_the_tray(&ui);
+    the_profiles_page_follows_the_agent_and_sends_choices(&ui);
+    profiles_are_added_edited_and_removed_on_their_own_page(&ui);
+    general_names_the_profile_and_adds_the_network_to_one(&ui);
+    computers_left_out_of_the_profile_offer_only_rename(&ui);
     synced_is_said_only_for_changes_while_shown(&ui);
     rows_show_ampersands_and_angle_brackets_as_they_are(&ui);
     the_license_page_follows_the_agent_and_sends_keys(&ui);
@@ -1589,7 +1593,8 @@ fn this_computer_offline_for_now_comes_back_from_general_and_the_tray(ui: &Rc<Ui
     assert_eq!(status.title().as_str(), t(keys::TITLE_SHARING));
     window.destroy();
 
-    // The tray: the item after Pause Sharing, which keeps its place.
+    // The tray: the item after Pause Sharing, which keeps its place (after
+    // the Profile submenu's section).
     let items_of = |model: &Snapshot| -> Vec<(String, bool)> {
         ui.tray_model_for_tests(model)
             .menu
@@ -1598,11 +1603,11 @@ fn this_computer_offline_for_now_comes_back_from_general_and_the_tray(ui: &Rc<Ui
             .collect()
     };
     let tray = ui.tray_model_for_tests(&base);
-    assert_eq!(tray.menu[4].action, Some(TrayAction::ToggleSharing));
-    assert_eq!(tray.menu[5].action, Some(TrayAction::ToggleOffline));
+    assert_eq!(tray.menu[6].action, Some(TrayAction::ToggleSharing));
+    assert_eq!(tray.menu[7].action, Some(TrayAction::ToggleOffline));
     let items = items_of(&base);
-    assert_eq!(items[5], (t(keys::MENU_TAKE_THIS_OFFLINE), true));
-    assert_eq!(items[6], (t(keys::MENU_LOCK), true));
+    assert_eq!(items[7], (t(keys::MENU_TAKE_THIS_OFFLINE), true));
+    assert_eq!(items[8], (t(keys::MENU_LOCK), true));
     let tray = ui.tray_model_for_tests(&away);
     assert_eq!(tray.state, TrayState::Paused);
     assert_eq!(
@@ -1612,9 +1617,9 @@ fn this_computer_offline_for_now_comes_back_from_general_and_the_tray(ui: &Rc<Ui
     assert_eq!(tray.detail, "This computer is offline for now");
     let items = items_of(&away);
     assert_eq!(items[0].0, "This computer is offline for now");
-    assert_eq!(items[4], (t(keys::MENU_PAUSE_SHARING), true));
-    assert_eq!(items[5], (t(keys::OFFLINE_BRING_BACK), true));
-    assert_eq!(items[6], (t(keys::MENU_LOCK), false), "nowhere to lock to");
+    assert_eq!(items[6], (t(keys::MENU_PAUSE_SHARING), true));
+    assert_eq!(items[7], (t(keys::OFFLINE_BRING_BACK), true));
+    assert_eq!(items[8], (t(keys::MENU_LOCK), false), "nowhere to lock to");
     // A service before it: no item.
     let tray = ui.tray_model_for_tests(&old);
     assert!(
@@ -1622,7 +1627,635 @@ fn this_computer_offline_for_now_comes_back_from_general_and_the_tray(ui: &Rc<Ui
             .iter()
             .all(|i| i.action != Some(TrayAction::ToggleOffline))
     );
-    assert_eq!(tray.menu[5].action, Some(TrayAction::ToggleLock));
+    assert_eq!(tray.menu[7].action, Some(TrayAction::ToggleLock));
+    ui.agent.show_fixed(sample::snapshot(SystemTime::now()));
+}
+
+/// The Profiles page and a profile's page over it, in a navigation view of
+/// their own as the window has.
+fn profiles_page(ui: &Rc<Ui>) -> (Rc<crate::pages::profiles::Profiles>, adw::NavigationView) {
+    let profiles = crate::pages::profiles::Profiles::new(ui);
+    let navigation = adw::NavigationView::new();
+    navigation.add(&adw::NavigationPage::new(profiles.widget(), "Profiles"));
+    profiles.set_navigation(&navigation);
+    (profiles, navigation)
+}
+
+/// The labels of a combo row's choices.
+fn combo_labels(row: &adw::ComboRow) -> Vec<String> {
+    let Some(model) = row.model() else {
+        return Vec::new();
+    };
+    (0..model.n_items())
+        .filter_map(|i| model.item(i))
+        .filter_map(|item| item.downcast::<gtk::StringObject>().ok())
+        .map(|s| s.string().to_string())
+        .collect()
+}
+
+/// The Profiles page: the profile in use (Automatic naming the one it
+/// picked, or the one chosen), choosing one sent, the current network with
+/// Add to Profile marking the profile that has it, the list with "In use",
+/// and nothing to add with no network.
+fn the_profiles_page_follows_the_agent_and_sends_choices(ui: &Rc<Ui>) {
+    use crate::strings::t;
+    use inputweave_app_core::profiles;
+    use inputweave_app_core::text::keys;
+    ui.agent.record_fixed();
+    let (page, navigation) = profiles_page(ui);
+    let window = window_with(&navigation);
+    let show = |model: &Snapshot| {
+        ui.agent.show_fixed(model.clone());
+        page.update(model);
+        settle();
+    };
+    let base = sample::snapshot(SystemTime::now());
+    show(&base);
+    let listed = |rows: &[(&str, &str, bool)]| -> Vec<(String, String, bool)> {
+        rows.iter()
+            .map(|(id, name, in_use)| ((*id).to_owned(), (*name).to_owned(), *in_use))
+            .collect()
+    };
+    assert_eq!(
+        page.listed(),
+        listed(&[
+            ("default", "Default", false),
+            ("office", "Office", true),
+            ("other", "Other networks", false)
+        ])
+    );
+    let in_use = page.in_use_row();
+    assert_eq!(
+        combo_labels(in_use),
+        [
+            "Automatic (now: Office)",
+            "Default",
+            "Office",
+            "Other networks"
+        ]
+    );
+    assert_eq!(in_use.selected(), 0);
+    let network = page.network_row();
+    assert_eq!(network.title().as_str(), "Current network: Office-5G");
+    assert_eq!(network.subtitle().as_deref(), Some("Router 172.16.0.1"));
+    assert!(page.add_to_button().is_sensitive());
+    assert_eq!(page.add_to_checked().as_deref(), Some("office"));
+    let menu = page.add_to_button().menu_model().expect("a menu");
+    assert_eq!(
+        menu_entries(&menu),
+        [
+            ("Default".to_owned(), "profiles.add-network".to_owned()),
+            ("Office".to_owned(), "profiles.add-network".to_owned())
+        ]
+    );
+
+    // Choosing a profile, and Automatic again.
+    let before = ui.agent.sent().len();
+    in_use.set_selected(1);
+    settle();
+    assert_eq!(ui.agent.sent()[before..], [profiles::select("default")]);
+    let mut chosen = base.clone();
+    chosen.status.profile_chosen = true;
+    chosen.status.profile_id = "default".into();
+    show(&chosen);
+    assert_eq!(in_use.selected(), 1);
+    assert_eq!(combo_labels(in_use)[0], "Automatic");
+    assert_eq!(
+        page.listed(),
+        listed(&[
+            ("default", "Default", true),
+            ("office", "Office", false),
+            ("other", "Other networks", false)
+        ])
+    );
+    let before = ui.agent.sent().len();
+    in_use.set_selected(0);
+    settle();
+    assert_eq!(ui.agent.sent()[before..], [profiles::select("")]);
+    // Following the agent sends nothing.
+    let before = ui.agent.sent().len();
+    show(&base);
+    assert_eq!(in_use.selected(), 0);
+    assert_eq!(ui.agent.sent().len(), before);
+
+    // Add to Profile: the network this computer is on.
+    let before = ui.agent.sent().len();
+    page.widget()
+        .activate_action("profiles.add-network", Some(&"default".to_variant()))
+        .expect("the page's action");
+    settle();
+    assert_eq!(
+        ui.agent.sent()[before..],
+        [profiles::add_network("default")]
+    );
+
+    // Known by its router's address alone, a moment after joining it:
+    // listed as ever, but not to be added yet.
+    let mut unresolved = base.clone();
+    if let Some(network) = unresolved.status.network.as_mut() {
+        network.resolved = false;
+    }
+    show(&unresolved);
+    assert_eq!(network.title().as_str(), "Current network: Office-5G");
+    assert!(!page.add_to_button().is_sensitive());
+    let before = ui.agent.sent().len();
+    let _ = page
+        .widget()
+        .activate_action("profiles.add-network", Some(&"default".to_variant()));
+    settle();
+    assert_eq!(ui.agent.sent().len(), before, "nothing sent meanwhile");
+    show(&base);
+    assert!(page.add_to_button().is_sensitive());
+
+    // No network: nothing to add.
+    let mut nowhere = base.clone();
+    nowhere.status.network = None;
+    show(&nowhere);
+    assert_eq!(network.title().as_str(), t(keys::PROFILE_NO_NETWORK));
+    assert!(!page.add_to_button().is_sensitive());
+    assert_eq!(page.add_to_checked().as_deref(), Some(""));
+    window.destroy();
+    ui.agent.show_fixed(sample::snapshot(SystemTime::now()));
+}
+
+/// Adding a profile (opened with its name to type over), renaming it,
+/// pausing it, the computers it connects, files, its networks, removing it
+/// (back to the list once the agent no longer has it), and the two fixed
+/// profiles, which can be neither renamed nor removed.
+fn profiles_are_added_edited_and_removed_on_their_own_page(ui: &Rc<Ui>) {
+    use crate::strings::t;
+    use inputweave_app_core::profiles;
+    use inputweave_app_core::proto::{Profile, ProfileKind};
+    use inputweave_app_core::text::keys;
+    ui.agent.record_fixed();
+    let (page, navigation) = profiles_page(ui);
+    let window = window_with(&navigation);
+    let show = |model: &Snapshot| {
+        ui.agent.show_fixed(model.clone());
+        page.update(model);
+        settle();
+    };
+    let base = sample::snapshot(SystemTime::now());
+    show(&base);
+
+    // Added: the agent's answer lists it, and its page opens.
+    let mut added = base.clone();
+    added.status.profiles.insert(
+        2,
+        Profile {
+            id: "n1".into(),
+            kind: ProfileKind::Custom as i32,
+            name: "New Profile 2".into(),
+            clipboard: true,
+            files: true,
+            ..Default::default()
+        },
+    );
+    let before = ui.agent.sent().len();
+    page.add_button().emit_clicked();
+    ui.agent.show_fixed(added.clone());
+    settle();
+    assert_eq!(ui.agent.sent()[before..], [profiles::add("New Profile")]);
+    let editor = page.editor().expect("the new profile's page");
+    assert_eq!(editor.id(), "n1");
+    assert_eq!(navigation.visible_page().as_ref(), Some(&editor.page));
+    assert_eq!(editor.page.title().as_str(), "New Profile 2");
+    let name = editor.name_row();
+    assert_eq!(name.text().as_str(), "New Profile 2");
+    assert!(name.is_sensitive());
+    assert!(
+        name.state_flags().contains(gtk::StateFlags::FOCUS_WITHIN),
+        "the focus in its name"
+    );
+    page.update(&added);
+    // Renamed.
+    let before = ui.agent.sent().len();
+    name.set_text(" Home ");
+    name.emit_by_name::<()>("apply", &[]);
+    settle();
+    assert_eq!(ui.agent.sent()[before..], [profiles::rename("n1", "Home")]);
+    // Emptied: the name it has comes back, and nothing is sent.
+    let before = ui.agent.sent().len();
+    name.set_text("  ");
+    name.emit_by_name::<()>("apply", &[]);
+    settle();
+    assert_eq!(ui.agent.sent().len(), before);
+    assert_eq!(name.text().as_str(), "New Profile 2");
+    // A name another profile has: the name it has comes back, and why is
+    // said under it until the name is edited again.
+    ui.agent.refuse_next("name_taken");
+    let before = ui.agent.sent().len();
+    name.set_text("Office");
+    name.emit_by_name::<()>("apply", &[]);
+    settle();
+    assert_eq!(
+        ui.agent.sent()[before..],
+        [profiles::rename("n1", "Office")]
+    );
+    assert_eq!(name.text().as_str(), "New Profile 2");
+    assert_eq!(
+        editor.name_refusal().as_deref(),
+        Some(t(keys::PROFILE_NAME_TAKEN).as_str())
+    );
+    assert!(name.has_css_class("error"));
+    name.set_text("Office 2");
+    assert_eq!(editor.name_refusal(), None);
+    assert!(!name.has_css_class("error"));
+    // Any other refusal is said as ever, with nothing at the name.
+    ui.agent.refuse_next("invalid_name");
+    name.emit_by_name::<()>("apply", &[]);
+    settle();
+    assert_eq!(editor.name_refusal(), None);
+    // Every computer checked, files and the clipboard on, no networks yet.
+    let row = |id: &str, name: &str, on: bool| (id.to_owned(), name.to_owned(), on, true);
+    assert_eq!(
+        editor.computers(),
+        [
+            row("mac", "Mac mini", true),
+            row("pc", "Studio PC", true),
+            row("laptop", "ThinkPad", true)
+        ]
+    );
+    let (share, pause) = editor.sharing_buttons();
+    assert!(share.is_active() && !pause.is_active());
+    let (clipboard, files) = editor.switches();
+    assert!(clipboard.is_active() && files.is_active());
+    assert_eq!(
+        editor.networks_group().description().as_deref(),
+        Some(t(keys::PROFILE_NO_NETWORKS).as_str())
+    );
+    assert!(editor.networks().is_empty());
+    assert!(editor.add_current_button().is_visible() && editor.add_current_button().is_sensitive());
+    assert!(editor.remove_button().is_sensitive());
+    // Each change sent as it is made, with only what changed.
+    let before = ui.agent.sent().len();
+    editor
+        .check("pc")
+        .expect("the Studio PC's")
+        .set_active(false);
+    files.set_active(false);
+    editor.add_current_button().emit_clicked();
+    pause.set_active(true);
+    settle();
+    assert_eq!(
+        ui.agent.sent()[before..],
+        [
+            profiles::set_connect("n1", "pc", false),
+            profiles::set_files("n1", false),
+            profiles::add_network("n1"),
+            profiles::set_paused("n1", true),
+        ]
+    );
+    // Refused, or not yet answered: the page shows the agent's again.
+    page.update(&added);
+    settle();
+    assert!(share.is_active() && !pause.is_active());
+    assert!(files.is_active());
+    assert!(editor.check("pc").is_some_and(|c| c.is_active()));
+    // Paused, as the agent says: the computers and switches are off.
+    let mut paused = added.clone();
+    for p in &mut paused.status.profiles {
+        if p.id == "n1" {
+            p.paused = true;
+            p.off_device_ids = vec!["pc".into()];
+        }
+    }
+    let before = ui.agent.sent().len();
+    show(&paused);
+    assert_eq!(ui.agent.sent().len(), before, "following sends nothing");
+    assert!(pause.is_active() && !share.is_active());
+    assert_eq!(
+        editor.sharing_row().subtitle().as_deref(),
+        Some(t(keys::PROFILE_PAUSED_HINT).as_str())
+    );
+    assert!(!editor.check("mac").expect("the Mac mini's").is_sensitive());
+    assert!(!clipboard.is_sensitive() && !files.is_sensitive());
+    assert!(!editor.check("pc").expect("the Studio PC's").is_active());
+
+    // Removed, no question asked: the page closes once the agent no
+    // longer lists it.
+    let before = ui.agent.sent().len();
+    editor.remove_button().emit_clicked();
+    settle();
+    assert_eq!(ui.agent.sent()[before..], [profiles::remove("n1")]);
+    show(&base);
+    assert!(page.editor().is_none());
+    assert_ne!(navigation.visible_page().as_ref(), Some(&editor.page));
+
+    // Office, from its row: its network, removed with its button; the
+    // current network is in it already.
+    page.row("office")
+        .expect("Office's row")
+        .emit_by_name::<()>("activated", &[]);
+    settle();
+    let editor = page.editor().expect("Office's page");
+    assert_eq!(editor.id(), "office");
+    assert_eq!(
+        editor.networks(),
+        [("Office-5G".to_owned(), "Router 172.16.0.1".to_owned())]
+    );
+    assert_eq!(
+        editor
+            .networks_group()
+            .description()
+            .as_deref()
+            .unwrap_or(""),
+        ""
+    );
+    assert!(!editor.add_current_button().is_sensitive());
+    let before = ui.agent.sent().len();
+    editor
+        .remove_network_button(0)
+        .expect("its remove button")
+        .emit_clicked();
+    settle();
+    assert_eq!(
+        ui.agent.sent()[before..],
+        [profiles::remove_network("n-office")]
+    );
+    // Back: forgotten.
+    navigation.pop();
+    settle();
+    assert!(page.editor().is_none());
+
+    // Default: its home network by its router alone; neither renamed nor
+    // removed.
+    let editor = page.open(&base, "default").expect("Default's page");
+    settle();
+    assert_eq!(editor.page.title().as_str(), "Default");
+    assert!(!editor.name_row().is_sensitive());
+    assert_eq!(editor.name_row().text().as_str(), "Default");
+    assert!(!editor.remove_button().is_sensitive());
+    assert_eq!(
+        editor.networks(),
+        [("Router 192.168.1.1".to_owned(), String::new())]
+    );
+    assert!(editor.add_current_button().is_sensitive());
+    // The current network known by its router's address alone: not yet.
+    let mut unresolved = base.clone();
+    if let Some(network) = unresolved.status.network.as_mut() {
+        network.resolved = false;
+    }
+    page.update(&unresolved);
+    assert!(!editor.add_current_button().is_sensitive());
+    page.update(&base);
+    assert!(editor.add_current_button().is_sensitive());
+    // Other networks: no list, and what it is for.
+    let editor = page.open(&base, "other").expect("Other networks' page");
+    settle();
+    assert_eq!(
+        page.editor().map(|e| e.id().to_owned()).as_deref(),
+        Some("other")
+    );
+    assert!(!editor.remove_button().is_sensitive());
+    assert!(!editor.add_current_button().is_visible());
+    assert_eq!(
+        editor.networks_group().description().as_deref(),
+        Some(t(keys::PROFILE_OTHER_NETWORKS_HINT).as_str())
+    );
+    assert!(editor.networks().is_empty());
+    window.destroy();
+    ui.agent.show_fixed(sample::snapshot(SystemTime::now()));
+}
+
+/// General: the profile in use after the status, and while Other networks
+/// pauses sharing for a network in no profile, its title, the line about
+/// the network and Add This Network To…, with the Sharing switch off; the
+/// tray's Profile submenu and the paused icon.
+fn general_names_the_profile_and_adds_the_network_to_one(ui: &Rc<Ui>) {
+    use crate::strings::t;
+    use crate::tray::TrayAction;
+    use inputweave_app_core::profiles;
+    use inputweave_app_core::service::ServiceState;
+    use inputweave_app_core::status_text::TrayState;
+    use inputweave_app_core::text::keys;
+    ui.agent.record_fixed();
+    let general = crate::pages::general::General::new(ui);
+    let window = window_with(general.widget());
+    let show = |model: &Snapshot| {
+        ui.agent.show_fixed(model.clone());
+        general.update(model, ServiceState::Running);
+        settle();
+    };
+    let base = sample::snapshot(SystemTime::now());
+    show(&base);
+    let status = general.status_row();
+    let capsule = general.capsule();
+    let add = general.add_network_button();
+    assert_eq!(status.title().as_str(), t(keys::TITLE_SHARING));
+    assert!(capsule.is_visible());
+    assert_eq!(capsule.text().as_str(), "Office");
+    assert!(!add.is_visible());
+    assert!(general.sharing_row().is_sensitive() && general.sharing_row().is_active());
+
+    // Other networks, paused, picked for a café's network.
+    let cafe = sample::profile_paused(SystemTime::now(), false);
+    show(&cafe);
+    assert_eq!(status.title().as_str(), "Other networks: sharing paused");
+    assert_eq!(
+        status.subtitle().as_deref(),
+        Some("This network isn’t in any profile.")
+    );
+    assert!(!capsule.is_visible(), "the title names it");
+    assert!(add.is_visible());
+    assert_eq!(
+        add.label().as_deref(),
+        Some(t(keys::PROFILE_ADD_THIS_NETWORK).as_str())
+    );
+    assert_eq!(
+        menu_entries(&add.menu_model().expect("a menu")),
+        [
+            ("Default".to_owned(), "general.add-network".to_owned()),
+            ("Office".to_owned(), "general.add-network".to_owned())
+        ]
+    );
+    assert!(!general.sharing_row().is_active() && !general.sharing_row().is_sensitive());
+    let before = ui.agent.sent().len();
+    status
+        .activate_action("general.add-network", Some(&"office".to_variant()))
+        .expect("General's action");
+    settle();
+    assert_eq!(ui.agent.sent()[before..], [profiles::add_network("office")]);
+    // The café's network known by its router's address alone: the button
+    // stays, off.
+    let mut unresolved = cafe.clone();
+    if let Some(network) = unresolved.status.network.as_mut() {
+        network.resolved = false;
+    }
+    show(&unresolved);
+    assert!(add.is_visible() && !add.is_sensitive());
+    show(&cafe);
+    assert!(add.is_sensitive());
+    // Chosen by the user: the title alone.
+    show(&sample::profile_paused(SystemTime::now(), true));
+    assert_eq!(status.title().as_str(), "Other networks: sharing paused");
+    assert_eq!(status.subtitle().as_deref().unwrap_or_default(), "");
+    assert!(!add.is_visible());
+    // This computer offline for now as well: the paused profile says it
+    // all, with no Bring Back Online.
+    let mut both = cafe.clone();
+    both.status.offline_supported = true;
+    both.status.offline_for_now = true;
+    both.status.offline_by_device_id = "me".into();
+    show(&both);
+    assert_eq!(status.title().as_str(), "Other networks: sharing paused");
+    assert!(!general.bring_back_button().is_visible());
+    // Sharing again: the switch follows the agent again.
+    show(&base);
+    assert!(general.sharing_row().is_sensitive() && general.sharing_row().is_active());
+    // A service before profiles: no capsule.
+    let mut old = base.clone();
+    old.status.profiles_supported = false;
+    show(&old);
+    assert!(!capsule.is_visible());
+    window.destroy();
+
+    // The tray: the Profile submenu before Pause Sharing, its own section.
+    let tray = ui.tray_model_for_tests(&base);
+    assert_eq!(tray.menu[4].label, t(keys::MENU_PROFILE));
+    assert!(tray.menu[4].action.is_none() && tray.menu[5].action.is_none());
+    let submenu: Vec<(String, Option<bool>, Option<TrayAction>)> = tray.menu[4]
+        .children
+        .iter()
+        .map(|i| (i.label.clone(), i.checked, i.action.clone()))
+        .collect();
+    let choice = |label: &str, checked: bool, id: &str| {
+        (
+            label.to_owned(),
+            Some(checked),
+            Some(TrayAction::SelectProfile(id.into())),
+        )
+    };
+    assert_eq!(
+        submenu,
+        [
+            choice("Automatic", true, ""),
+            choice("Default", false, "default"),
+            choice("Office", false, "office"),
+            choice("Other networks", false, "other"),
+            (String::new(), None, None),
+            (
+                t(keys::MENU_MANAGE_PROFILES),
+                None,
+                Some(TrayAction::ManageProfiles)
+            ),
+        ]
+    );
+    assert_eq!(tray.menu[6].action, Some(TrayAction::ToggleSharing));
+    let before = ui.agent.sent().len();
+    ui.tray_action_for_tests(TrayAction::SelectProfile("office".into()));
+    settle();
+    assert_eq!(ui.agent.sent()[before..], [profiles::select("office")]);
+    // Paused: the paused icon, Pause Sharing off, the chosen one checked.
+    let tray = ui.tray_model_for_tests(&sample::profile_paused(SystemTime::now(), true));
+    assert_eq!(tray.state, TrayState::Paused);
+    assert_eq!(tray.detail, "Other networks: sharing paused");
+    assert_eq!(tray.description, t(keys::TRAY_PAUSED));
+    assert_eq!(
+        (tray.menu[6].label.clone(), tray.menu[6].enabled),
+        (t(keys::MENU_PAUSE_SHARING), false)
+    );
+    let checked: Vec<String> = tray.menu[4]
+        .children
+        .iter()
+        .filter(|i| i.checked == Some(true))
+        .map(|i| i.label.clone())
+        .collect();
+    assert_eq!(checked, ["Other networks"]);
+    // A service before profiles: no submenu.
+    let tray = ui.tray_model_for_tests(&old);
+    assert!(tray.menu.iter().all(|i| i.children.is_empty()));
+    assert_eq!(tray.menu[4].action, Some(TrayAction::ToggleSharing));
+    ui.agent.show_fixed(sample::snapshot(SystemTime::now()));
+}
+
+/// A computer the profile in use leaves out: its status, no Wake and no
+/// Take Offline in the inspector, only Rename… in the arrangement's menu,
+/// as every other computer's while the profile in use is paused.
+fn computers_left_out_of_the_profile_offer_only_rename(ui: &Rc<Ui>) {
+    use crate::strings::t;
+    use inputweave_app_core::text::keys;
+    use std::sync::Arc;
+    ui.agent.record_fixed();
+    let left_out = sample::not_in_profile(SystemTime::now());
+    let paused = sample::profile_paused(SystemTime::now(), false);
+
+    let devices = crate::pages::devices::Devices::new(ui);
+    let window = window_with(devices.widget());
+    ui.agent.show_fixed(left_out.clone());
+    devices.select("pc");
+    devices.update(&left_out);
+    settle();
+    let list = devices.list();
+    assert_eq!(list.status_of("pc").as_deref(), Some("Not in this profile"));
+    assert_eq!(list.offline_shown("pc"), Some(false));
+    assert_eq!(list.moon_shown("pc"), Some(false));
+    assert_eq!(list.status_of("mac").as_deref(), Some("Connected · 3 ms"));
+    // The paused profile: every other computer just offline, the ThinkPad
+    // with no moon.
+    ui.agent.show_fixed(paused.clone());
+    devices.update(&paused);
+    settle();
+    for id in ["mac", "pc", "laptop"] {
+        assert_eq!(list.status_of(id).as_deref(), Some("Offline"), "{id}");
+    }
+    assert_eq!(list.moon_shown("laptop"), Some(false));
+    window.destroy();
+
+    let inspector = Inspector::new(ui);
+    let window = window_with(inspector.widget());
+    for (model, id) in [(&left_out, "pc"), (&paused, "laptop"), (&paused, "mac")] {
+        ui.agent.show_fixed(model.clone());
+        inspector.update(model, Some(id));
+        settle();
+        let wake = inspector.wake_widgets().expect("another computer's");
+        assert!(!wake.button.is_visible() && !wake.moon.is_visible(), "{id}");
+        assert!(
+            !wake.not_told.is_visible() && !wake.not_woken.is_visible(),
+            "{id}"
+        );
+        let offline = inspector.offline_widgets().expect("another computer's");
+        assert!(!offline.group.is_visible(), "{id}");
+    }
+    window.destroy();
+
+    let canvas = ArrangementCanvas::new(ui);
+    canvas.connect_rename(|_| {});
+    let window = window_with(canvas.widget());
+    let menu = |model: &Snapshot, id: &str| {
+        ui.agent.show_fixed(model.clone());
+        canvas.update(&Arc::new(model.clone()));
+        menu_entries(canvas.menu_for_tests(id).expect("a model").upcast_ref())
+    };
+    let entry = |label: &str, action: &str| (label.to_owned(), action.to_owned());
+    let rename = entry(&t(keys::CANVAS_RENAME), "canvas.rename");
+    let here = t(keys::CANVAS_MOVE_CURSOR_HERE);
+    assert_eq!(menu(&left_out, "pc"), std::slice::from_ref(&rename));
+    assert_eq!(
+        menu(&left_out, "mac"),
+        [
+            entry(&here, "canvas.jump"),
+            rename.clone(),
+            entry("—", ""),
+            entry(&t(keys::OFFLINE_TAKE), "canvas.offline")
+        ]
+    );
+    for id in ["mac", "pc", "laptop"] {
+        assert_eq!(menu(&paused, id), std::slice::from_ref(&rename), "{id}");
+    }
+    assert_eq!(menu(&paused, "me"), [entry(&here, "canvas.none")]);
+    // Chosen from the menu all the same: nothing sent.
+    let before = ui.agent.sent().len();
+    menu(&left_out, "pc");
+    for action in ["canvas.offline", "canvas.wake"] {
+        canvas
+            .widget()
+            .activate_action(action, Some(&"pc".to_variant()))
+            .expect("the canvas's action");
+    }
+    settle();
+    assert_eq!(ui.agent.sent().len(), before);
+    window.destroy();
     ui.agent.show_fixed(sample::snapshot(SystemTime::now()));
 }
 

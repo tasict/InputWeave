@@ -55,6 +55,42 @@
         }
       }
     },
+    "NSLocationUsageDescription": {
+      "comment": "Shown when macOS asks whether InputWeave may use location services, which it needs to read the Wi-Fi name.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Used only to read the Wi-Fi name, to recognize the network you’re on."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "只用來讀取 Wi-Fi 名稱，以辨認你所在的網路。"
+          }
+        }
+      }
+    },
+    "NSLocationWhenInUseUsageDescription": {
+      "comment": "Shown when macOS asks whether InputWeave may use location services, which it needs to read the Wi-Fi name.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Used only to read the Wi-Fi name, to recognize the network you’re on."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "只用來讀取 Wi-Fi 名稱，以辨認你所在的網路。"
+          }
+        }
+      }
+    },
     "NSNetworkVolumesUsageDescription": {
       "comment": "Shown when macOS asks whether InputWeave may use these files (the app is what macOS asks about).",
       "extractionState": "manual",

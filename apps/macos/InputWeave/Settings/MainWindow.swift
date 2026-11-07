@@ -11,7 +11,7 @@ struct MainWindow: View {
         NavigationSplitView {
             List(selection: Binding($navigation.page)) {
                 Section {
-                    ForEach(Page.listed) { page in
+                    ForEach(Page.listed(profiles: model.profilesSupported)) { page in
                         Label(page.title, systemImage: page.symbol).tag(page)
                     }
                 }
@@ -22,8 +22,9 @@ struct MainWindow: View {
             .navigationSplitViewColumnWidth(min: 190, ideal: 210)
         } detail: {
             Group {
-                switch navigation.page {
+                switch shownPage {
                 case .general: GeneralPage()
+                case .profiles: ProfilesPage()
                 case .devices: DevicesPage()
                 case .arrangement: ArrangementPage()
                 case .files: FilesPage()
@@ -31,7 +32,7 @@ struct MainWindow: View {
                 case .license: LicensePage()
                 }
             }
-            .navigationTitle(navigation.page.title)
+            .navigationTitle(shownPage.title)
         }
         .frame(minWidth: 760, minHeight: 520)
         .sheet(isPresented: $navigation.addingDevice) {
@@ -42,6 +43,12 @@ struct MainWindow: View {
                 AgentUnavailableView()
             }
         }
+    }
+
+    /// The page shown: General in place of Profiles while the service
+    /// knows none.
+    private var shownPage: Page {
+        navigation.page == .profiles && !model.profilesSupported ? .general : navigation.page
     }
 }
 
@@ -226,7 +233,8 @@ struct DevicesPage: View {
                         DeviceRow(
                             device: device, jump: model.jumpShortcut(slot: device.jumpSlot),
                             wakeSupported: model.wakeSupported,
-                            offlineForNow: model.showsOfflineForNow(device.id))
+                            offlineForNow: model.showsOfflineForNow(device.id),
+                            notInProfile: model.showsNotInProfile(device.id))
                     }
                     Divider()
                     DeviceInspector(deviceID: selection ?? model.status.devices.first?.id ?? "")
@@ -251,6 +259,8 @@ private struct DeviceRow: View {
     var wakeSupported = false
     /// It is taken offline for now (`OfflineText.shows`).
     var offlineForNow = false
+    /// The profile in use leaves it out (`ProfileText.shows`).
+    var notInProfile = false
 
     var body: some View {
         HStack {
@@ -282,6 +292,10 @@ private struct DeviceRow: View {
             }
             if offlineForNow {
                 Label(OfflineText.status(), systemImage: OfflineText.symbol)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            } else if notInProfile {
+                Label(ProfileText.notInProfile(), systemImage: ProfileText.symbol)
                     .font(.caption)
                     .foregroundStyle(.secondary)
             } else if device.state == .connected {

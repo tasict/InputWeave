@@ -32,7 +32,9 @@ namespace InputWeave.Canvas;
 /// the cursor there, renames another computer, wakes one that can be
 /// woken, which has a moon after its name, and takes another offline for
 /// now or brings it back, which has a network with a slash after its name
-/// while it is (only Rename… while this one is). Compact, it is the
+/// while it is (only Rename… while this one is, for one the profile in use
+/// doesn't connect, and for every other one while that profile is paused).
+/// Compact, it is the
 /// panel's mini map, where a click moves the cursor. Files dropped on a
 /// connected computer go to it, unless files are turned off with it. Beside
 /// each name is the shortcut that jumps there, where there is room.
@@ -399,6 +401,7 @@ internal sealed partial class ArrangementCanvas : Grid
         string? status = (screenLocked, here) switch
         {
             _ when offlineForNow => Strings.Get(TextKeys.ConnectionOfflineForNow),
+            _ when Profiles.NotInProfile(current, device.Id) => Strings.Get(TextKeys.ConnectionNotInProfile),
             (true, _) when current.OutOfReach(device.Id) => Strings.Get(TextKeys.ConnectionScreenLockedNoInput),
             (false, _) when current.OutOfReach(device.Id) => Strings.Get(TextKeys.ConnectionNoInput),
             (true, true) => Strings.Get(TextKeys.CanvasScreenLockedKeyboardMouseHere),
@@ -987,9 +990,10 @@ internal sealed partial class ArrangementCanvas : Grid
         e.Handled = true;
         Selection = id;
         var menu = new MenuFlyout();
-        // While this computer is offline for now, nothing but a name can be
-        // given to the others.
-        if (!OfflineForNow.OnlyRename(model, id))
+        // While this computer is offline for now, for one the profile in use
+        // doesn't connect, and for every other one while that profile is
+        // paused, nothing but a name can be given to the others.
+        if (!OfflineForNow.OnlyRename(model, id) && !Profiles.OnlyRename(model, id))
         {
             var item = new MenuFlyoutItem
             {
@@ -1059,7 +1063,9 @@ internal sealed partial class ArrangementCanvas : Grid
 
     /// <summary>
     /// Moves the cursor to a computer. Refusals the panel already explains
-    /// (sharing paused, cursor locked) are left at that; others shake it.
+    /// (sharing paused, cursor locked, the profile in use paused or leaving
+    /// the computer out, which the app never offers) are left at that;
+    /// others shake it.
     /// </summary>
     private async void Jump(string id)
     {
@@ -1067,7 +1073,7 @@ internal sealed partial class ArrangementCanvas : Grid
         {
             await App.Instance.Model.JumpToAsync(id);
         }
-        catch (AgentRefusal refusal) when (refusal.Code is "sharing_paused" or "locked")
+        catch (AgentRefusal refusal) when (refusal.Code is "sharing_paused" or "locked" or "not_in_profile" or "profile_paused")
         {
         }
         catch (Exception e)

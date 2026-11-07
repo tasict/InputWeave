@@ -72,6 +72,16 @@ targets:
     dependencies:
       - package: SwiftProtobuf
       - package: Sparkle
+      # The Wi-Fi name, and the location access macOS reads it with.
+      - sdk: CoreWLAN.framework
+      - sdk: CoreLocation.framework
+    # The hardened runtime of release builds lets the app use location
+    # services only with this entitlement; an ad hoc Debug build carries it
+    # too, harmlessly. scripts/package.sh keeps it as it signs the app again.
+    entitlements:
+      path: InputWeave/InputWeave.entitlements
+      properties:
+        com.apple.security.personal-information.location: true
     info:
       path: InputWeave/Info.plist
       properties:
@@ -92,6 +102,11 @@ targets:
         NSDocumentsFolderUsageDescription: InputWeave sends files in Documents that you drag or send to your other computers, and saves files you drop there.
         NSNetworkVolumesUsageDescription: InputWeave sends files on network volumes that you drag or send to your other computers, and saves files you drop there.
         NSRemovableVolumesUsageDescription: InputWeave sends files on removable volumes that you drag or send to your other computers, and saves files you drop there.
+        # Asked only when the user turns on recognizing networks by their
+        # Wi-Fi name, which macOS gives an app only with location access
+        # (Support/WifiNameReporter.swift).
+        NSLocationUsageDescription: Used only to read the Wi-Fi name, to recognize the network you’re on.
+        NSLocationWhenInUseUsageDescription: Used only to read the Wi-Fi name, to recognize the network you’re on.
         SUFeedURL: $(INPUTWEAVE_APPCAST_URL)
         SUPublicEDKey: $(INPUTWEAVE_SPARKLE_PUBLIC_KEY)
         # Finder's Services › Send with InputWeave, for files and folders
@@ -146,6 +161,8 @@ targets:
       - path: InputWeave/Support/SendTargets.swift
       - path: InputWeave/Support/SendChooser.swift
       - path: InputWeave/Settings/OfflineText.swift
+      - path: InputWeave/Settings/ProfileText.swift
+      - path: InputWeave/Support/WifiNames.swift
       - path: InputWeave/Support/AgoText.swift
       - path: InputWeave/Support/ProblemWatch.swift
       - path: InputWeave/Support/LaunchReveal.swift
@@ -187,6 +204,8 @@ targets:
           - main.swift
     dependencies:
       - package: SwiftProtobuf
+      - sdk: CoreWLAN.framework
+      - sdk: CoreLocation.framework
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: cc.ctsite.inputweave.snapshots

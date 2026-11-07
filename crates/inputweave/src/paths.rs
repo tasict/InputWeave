@@ -169,6 +169,14 @@ pub fn offline_file(devices_file: &Path) -> PathBuf {
         .join("offline.toml")
 }
 
+/// The profiles, beside the devices file (`profiles_file`).
+pub fn profiles_file(devices_file: &Path) -> PathBuf {
+    devices_file
+        .parent()
+        .unwrap_or(Path::new("."))
+        .join("profiles.toml")
+}
+
 /// File transfers that finished are remembered next to the devices file,
 /// in `transfers.toml`. On Windows the broker remembers them instead, in
 /// the user's `%LOCALAPPDATA%\InputWeave`, and the agent removes this file

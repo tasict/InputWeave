@@ -8,10 +8,20 @@
 //! on Windows. [`wake_address`] picks from such a list how another device
 //! on the same network wakes this one. The choice is plain Rust, tested on
 //! every system with made-up lists.
+//!
+//! [`current`] reads the network this computer is on now, to tell one
+//! network from another (profiles): see its module.
 
 use std::net::{IpAddr, Ipv4Addr};
 
 use crate::PlatformError;
+
+mod current;
+
+pub use current::{
+    LinkKind, MAX_NETWORK_NAME_CHARS, Neighbor, NetworkSighting, PROBE, Route, current,
+    network_name_of, route_to, router_mac, wifi_name_of,
+};
 
 /// A network interface, as [`interfaces`] lists it.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]

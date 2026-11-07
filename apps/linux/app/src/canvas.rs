@@ -25,7 +25,7 @@ use inputweave_app_core::proto::{
 };
 use inputweave_app_core::snapshot::Snapshot;
 use inputweave_app_core::text::keys;
-use inputweave_app_core::{device_text, log, offline, wake};
+use inputweave_app_core::{device_text, log, offline, profiles, wake};
 
 use crate::strings::{t, tr};
 use crate::style::{self, Brand};
@@ -674,12 +674,12 @@ impl ArrangementCanvas {
     /// The right-click menu of `id`: Move Cursor Here, Rename… for another
     /// computer, and below them Wake for one asleep that can be woken (off
     /// while it is being woken) and Take Offline or Bring Back Online.
-    /// While this computer is offline for now, another computer's menu has
-    /// only Rename…; this computer's never changes.
+    /// Another computer the profile in use leaves out, and every other one
+    /// while this computer is offline for now or the profile in use is
+    /// paused, has only Rename…; this computer's never changes.
     fn menu_for(&self, model: &Snapshot, id: &str) -> gio::Menu {
         let menu = gio::Menu::new();
-        let this = id == model.this_device_id();
-        if this || !offline::this_offline(model) {
+        if !profiles::rename_only(model, id) {
             let jump = gio::MenuItem::new(Some(&t(keys::CANVAS_MOVE_CURSOR_HERE)), None);
             jump.set_action_and_target_value(
                 Some(if model.can_jump(id) {
@@ -729,9 +729,10 @@ impl ArrangementCanvas {
     }
 
     /// Moves the cursor to a computer. Refusals the window already
-    /// explains (sharing paused, cursor locked) are left at that; others
-    /// shake it, and one because the cursor leaves only across edges
-    /// (Wayland) says so too.
+    /// explains (sharing paused, cursor locked, a computer the profile in
+    /// use leaves out, a paused profile) are left at that; others shake it,
+    /// and one because the cursor leaves only across edges (Wayland) says so
+    /// too.
     fn jump(self: &Rc<Self>, id: String) {
         let Some(ui) = self.ui.upgrade() else {
             return;
@@ -741,7 +742,10 @@ impl ArrangementCanvas {
         let toasts = Rc::downgrade(&ui);
         ui.command_then(Command::JumpTo(JumpTo { device_id: id }), move |result| {
             if let Err(e) = result
-                && !matches!(e.code(), Some("sharing_paused" | "locked"))
+                && !matches!(
+                    e.code(),
+                    Some("sharing_paused" | "locked" | "not_in_profile" | "profile_paused")
+                )
                 && let Some(canvas) = weak.upgrade()
             {
                 canvas.flag(&target);

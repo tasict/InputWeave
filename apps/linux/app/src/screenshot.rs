@@ -546,6 +546,46 @@ pub fn run(ui: Rc<Ui>, dir: PathBuf) {
         gtk::glib::timeout_future(SETTLE).await;
         shot("general-this-offline", &window.widget());
         window.devices().select("mac");
+        ui.agent.show_fixed(base.clone());
+        window.update(&ui.snapshot(), ServiceState::Running);
+
+        // Profiles: Office's page, over the Profiles page; the Studio PC
+        // left out of it, on the devices page and the arrangement; Other
+        // networks pausing sharing at a café, on General and the
+        // arrangement.
+        window.show_page(Page::Profiles);
+        window.update(&ui.snapshot(), ServiceState::Running);
+        window.profiles().open(&base, "office");
+        gtk::glib::timeout_future(SETTLE).await;
+        shot("profile-office", &window.widget());
+        if window.profiles().editor().is_none() {
+            eprintln!("inputweave-app: Office's page did not open");
+        }
+        let left_out = with_pictures(sample::not_in_profile(SystemTime::now()));
+        ui.agent.show_fixed(left_out);
+        window.show_page(Page::Devices);
+        window.devices().select("pc");
+        window.update(&ui.snapshot(), ServiceState::Running);
+        gtk::glib::timeout_future(SETTLE).await;
+        shot("devices-not-in-profile", &window.widget());
+        window.show_page(Page::Arrangement);
+        window.arrangement().select("pc");
+        window.update(&ui.snapshot(), ServiceState::Running);
+        gtk::glib::timeout_future(SETTLE).await;
+        shot("arrangement-not-in-profile", &window.widget());
+        ui.agent.show_fixed(with_pictures(sample::profile_paused(
+            SystemTime::now(),
+            false,
+        )));
+        window.update(&ui.snapshot(), ServiceState::Running);
+        gtk::glib::timeout_future(SETTLE).await;
+        shot("arrangement-profile-paused", &window.widget());
+        window.show_page(Page::General);
+        window.update(&ui.snapshot(), ServiceState::Running);
+        gtk::glib::timeout_future(SETTLE).await;
+        shot("general-profile-paused", &window.widget());
+        window.devices().select("mac");
+        window.arrangement().select("mac");
         ui.agent.show_fixed(base);
         window.update(&ui.snapshot(), ServiceState::Running);
 
@@ -589,6 +629,13 @@ pub fn run(ui: Rc<Ui>, dir: PathBuf) {
             (
                 "hud-offline-for-now",
                 tr(&ui!(keys::HUD_OFFLINE_RETURNED, "Studio PC")),
+            ),
+            (
+                "hud-profile-paused",
+                tr(&ui!(
+                    keys::HUD_PROFILE_SWITCHED_PAUSED,
+                    ui!(keys::PROFILE_OTHER_NETWORKS)
+                )),
             ),
         ] {
             let path = dir.join(format!("{language}-{name}.png"));
