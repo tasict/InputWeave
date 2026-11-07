@@ -9,6 +9,8 @@
 
 Website: <https://inputweave.ctsite.cc/>
 
+<a href="https://alternativeto.net/software/inputweave/about/?utm_source=badge&amp;utm_medium=referral"><img src="https://alternativeto.net/static/badges/badge-compact-color.svg" width="244" height="79" alt="InputWeave | AlternativeTo"></a>
+
 ## Why InputWeave
 
 - **No account, no cloud, local network only.** Your computers find each other on the local network and connect directly. Keystrokes, the clipboard and files never pass through a server.

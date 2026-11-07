@@ -9,6 +9,8 @@
 
 網站：<https://inputweave.ctsite.cc/zh-Hant/>
 
+<a href="https://alternativeto.net/software/inputweave/about/?utm_source=badge&amp;utm_medium=referral"><img src="https://alternativeto.net/static/badges/badge-compact-color.svg" width="244" height="79" alt="InputWeave | AlternativeTo"></a>
+
 本文是英文 [README](README.md) 的翻譯；兩者不同時以英文版為準。
 
 ## 為什麼選 InputWeave

@@ -221,6 +221,8 @@ code { font-family: var(--mono); font-size: 0.86em }
 .foot .links a { color: var(--ink) }
 .foot .links a:hover { color: var(--thread) }
 .foot .legal { flex-basis: 100%; display: flex; flex-direction: column; gap: 4px }
+.foot .listed { flex-basis: 100%; margin: 0 }
+.foot .listed img { display: block }
 /* ctsite.cc: the same block ends the footer of every product site and leads to the others */
 .family {
   flex-basis: 100%;
