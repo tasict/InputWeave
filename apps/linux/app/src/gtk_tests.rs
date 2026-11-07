@@ -61,6 +61,7 @@ fn gtk_behaviour() {
     the_cursor_speed_row_sends_and_follows_the_agent(&ui);
     waking_is_offered_sent_and_said(&ui);
     the_wake_on_push_switch_follows_the_agent(&ui);
+    the_send_picker_lists_every_computer_and_sends_to_the_one_chosen(&ui);
     synced_is_said_only_for_changes_while_shown(&ui);
     rows_show_ampersands_and_angle_brackets_as_they_are(&ui);
     the_license_page_follows_the_agent_and_sends_keys(&ui);
@@ -757,6 +758,196 @@ fn the_double_press_switch_follows_the_agent(ui: &Rc<Ui>) {
     );
     assert!(!switch.has_css_class("iw-failed"));
     window.destroy();
+}
+
+/// Sending files with more than one computer to send to: every other
+/// computer listed, those that can take files first and the first of them
+/// chosen, the others off with why; the rows following the agent while the
+/// picker is open; a second request's items added to it; Send sending the
+/// items to the one chosen. Connected computers none of which can take
+/// files: every row off and Send off. With none connected, only OK.
+fn the_send_picker_lists_every_computer_and_sends_to_the_one_chosen(ui: &Rc<Ui>) {
+    use crate::send::{Picker, nowhere_dialog};
+    use inputweave_app_core::proto::{ConnectionState, SendFiles};
+    ui.agent.record_fixed();
+    let model = sample::sending(SystemTime::now());
+    ui.agent.show_fixed(model.clone());
+    let paths = vec![
+        "/home/me/Report.pdf".to_owned(),
+        "/home/me/Photos".to_owned(),
+    ];
+    let rows = |picker: &Picker| -> Vec<(String, bool, bool, String)> {
+        picker
+            .rows
+            .borrow()
+            .iter()
+            .map(|r| {
+                (
+                    r.id.clone(),
+                    r.radio.is_active(),
+                    r.row.is_sensitive(),
+                    r.row.subtitle().map(|s| s.to_string()).unwrap_or_default(),
+                )
+            })
+            .collect()
+    };
+    let row = |id: &str, on: bool, sensitive: bool, status: &str| {
+        (id.to_owned(), on, sensitive, status.to_owned())
+    };
+    let picker = Picker::new(&model, paths.clone(), false);
+    let window = window_with(&gtk::Box::new(gtk::Orientation::Vertical, 0));
+    window.set_default_size(600, 600);
+    assert_eq!(
+        picker.dialog.heading().as_deref(),
+        Some("Send to which computer?")
+    );
+    assert_eq!(picker.dialog.body().as_str(), "Report.pdf and 1 more item");
+    assert_eq!(
+        rows(&picker),
+        [
+            row("mac", true, true, "Connected · 3 ms"),
+            row("pc", false, true, "Connected · 5 ms"),
+            row("laptop", false, false, "Offline"),
+            row(
+                "media",
+                false,
+                false,
+                "File transfer with this computer is off"
+            ),
+        ]
+    );
+    assert!(picker.dialog.is_response_enabled("send"));
+    assert_eq!(picker.chosen(), Some(("mac".into(), "Mac mini".into())));
+    picker.rows.borrow()[1].radio.set_active(true);
+    assert_eq!(picker.chosen(), Some(("pc".into(), "Studio PC".into())));
+    assert!(!picker.rows.borrow()[0].radio.is_active(), "one at a time");
+    picker.present(ui, Some(window.upcast_ref()));
+    settle();
+    assert!(ui.send_picker().is_some(), "kept up to date while open");
+
+    // It follows the agent: the Studio PC chosen goes offline, so the
+    // choice moves to the Mac mini; the ThinkPad connects and can be
+    // chosen; the Studio PC comes back and is chosen again.
+    let with = |changes: &[(&str, ConnectionState, u32)]| {
+        let mut model = model.clone();
+        for (id, state, rtt) in changes {
+            let device = model
+                .status
+                .devices
+                .iter_mut()
+                .find(|d| d.id == *id)
+                .expect("in the sample");
+            device.state = *state as i32;
+            device.rtt_ms = *rtt;
+        }
+        model
+    };
+    ui.agent.show_fixed(with(&[
+        ("pc", ConnectionState::Offline, 0),
+        ("laptop", ConnectionState::Connected, 9),
+    ]));
+    ui.refresh();
+    assert_eq!(
+        rows(&picker),
+        [
+            row("mac", true, true, "Connected · 3 ms"),
+            row("laptop", false, true, "Connected · 9 ms"),
+            row("pc", false, false, "Offline"),
+            row(
+                "media",
+                false,
+                false,
+                "File transfer with this computer is off"
+            ),
+        ]
+    );
+    ui.agent.show_fixed(model.clone());
+    ui.refresh();
+    assert_eq!(picker.chosen(), Some(("pc".into(), "Studio PC".into())));
+
+    // A second request while it is open adds its items, each once.
+    let over = Rc::new(std::cell::Cell::new(false));
+    let marked = over.clone();
+    crate::send::from_file_manager(
+        ui,
+        vec!["/home/me/Photos".into(), "/home/me/Notes.txt".into()],
+        crate::send::Then::new(move || marked.set(true)),
+    );
+    settle();
+    assert!(over.get(), "this request is over once its files joined");
+    assert_eq!(picker.dialog.body().as_str(), "Report.pdf and 2 more items");
+
+    let before = ui.agent.sent().len();
+    picker.dialog.emit_by_name::<()>("response", &[&"send"]);
+    settle();
+    assert_eq!(
+        ui.agent.sent()[before..],
+        [Command::SendFiles(SendFiles {
+            device_id: "pc".into(),
+            paths: vec![
+                "/home/me/Report.pdf".into(),
+                "/home/me/Photos".into(),
+                "/home/me/Notes.txt".into(),
+            ],
+        })]
+    );
+    picker.dialog.close();
+    for _ in 0..20 {
+        if ui.send_picker().is_none() {
+            break;
+        }
+        settle();
+    }
+    assert!(ui.send_picker().is_none(), "let go once closed");
+
+    // Chosen by default, the Studio PC stays chosen when the Mac mini,
+    // listed ahead of it, connects.
+    let mac_away = with(&[("mac", ConnectionState::Offline, 0)]);
+    let picker = Picker::new(&mac_away, vec!["/home/me/Report.pdf".into()], false);
+    assert_eq!(picker.chosen(), Some(("pc".into(), "Studio PC".into())));
+    picker.update(&model);
+    assert_eq!(rows(&picker)[0].0, "mac", "listed first");
+    assert_eq!(
+        picker.chosen(),
+        Some(("pc".into(), "Studio PC".into())),
+        "not taken by one that connects ahead"
+    );
+
+    // Connected, but none can take files: every row off with why, and
+    // Send off.
+    let none_can = with(&[
+        ("mac", ConnectionState::Offline, 0),
+        ("pc", ConnectionState::Offline, 0),
+    ]);
+    let picker = Picker::new(&none_can, vec!["/home/me/Report.pdf".into()], false);
+    assert_eq!(picker.dialog.body().as_str(), "Report.pdf");
+    assert!(
+        rows(&picker)
+            .iter()
+            .all(|(_, on, sensitive, _)| !on && !sensitive)
+    );
+    assert!(!picker.dialog.is_response_enabled("send"));
+    assert_eq!(picker.chosen(), None);
+    // Cancel sends nothing.
+    picker.present(ui, Some(window.upcast_ref()));
+    settle();
+    let before = ui.agent.sent().len();
+    picker.dialog.emit_by_name::<()>("response", &[&"cancel"]);
+    settle();
+    assert_eq!(ui.agent.sent().len(), before);
+    picker.dialog.close();
+    settle();
+
+    let none = nowhere_dialog(&crate::strings::t(
+        inputweave_app_core::text::keys::SEND_NOWHERE,
+    ));
+    assert_eq!(
+        none.heading().as_deref(),
+        Some("No connected computer can receive files.")
+    );
+    assert!(none.has_response("ok") && !none.has_response("cancel"));
+    window.close();
+    ui.agent.show_fixed(sample::snapshot(SystemTime::now()));
 }
 
 /// The sample with the ThinkPad (asleep two hours) in `wake`, said to be

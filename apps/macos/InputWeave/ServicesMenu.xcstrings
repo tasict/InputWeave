@@ -1,0 +1,24 @@
+{
+  "sourceLanguage": "en",
+  "strings": {
+    "Send with InputWeave": {
+      "comment": "Finder's Services menu item (NSServices in Info.plist); macOS reads its translations from ServicesMenu.strings.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Send with InputWeave"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "以 InputWeave 傳送"
+          }
+        }
+      }
+    }
+  },
+  "version": "1.0"
+}

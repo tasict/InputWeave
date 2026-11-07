@@ -208,12 +208,13 @@ impl Snapshot {
             .collect()
     }
 
-    /// The devices files can go to now: connected, files not turned off.
+    /// The devices files can go to now: those without a reason they can't
+    /// (`send_choice::unavailable`: connected, files not turned off).
     pub fn file_receivers(&self) -> Vec<&DeviceStatus> {
         self.status
             .devices
             .iter()
-            .filter(|d| d.state() == ConnectionState::Connected && !d.files_off)
+            .filter(|d| crate::send_choice::unavailable(d).is_none())
             .collect()
     }
 

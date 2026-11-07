@@ -181,6 +181,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private lazy var problemNotifier = ProblemNotifier(model: model, service: service, notifier: notifier)
     private lazy var dragStrips = DragStrips(model: model, hud: hud)
     private lazy var dragPromises = DragPromises(model: model, hud: hud)
+    /// Finder's Services › Send with InputWeave.
+    private lazy var sendService = SendService(model: model, hud: hud)
     /// The transfer list was seen since the app started.
     private var sawTransfers = false
     private var restartedOutdatedService = false
@@ -197,10 +199,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         notifier.activate([transferNotifier, problemNotifier])
         DockPresence.shared.start()
+        // Before launching ends, so the request that opened the app for the
+        // service reaches it; and, the first time a build runs, macOS is
+        // told to look at the app's services again, so the item is there
+        // right after installing or updating.
+        NSApp.servicesProvider = sendService
+        let build = Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? ""
+        if ServicesRefresh.needed(recorded: UserDefaults.standard.string(forKey: Preferences.servicesBuild), build: build) {
+            NSUpdateDynamicServices()
+            UserDefaults.standard.set(build, forKey: Preferences.servicesBuild)
+        }
     }
 
-    func applicationDidFinishLaunching(_: Notification) {
-        revealHiddenIcon()
+    func applicationDidFinishLaunching(_ notification: Notification) {
+        revealHiddenIcon(isDefault: notification.userInfo?[NSApplication.launchIsDefaultUserInfoKey] as? Bool ?? true)
         // Coming back after "Quit InputWeave" or a login: sharing resumes.
         if UserDefaults.standard.bool(forKey: Preferences.finishedSetup) && service.state == .notRegistered {
             service.register()
@@ -255,14 +267,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
-    /// Opening the app, rather than logging in, brings back a hidden menu
-    /// bar icon, as reopening a running app does (see
+    /// Opening the app, rather than logging in or a service request, brings
+    /// back a hidden menu bar icon, as reopening a running app does (see
     /// `applicationShouldHandleReopen`). The Apple event that opened the app
     /// is current only here, not in `applicationWillFinishLaunching`.
-    private func revealHiddenIcon() {
+    private func revealHiddenIcon(isDefault: Bool) {
         let defaults = UserDefaults.standard
         let reveal = LaunchReveal.decide(
-            launchedAtLogin: LaunchReveal.launchedAtLogin(NSAppleEventManager.shared().currentAppleEvent),
+            launch: LaunchReveal.launch(NSAppleEventManager.shared().currentAppleEvent, isDefault: isDefault),
             iconShown: defaults.object(forKey: Preferences.showsMenuBarIcon) as? Bool ?? true,
             finishedSetup: defaults.bool(forKey: Preferences.finishedSetup))
         if reveal.showsMainWindow {

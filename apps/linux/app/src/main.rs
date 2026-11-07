@@ -51,6 +51,9 @@ pub struct Launch {
     pub locate: bool,
     /// For testing: lights this edge of the first monitor.
     pub glow: Option<inputweave_app_core::proto::ScreenEdge>,
+    /// Files and folders to send, as a file manager passes them
+    /// (`--send <path>…`, Dolphin's service menu).
+    pub send: Option<Vec<String>>,
 }
 
 impl Launch {
@@ -86,6 +89,15 @@ impl Launch {
                         _ => return Err(format!("no edge {name}: left, right, top or bottom")),
                     });
                 }
+                // Everything after it is a path, even one that starts
+                // with "--".
+                "--send" => {
+                    let paths: Vec<String> = args.by_ref().cloned().collect();
+                    if paths.is_empty() {
+                        return Err("--send needs the files to send".into());
+                    }
+                    launch.send = Some(paths);
+                }
                 "--language" => {
                     let name = value(arg)?;
                     language = Some(
@@ -101,7 +113,7 @@ impl Launch {
 
 fn main() -> gtk::glib::ExitCode {
     let args: Vec<String> = std::env::args().collect();
-    if args.iter().skip(1).any(|a| a == "--version") {
+    if options(&args).iter().skip(1).any(|a| a == "--version") {
         println!("inputweave-app {}", env!("CARGO_PKG_VERSION"));
         return gtk::glib::ExitCode::SUCCESS;
     }
@@ -114,7 +126,7 @@ fn main() -> gtk::glib::ExitCode {
     };
     strings::choose(language);
     let mut flags = gtk::gio::ApplicationFlags::HANDLES_COMMAND_LINE;
-    if args.iter().any(|a| a == "--screenshot") {
+    if options(&args).iter().any(|a| a == "--screenshot") {
         // Screenshots run on their own, next to a running app.
         flags |= gtk::gio::ApplicationFlags::NON_UNIQUE;
     }
@@ -151,7 +163,15 @@ fn main() -> gtk::glib::ExitCode {
             .map(|a| a.to_string_lossy().into_owned())
             .collect();
         match Launch::parse(&args) {
-            Ok((launch, _)) => {
+            Ok((mut launch, _)) => {
+                // Relative to where the command was run, which for another
+                // launch handing over is not this process's folder.
+                if let Some(paths) = &mut launch.send {
+                    let cwd = command_line.cwd();
+                    for path in paths.iter_mut() {
+                        *path = resolve(cwd.as_deref(), path);
+                    }
+                }
                 ui::launched(app, launch, command_line.is_remote());
                 gtk::glib::ExitCode::SUCCESS
             }
@@ -162,6 +182,25 @@ fn main() -> gtk::glib::ExitCode {
         }
     });
     app.run_with_args(&args)
+}
+
+/// The arguments up to `--send`, after which every one is a path to send
+/// (a file may be called "--version").
+fn options(args: &[String]) -> &[String] {
+    let end = args
+        .iter()
+        .position(|a| a == "--send")
+        .unwrap_or(args.len());
+    &args[..end]
+}
+
+/// `path` as an absolute path, a relative one taken from `cwd`.
+fn resolve(cwd: Option<&std::path::Path>, path: &str) -> String {
+    let given = std::path::Path::new(path);
+    match cwd {
+        Some(cwd) if given.is_relative() => cwd.join(given).to_string_lossy().into_owned(),
+        _ => path.to_owned(),
+    }
 }
 
 #[cfg(test)]
@@ -205,5 +244,53 @@ mod tests {
             Some(inputweave_app_core::proto::ScreenEdge::Top)
         );
         assert!(Launch::parse(&args(&["--show-glow", "middle"])).is_err());
+    }
+
+    #[test]
+    fn send_takes_every_path_after_it() {
+        let (launch, _) = Launch::parse(&args(&[
+            "--send",
+            "/home/me/Report.pdf",
+            "--background",
+            "Photos",
+        ]))
+        .unwrap();
+        assert_eq!(
+            launch.send.as_deref(),
+            Some(
+                [
+                    "/home/me/Report.pdf".to_owned(),
+                    "--background".to_owned(),
+                    "Photos".to_owned()
+                ]
+                .as_slice()
+            ),
+            "a path that looks like an option is still a path"
+        );
+        assert!(!launch.background);
+        assert!(
+            Launch::parse(&args(&["--send"])).is_err(),
+            "nothing to send"
+        );
+    }
+
+    #[test]
+    fn options_end_at_send() {
+        let all = args(&["--language", "en", "--send", "--version", "--screenshot"]);
+        assert_eq!(options(&all), &all[..3]);
+        assert!(!options(&all).iter().any(|a| a == "--version"));
+        let plain = args(&["--version"]);
+        assert_eq!(options(&plain), plain.as_slice());
+    }
+
+    #[test]
+    fn relative_paths_are_taken_from_where_the_command_ran() {
+        let cwd = std::path::Path::new("/home/me/Downloads");
+        assert_eq!(
+            resolve(Some(cwd), "Report.pdf"),
+            "/home/me/Downloads/Report.pdf"
+        );
+        assert_eq!(resolve(Some(cwd), "/tmp/a b"), "/tmp/a b");
+        assert_eq!(resolve(None, "Report.pdf"), "Report.pdf");
     }
 }

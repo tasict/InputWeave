@@ -12,26 +12,26 @@ enum ConnectionText {
     /// its user paused sharing there, which keeps the cursor off it too.
     static func connected(
         rttMs: UInt32, screenLocked: Bool = false, lockScreenInput: Bool = true, inputUnavailable: Bool = false,
-        sharingPaused: Bool = false
+        sharingPaused: Bool = false, bundle: Bundle = .main
     ) -> String {
         if sharingPaused {
-            guard rttMs > 0 else { return String(localized: "Paused sharing") }
-            return String(localized: "Paused sharing · \(Int(rttMs)) ms")
+            guard rttMs > 0 else { return String(localized: "Paused sharing", bundle: bundle) }
+            return String(localized: "Paused sharing · \(Int(rttMs)) ms", bundle: bundle)
         }
         if inputUnavailable && !screenLocked {
-            guard rttMs > 0 else { return String(localized: "Can't take input") }
-            return String(localized: "Can't take input · \(Int(rttMs)) ms")
+            guard rttMs > 0 else { return String(localized: "Can't take input", bundle: bundle) }
+            return String(localized: "Can't take input · \(Int(rttMs)) ms", bundle: bundle)
         }
         if screenLocked && (!lockScreenInput || inputUnavailable) {
-            guard rttMs > 0 else { return String(localized: "Screen locked, can't take input") }
-            return String(localized: "Screen locked, can't take input · \(Int(rttMs)) ms")
+            guard rttMs > 0 else { return String(localized: "Screen locked, can't take input", bundle: bundle) }
+            return String(localized: "Screen locked, can't take input · \(Int(rttMs)) ms", bundle: bundle)
         }
         if screenLocked {
-            guard rttMs > 0 else { return String(localized: "Screen locked") }
-            return String(localized: "Screen locked · \(Int(rttMs)) ms")
+            guard rttMs > 0 else { return String(localized: "Screen locked", bundle: bundle) }
+            return String(localized: "Screen locked · \(Int(rttMs)) ms", bundle: bundle)
         }
-        guard rttMs > 0 else { return String(localized: "Connected") }
-        return String(localized: "Connected · \(Int(rttMs)) ms")
+        guard rttMs > 0 else { return String(localized: "Connected", bundle: bundle) }
+        return String(localized: "Connected · \(Int(rttMs)) ms", bundle: bundle)
     }
 
     /// The symbol beside it in the device list, by the same priority: a

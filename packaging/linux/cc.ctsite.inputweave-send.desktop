@@ -1,0 +1,15 @@
+[Desktop Entry]
+Type=Service
+# Dolphin's service menu: Actions > Send with InputWeave, for files and
+# folders. Installed under the same name in kio/servicemenus (KDE Frameworks
+# 5.85 and later, 6) and kservices5/ServiceMenus (older Frameworks 5, which
+# need this key); Frameworks that read both keep only one of the two.
+ServiceTypes=KonqPopupMenu/Plugin
+MimeType=all/all;
+Actions=send;
+
+[Desktop Action send]
+Name=Send with InputWeave
+Name[zh_TW]=以 InputWeave 傳送
+Icon=cc.ctsite.inputweave
+Exec=inputweave-app --send %F

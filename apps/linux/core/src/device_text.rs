@@ -166,16 +166,6 @@ pub fn cannot_receive(model: &Snapshot, id: &str, compact: bool) -> Option<UiTex
     Some(ui!(keys::CONNECTION_OFFLINE))
 }
 
-/// Why there is no computer to send to.
-pub fn no_file_receiver(model: &Snapshot) -> UiText {
-    let connected = model.connected_devices();
-    if connected.len() == 1 && connected[0].files_off {
-        files_off(&connected[0].name)
-    } else {
-        ui!(keys::SEND_TO_NONE_MESSAGE)
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -262,10 +252,6 @@ mod tests {
         assert_eq!(
             cannot_receive(&model, "mac", true).unwrap().to_string(),
             "Files turned off"
-        );
-        assert_eq!(
-            no_file_receiver(&model).to_string(),
-            "Files with “Mac” are turned off."
         );
     }
 

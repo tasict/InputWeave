@@ -8,10 +8,10 @@ namespace InputWeave.Support;
 /// File Explorer's Send To: a shortcut named
 /// InputWeave in the user's SendTo folder, which starts the app with
 /// <see cref="LaunchArguments.Send"/> and the selected files. The app
-/// asks which computer when more than one is connected (leaving out those
-/// files are turned off with), sends the files,
-/// and opens the panel, where they show as they go. A running app gets
-/// the files from the second launch (<see cref="SingleInstance"/>).
+/// asks which computer when more than one can receive them (listing those
+/// that can't too, off, with why; <see cref="SendFiles.Deliver"/>), sends
+/// the files, and opens the panel, where they show as they go. A running
+/// app gets the files from the second launch (<see cref="SingleInstance"/>).
 /// </summary>
 internal static class SendTo
 {
@@ -76,21 +76,9 @@ internal static class SendTo
         var snapshot = model.Snapshot;
         if (snapshot.Link != AgentLink.Connected)
         {
-            DialogWindow.Notice(Strings.Get(TextKeys.SendToNoneTitle), Strings.Get(TextKeys.TitleNotResponding));
+            DialogWindow.Notice(Strings.Get(TextKeys.TitleNotResponding), null);
             return;
         }
-        var devices = snapshot.FileReceivers;
-        if (devices.Count == 0)
-        {
-            DialogWindow.Notice(Strings.Get(TextKeys.SendToNoneTitle), Strings.Text(DeviceText.NoFileReceiver(snapshot)));
-        }
-        else if (devices.Count == 1)
-        {
-            SendFiles.Send(devices[0].Id, paths, App.Instance.ShowPanel);
-        }
-        else
-        {
-            SendFiles.Choose(devices, paths, App.Instance.ShowPanel);
-        }
+        SendFiles.Deliver(paths, App.Instance.ShowPanel);
     }
 }

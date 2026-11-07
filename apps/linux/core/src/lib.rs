@@ -21,6 +21,7 @@ pub mod paths;
 pub mod polar;
 pub mod sample;
 pub mod screen_identity;
+pub mod send_choice;
 pub mod service;
 pub mod settings;
 pub mod setup;

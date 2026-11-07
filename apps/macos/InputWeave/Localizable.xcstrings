@@ -1,6 +1,26 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "%@ and %lld more items": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ 與另外 %2$lld 個項目"
+          }
+        }
+      }
+    },
+    "%@ and 1 more item": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 與另外 1 個項目"
+          }
+        }
+      }
+    },
     "%@ can't be reached.": {
       "localizations": {
         "zh-Hant": {
@@ -1255,6 +1275,16 @@
         }
       }
     },
+    "File transfer with this computer is off": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "沒有和這台互傳檔案"
+          }
+        }
+      }
+    },
     "File Transfers": {
       "localizations": {
         "zh-Hant": {
@@ -1931,6 +1961,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "名稱"
+          }
+        }
+      }
+    },
+    "No connected computer can receive files.": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "沒有已連線的電腦可以傳送。"
           }
         }
       }
@@ -2865,6 +2905,16 @@
         }
       }
     },
+    "Send to which computer?": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "要傳給哪台電腦？"
+          }
+        }
+      }
+    },
     "Send to:": {
       "localizations": {
         "zh-Hant": {
@@ -2881,6 +2931,26 @@
           "stringUnit": {
             "state": "translated",
             "value": "傳送"
+          }
+        }
+      }
+    },
+    "Sending %lld items to %@…": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在傳送 %1$lld 個項目到「%2$@」…"
+          }
+        }
+      }
+    },
+    "Sending 1 item to %@…": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在傳送 1 個項目到「%@」…"
           }
         }
       }

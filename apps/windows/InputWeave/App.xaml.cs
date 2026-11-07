@@ -232,6 +232,21 @@ public partial class App : Application
             ShowMain(null, pin: true);
             dispatcher.TryEnqueue(DispatcherQueuePriority.Low, () => main?.ShowAbout());
         }
+        if (launch.SendPicker is { } picker)
+        {
+            if (picker == "none")
+            {
+                DialogWindow.Notice(Strings.Get(TextKeys.SendNowhere), null);
+            }
+            else
+            {
+                // Made-up computers: Send only says what it would have sent, and closes.
+                SendPicker.Show(
+                    [@"C:\Users\Public\Documents\Report.pdf", @"C:\Users\Public\Pictures"],
+                    SampleDevices.Sending,
+                    (id, files, _) => AppLog.Info($"sample picker: {files.Count} items would go to {id}"));
+            }
+        }
         if (launch.ShowPairingCode)
         {
             sampleCode = new PairingState
@@ -702,6 +717,7 @@ public partial class App : Application
             shown = SampleDevices.Over(shown);
         }
         panel?.Update(shown, serviceState, now, menu);
+        SendPicker.Current?.Refresh();
         if (main?.IsShown == true)
         {
             main.Update(shown, serviceState, now);

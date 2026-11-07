@@ -434,12 +434,6 @@
   </data>
 
   <!-- Sending files -->
-  <data name="SendFilesTitle" xml:space="preserve">
-    <value>Send Files</value>
-  </data>
-  <data name="SendFilesTo" xml:space="preserve">
-    <value>Send to:</value>
-  </data>
   <data name="SendFilesSend" xml:space="preserve">
     <value>Send</value>
   </data>
@@ -1283,12 +1277,23 @@
     <comment>"1 folder and 2 files".</comment>
   </data>
 
-  <!-- File Explorer's Send To -->
-  <data name="SendToNoneTitle" xml:space="preserve">
-    <value>There's no computer to send to</value>
+  <!-- Where files go from Send To and Send Files…: the picker -->
+  <data name="SendPickTitle" xml:space="preserve">
+    <value>Send to which computer?</value>
   </data>
-  <data name="SendToNoneMessage" xml:space="preserve">
-    <value>Files go to computers connected to this one. Connect another computer, then try again.</value>
+  <data name="SendSummaryOneMore" xml:space="preserve">
+    <value>{0} and 1 more item</value>
+    <comment>{0} is the first item's name.</comment>
+  </data>
+  <data name="SendSummaryMore" xml:space="preserve">
+    <value>{0} and {1} more items</value>
+    <comment>{0} is the first item's name, {1} how many more there are.</comment>
+  </data>
+  <data name="SendReasonFilesOff" xml:space="preserve">
+    <value>File transfer with this computer is off</value>
+  </data>
+  <data name="SendNowhere" xml:space="preserve">
+    <value>No connected computer can receive files.</value>
   </data>
   <data name="TitleRelative" xml:space="preserve">
     <value>Relative mouse on {0}</value>

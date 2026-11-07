@@ -70,7 +70,10 @@ final class AgentModelTests: XCTestCase {
     func testTalksToTheBackgroundService() async throws {
         let model = AgentModel(socketPath: directory.appending(path: "a.sock").path)
         model.start()
-        try await eventually("a connection") { model.link == .connected }
+        // As the Services menu waits for it.
+        let connected = await model.connected(within: .seconds(10))
+        XCTAssertTrue(connected)
+        XCTAssertEqual(model.link, .connected)
         XCTAssertEqual(model.status.thisDeviceID, "mac")
         XCTAssertEqual(model.status.thisDeviceName, "Test Mac")
         XCTAssertTrue(model.status.sharing)

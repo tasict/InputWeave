@@ -1,9 +1,6 @@
-using Inputweave.App.V1;
 using InputWeave.Agent;
 using InputWeave.Panel;
 using InputWeave.Settings;
-using Microsoft.UI.Xaml;
-using Microsoft.UI.Xaml.Controls;
 using Windows.Storage.Pickers;
 using WinRT.Interop;
 
@@ -11,19 +8,25 @@ namespace InputWeave.Support;
 
 /// <summary>
 /// "Send Files…": Windows' file picker, then the
-/// computer to send them to when more than one is connected. The picker
-/// has no room for that choice, unlike the Mac's open panel. Computers
-/// files are turned off with are not offered.
+/// computer to send them to when more than one can receive them. The
+/// picker has no room for that choice, unlike the Mac's open panel. The
+/// choice (<see cref="Deliver"/>, also Send To's) lists the computers files
+/// can't go to as well, off, with why, as the Mac's panel for Finder's
+/// Services menu does.
 /// </summary>
 internal static class SendFiles
 {
     /// <param name="owner">The window the picker belongs to.</param>
-    /// <param name="to">The computer to send to, when already chosen.</param>
-    public static async void Start(nint owner, string? to = null)
+    public static async void Start(nint owner)
     {
         var model = App.Instance.Model;
-        if (model.Snapshot.FileReceivers.Count == 0)
+        // A guard for a race: the buttons that start this are off while no
+        // computer can take files, so only a computer going offline as one
+        // is pressed gets here. Then, as Send To says it, there is nowhere
+        // to send to.
+        if (SendTargets.Choose(model.Snapshot) is SendChoice.Nowhere)
         {
+            DialogWindow.Notice(Strings.Get(TextKeys.SendNowhere), null);
             return;
         }
         var picker = new FileOpenPicker { ViewMode = PickerViewMode.List };
@@ -44,43 +47,37 @@ internal static class SendFiles
             return;
         }
         var paths = files.Select(f => f.Path).Where(p => !string.IsNullOrEmpty(p)).ToList();
-        // Still connected now that the files are chosen.
-        var devices = model.Snapshot.FileReceivers;
-        if (to is not null && devices.Any(d => d.Id == to))
-        {
-            Send(to, paths);
-        }
-        else if (devices.Count == 1)
-        {
-            Send(devices[0].Id, paths);
-        }
-        else if (devices.Count > 1)
-        {
-            Choose(devices, paths);
-        }
+        // Where they go now that they are chosen.
+        Deliver(paths);
     }
 
-    /// <summary>Asks which connected computer gets the files, then sends them and runs <paramref name="sent"/>.</summary>
-    public static void Choose(IReadOnlyList<DeviceStatus> devices, IReadOnlyList<string> paths, Action? sent = null)
+    /// <summary>
+    /// Where <paramref name="paths"/> go: into the picker already open,
+    /// which gets them too; else, with no computer connected, a notice; at
+    /// once to the only one that can take them; or the picker
+    /// (<see cref="SendPicker"/>), listing the others too, off, with why.
+    /// <paramref name="sent"/> runs once they are on their way.
+    /// </summary>
+    public static void Deliver(IReadOnlyList<string> paths, Action? sent = null)
     {
-        var picker = new ComboBox
+        if (SendPicker.Current is { } open)
         {
-            ItemsSource = devices.Select(d => d.Name).ToList(),
-            SelectedIndex = 0,
-            HorizontalAlignment = HorizontalAlignment.Stretch,
-            Header = Strings.Get(TextKeys.SendFilesTo),
-        };
-        new DialogWindow(
-            Strings.Get(TextKeys.SendFilesTitle),
-            null,
-            picker,
-            [
-                new DialogButton(Strings.Get(TextKeys.Cancel)),
-                new DialogButton(
-                    Strings.Get(TextKeys.SendFilesSend),
-                    () => Send(devices[Math.Max(picker.SelectedIndex, 0)].Id, paths, sent),
-                    Accent: true),
-            ]).Open();
+            open.Add(paths, sent);
+            return;
+        }
+        var model = App.Instance.Model;
+        switch (SendTargets.Choose(model.Snapshot))
+        {
+            case SendChoice.Only only:
+                Send(only.Id, paths, sent);
+                break;
+            case SendChoice.Ask:
+                SendPicker.Show(paths, () => model.Snapshot, (id, chosen, then) => Send(id, chosen, then), sent);
+                break;
+            default:
+                DialogWindow.Notice(Strings.Get(TextKeys.SendNowhere), null);
+                break;
+        }
     }
 
     public static async void Send(string to, IReadOnlyList<string> paths, Action? sent = null)

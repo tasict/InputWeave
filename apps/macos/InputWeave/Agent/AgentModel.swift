@@ -667,6 +667,19 @@ final class AgentModel {
         return diagnostics.report
     }
 
+    /// Whether the service is connected now, or gets connected within
+    /// `limit`: `wait(until:)` on the model's own change notification,
+    /// raced against a timer.
+    func connected(within limit: Duration) async -> Bool {
+        await withTaskGroup(of: Void.self) { group in
+            group.addTask { await self.wait { self.link == .connected } }
+            group.addTask { try? await Task.sleep(for: limit) }
+            await group.next()
+            group.cancelAll()
+        }
+        return link == .connected
+    }
+
     // MARK: - Derived state
 
     var thisDeviceID: String { status.thisDeviceID }
@@ -760,10 +773,11 @@ final class AgentModel {
         status.devices.filter { $0.state != .connected }
     }
 
-    /// Devices files can be sent to right now: connected, and files not
-    /// turned off with them.
+    /// Devices files can be sent to right now: those without a reason they
+    /// can't (`SendTargets.unavailable`: connected, and files not turned off
+    /// with them).
     var fileReceivers: [DeviceStatus] {
-        status.devices.filter { $0.state == .connected && !$0.filesOff }
+        status.devices.filter { SendTargets.unavailable($0) == nil }
     }
 
     /// Whether files can be sent to a computer right now.

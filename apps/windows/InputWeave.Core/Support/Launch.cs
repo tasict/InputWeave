@@ -37,7 +37,8 @@ public sealed record Launch(
     Uri? PolarServer = null,
     Uri? UpdateFeed = null,
     bool InstallUpdate = false,
-    bool ShowAbout = false)
+    bool ShowAbout = false,
+    string? SendPicker = null)
 {
     /// <summary>
     /// Checks for updates at once and installs what it finds, as if
@@ -48,6 +49,13 @@ public sealed record Launch(
 
     /// <summary>Opens About InputWeave over the main window; for testing and screenshots.</summary>
     public const string ShowAboutArgument = "--show-about";
+
+    /// <summary>
+    /// Asks where two items go among made-up computers, two that can take
+    /// them and two that can't, as Send To does; with <c>none</c>, says
+    /// that no computer can take them instead; for testing and screenshots.
+    /// </summary>
+    public const string ShowSendPickerArgument = "--show-send-picker";
 
     /// <summary>Asks this server instead of Polar's API about the license (scripts/mock-polar.py); for testing.</summary>
     public const string PolarServerArgument = "--polar-server";
@@ -177,7 +185,7 @@ public sealed record Launch(
     public bool Testing => ShowPanel || Window is not null || ShowPairingCode || Setup is not null
         || Hud is not null || Locator || Notification is not null || SimulateDragEnter is not null || SimulateDragArrived is not null
         || SampleTransfers || Identify || SampleDevices || SimulateClipboardFiles is not null || Glow is not null
-        || InstallUpdate || ShowAbout;
+        || InstallUpdate || ShowAbout || SendPicker is not null;
 
     /// <summary>
     /// The setup step to open at launch: the one an argument names, or the
@@ -262,7 +270,8 @@ public sealed record Launch(
             Address(Value(args, PolarServerArgument)),
             Address(Value(args, UpdateFeedArgument)),
             args.Contains(InstallUpdateArgument),
-            args.Contains(ShowAboutArgument));
+            args.Contains(ShowAboutArgument),
+            Value(args, ShowSendPickerArgument));
     }
 
     /// <summary>An http or https address, or null.</summary>

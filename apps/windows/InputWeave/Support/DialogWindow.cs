@@ -26,7 +26,10 @@ internal sealed partial class DialogWindow : Window
 {
     private readonly StackPanel root = new() { Width = 440, VerticalAlignment = VerticalAlignment.Top };
     private readonly List<Button> made = [];
+    private readonly TextBlock? said;
     private Button? accent;
+    /// <summary>Set once the dialog closed: what was queued to size it does nothing then.</summary>
+    private bool closed;
 
     public DialogWindow(string title, string? message, UIElement? content, IReadOnlyList<DialogButton> buttons)
     {
@@ -40,13 +43,14 @@ internal sealed partial class DialogWindow : Window
         });
         if (!string.IsNullOrEmpty(message))
         {
-            body.Children.Add(new TextBlock
+            said = new TextBlock
             {
                 Text = message,
                 Style = (Style)Application.Current.Resources["BodyTextBlockStyle"],
                 TextWrapping = TextWrapping.Wrap,
                 IsTextSelectionEnabled = true,
-            });
+            };
+            body.Children.Add(said);
         }
         if (content is not null)
         {
@@ -99,6 +103,7 @@ internal sealed partial class DialogWindow : Window
         };
         root.KeyboardAccelerators.Add(keys);
         Content = root;
+        Closed += (_, _) => closed = true;
 
         var presenter = OverlappedPresenter.CreateForDialog();
         presenter.IsResizable = false;
@@ -134,15 +139,64 @@ internal sealed partial class DialogWindow : Window
         });
     }
 
+    /// <summary>Changes the message under the title, when the dialog has one.</summary>
+    public void SetMessage(string message)
+    {
+        if (said is not null)
+        {
+            said.Text = message;
+        }
+    }
+
+    /// <summary>Turns the button at <paramref name="index"/> (in the order given) on or off.</summary>
+    public void SetEnabled(int index, bool enabled) => made[index].IsEnabled = enabled;
+
+    /// <summary>
+    /// Sizes the dialog to its content again where it is, now and once the
+    /// content has been laid out (not if it closed meanwhile).
+    /// </summary>
+    public void Fit()
+    {
+        Resize();
+        DispatcherQueue.TryEnqueue(Microsoft.UI.Dispatching.DispatcherQueuePriority.Low, () => Resize());
+    }
+
+    /// <summary>Brings the dialog to the front, unless it closed.</summary>
+    public void Raise()
+    {
+        if (closed)
+        {
+            return;
+        }
+        Activate();
+        Native.SetForegroundWindow(WindowNative.GetWindowHandle(this));
+    }
+
+    /// <summary>Sizes the dialog to its content and centers it on the main screen, as it opens.</summary>
     private void Place()
     {
+        if (closed)
+        {
+            return;
+        }
         var work = DisplayArea.Primary.WorkArea;
-        double scale = Native.DpiForMonitor(Win32Interop.GetMonitorFromDisplayId(DisplayArea.Primary.DisplayId)) / 96.0;
+        Resize(DisplayArea.Primary);
+        var size = AppWindow.Size;
+        AppWindow.Move(new PointInt32(work.X + (work.Width - size.Width) / 2, work.Y + (work.Height - size.Height) / 2));
+    }
+
+    /// <summary>Sizes the dialog to its content, keeping its top left where it is, at the scale of the screen it is on.</summary>
+    private void Resize(DisplayArea? area = null)
+    {
+        if (closed)
+        {
+            return;
+        }
+        area ??= DisplayArea.GetFromWindowId(AppWindow.Id, DisplayAreaFallback.Primary);
+        double scale = Native.DpiForMonitor(Win32Interop.GetMonitorFromDisplayId(area.DisplayId)) / 96.0;
         root.Measure(new Windows.Foundation.Size(root.Width, double.PositiveInfinity));
         int w = (int)Math.Ceiling(root.Width * scale);
         int h = (int)Math.Ceiling(Math.Max(root.DesiredSize.Height, 120) * scale);
         AppWindow.ResizeClient(new SizeInt32(w, h));
-        var size = AppWindow.Size;
-        AppWindow.Move(new PointInt32(work.X + (work.Width - size.Width) / 2, work.Y + (work.Height - size.Height) / 2));
     }
 }

@@ -124,15 +124,6 @@ public static class DeviceText
         return new(TextKeys.ConnectionOffline);
     }
 
-    /// <summary>
-    /// Why no computer can take files sent from File Explorer: files are
-    /// turned off with the one connected, or none is connected.
-    /// </summary>
-    public static UiText NoFileReceiver(AgentSnapshot model) =>
-        model.ConnectedDevices.Count == 1 && model.ConnectedDevices[0].FilesOff
-            ? FilesOff(model.ConnectedDevices[0].Name)
-            : new(TextKeys.SendToNoneMessage);
-
     /// <summary>The background service's state, as Troubleshooting shows it.</summary>
     public static UiText ServiceStatus(ServiceState service, AgentLink link) => service switch
     {

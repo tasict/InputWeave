@@ -30,6 +30,12 @@ apt-get install -y -qq --no-install-recommends appstream desktop-file-utils >/de
 appstreamcli validate --no-net /usr/share/metainfo/cc.ctsite.inputweave.metainfo.xml
 desktop-file-validate /usr/share/applications/cc.ctsite.inputweave.desktop \
     /etc/xdg/autostart/cc.ctsite.inputweave-agent.desktop && echo "desktop entries: valid"
+# Dolphin's service menu is KDE's kind of desktop file (Type=Service), which
+# desktop-file-validate does not take; it is only checked to be there, the
+# same in both places, and to run the app.
+cmp /usr/share/kio/servicemenus/cc.ctsite.inputweave-send.desktop \
+    /usr/share/kservices5/ServiceMenus/cc.ctsite.inputweave-send.desktop &&
+    grep -x 'Exec=inputweave-app --send %F' /usr/share/kio/servicemenus/cc.ctsite.inputweave-send.desktop
 echo "== firewall profiles"
 # ufw reads its profile as installed; the package applies no rule.
 # firewalld pulls systemd, whose postinst fails on such kernels, so its

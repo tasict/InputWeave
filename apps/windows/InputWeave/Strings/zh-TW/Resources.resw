@@ -396,12 +396,6 @@
   </data>
 
   <!-- Sending files -->
-  <data name="SendFilesTitle" xml:space="preserve">
-    <value>傳送檔案</value>
-  </data>
-  <data name="SendFilesTo" xml:space="preserve">
-    <value>傳送到：</value>
-  </data>
   <data name="SendFilesSend" xml:space="preserve">
     <value>傳送</value>
   </data>
@@ -1177,12 +1171,21 @@
     <value>{0}和{1}</value>
   </data>
 
-  <!-- File Explorer's Send To -->
-  <data name="SendToNoneTitle" xml:space="preserve">
-    <value>沒有可以傳送的電腦</value>
+  <!-- Where files go from Send To and Send Files…: the picker -->
+  <data name="SendPickTitle" xml:space="preserve">
+    <value>要傳給哪台電腦？</value>
   </data>
-  <data name="SendToNoneMessage" xml:space="preserve">
-    <value>檔案只能傳給已連線的電腦。請先連接另一台電腦，再試一次。</value>
+  <data name="SendSummaryOneMore" xml:space="preserve">
+    <value>{0} 與另外 1 個項目</value>
+  </data>
+  <data name="SendSummaryMore" xml:space="preserve">
+    <value>{0} 與另外 {1} 個項目</value>
+  </data>
+  <data name="SendReasonFilesOff" xml:space="preserve">
+    <value>沒有和這台互傳檔案</value>
+  </data>
+  <data name="SendNowhere" xml:space="preserve">
+    <value>沒有已連線的電腦可以傳送。</value>
   </data>
   <data name="TitleRelative" xml:space="preserve">
     <value>相對滑鼠：{0}</value>

@@ -246,7 +246,7 @@ Notes:
 
 ## 9. File transfer
 
-- Files are sent explicitly: dropped onto a device in the panel or the main window, from a menu, the Windows "Send to" menu, or by dragging across a seam (§6.4).
+- Files are sent explicitly: dropped onto a device in the panel or the main window, from a menu, the file manager (Finder's Services menu, which the macOS app provides itself since a Share extension would be sandboxed away from the agent's socket; the Windows "Send to" menu; Dolphin's service menu, `inputweave-app --send`), or by dragging across a seam (§6.4). The apps decide which computers can take them from `DeviceStatus` alone (connected, files not turned off) and list the others with why.
 - One send is a **batch** of **items** (files or folders). Folders are listed recursively without following links; every file is its own transfer on its own QUIC stream, chunked, resumable after a disconnection, and verified with BLAKE3. Limits per batch: 1,000 items, 10,000 files, 100 GiB.
 - Received paths are checked on both sides (no absolute paths, no empty, `.` or `..` parts, bounded depth and length) and each part is made a valid file name on the receiver. A folder whose name is taken is renamed as a whole ("name (1)"); a file is written as a hidden `.part` file and moved into place only after verification. Failures are per file and never abort the rest of the batch.
 - Received files go to `~/Downloads/InputWeave` by default. Files from paired devices are accepted automatically (pairing already grants full control); "Ask every time" is a setting, decided once per batch, refused after 5 minutes without an answer.

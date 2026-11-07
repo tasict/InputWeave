@@ -49,6 +49,26 @@
 	<string>InputWeave sends files on network volumes that you drag or send to your other computers, and saves files you drop there.</string>
 	<key>NSRemovableVolumesUsageDescription</key>
 	<string>InputWeave sends files on removable volumes that you drag or send to your other computers, and saves files you drop there.</string>
+	<key>NSServices</key>
+	<array>
+		<dict>
+			<key>NSMenuItem</key>
+			<dict>
+				<key>default</key>
+				<string>Send with InputWeave</string>
+			</dict>
+			<key>NSMessage</key>
+			<string>sendFiles</string>
+			<key>NSPortName</key>
+			<string>InputWeave</string>
+			<key>NSRequiredContext</key>
+			<dict/>
+			<key>NSSendFileTypes</key>
+			<array>
+				<string>public.item</string>
+			</array>
+		</dict>
+	</array>
 	<key>SUFeedURL</key>
 	<string>$(INPUTWEAVE_APPCAST_URL)</string>
 	<key>SUPublicEDKey</key>

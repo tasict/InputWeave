@@ -361,6 +361,43 @@ final class Snapshots: XCTestCase {
         }
     }
 
+    /// Finder's Services › Send with InputWeave: the panel asking where two
+    /// items go, with the Mac mini offline and a computer files are turned
+    /// off with listed but off; the panel when the only computer connected
+    /// can't take them; and the notice when none is connected.
+    func testSendChooser() throws {
+        let model = Self.sampleModel()
+        var status = model.status
+        var studio = DeviceStatus()
+        studio.id = "studio"; studio.name = "Mac Studio"; studio.os = "macos"; studio.paired = true
+        studio.state = .connected; studio.rttMs = 5
+        var media = DeviceStatus()
+        media.id = "media"; media.name = "Living Room PC"; media.os = "windows"; media.paired = true
+        media.state = .connected; media.rttMs = 7; media.filesOff = true
+        status.devices += [studio, media]
+        let sending = AgentModel.sample(status: status)
+        let urls = [URL(fileURLWithPath: "/Users/me/Report.pdf"), URL(fileURLWithPath: "/Users/me/Photos", isDirectory: true)]
+        let icon = NSImage(contentsOf: Self.repository.appending(path: "docs/brand/app-icon-1024.png"))
+        // Connected, but none can take them: every computer off, and Send.
+        status.devices = status.devices.map { device in
+            var device = device
+            if device.id != "media" { device.state = .offline; device.rttMs = 0 }
+            return device
+        }
+        let noneCan = AgentModel.sample(status: status)
+        try render("send-chooser-none-can", size: CGSize(width: 320, height: 300)) {
+            SendChooserView(model: noneCan, items: SendItems(urls), icon: icon, cancel: {}, send: { _ in })
+        }
+        for dark in [false, true] {
+            try render("send-chooser\(dark ? "-dark" : "")", size: CGSize(width: 320, height: 300), dark: dark) {
+                SendChooserView(model: sending, items: SendItems(urls), icon: icon, cancel: {}, send: { _ in })
+            }
+            try render("send-nowhere\(dark ? "-dark" : "")", size: CGSize(width: 300, height: 110), dark: dark) {
+                SendNoticeView(message: String(localized: "No connected computer can receive files."), icon: icon) {}
+            }
+        }
+    }
+
     /// What one screen shows while the screens are identified, over a
     /// desktop picture.
     func testScreenIdentifier() throws {

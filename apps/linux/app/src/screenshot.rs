@@ -601,6 +601,40 @@ pub fn run(ui: Rc<Ui>, dir: PathBuf) {
         // The license in every state, its dialogs, and About.
         ui.agent.show_fixed(sample.clone());
         license_shots(&ui, &window, &shot).await;
+
+        // Where files from the file manager go: the picker, with two
+        // computers that can't take them, and the notice when none can.
+        window.show_page(Page::Files);
+        let sending = sample::sending(SystemTime::now());
+        let picker = crate::send::Picker::new(
+            &sending,
+            vec![
+                "/home/me/Report.pdf".to_owned(),
+                "/home/me/Photos".to_owned(),
+            ],
+            false,
+        );
+        picker.dialog.present(Some(&window.widget()));
+        gtk::glib::timeout_future(SETTLE).await;
+        shot("send-picker", &window.widget());
+        picker.dialog.close();
+        let none = crate::send::nowhere_dialog(&strings::t(keys::SEND_NOWHERE));
+        none.present(Some(&window.widget()));
+        gtk::glib::timeout_future(SETTLE).await;
+        shot("send-nowhere", &window.widget());
+        none.close();
+        let path = dir.join(format!("{language}-hud-sending.png"));
+        match paint::hud(
+            &tr(&inputweave_app_core::send_choice::sending(2, "Studio PC")),
+            &brand,
+            1,
+        )
+        .map_err(|e| e.to_string())
+        .and_then(|p| save_picture(&p, &path))
+        {
+            Ok(()) => log::info(&format!("wrote {}", path.display())),
+            Err(e) => eprintln!("inputweave-app: {}: {e}", path.display()),
+        }
         ui.agent.show_fixed(wayland_again(&sample));
 
         // First-run setup, step by step, with the permissions on Wayland.

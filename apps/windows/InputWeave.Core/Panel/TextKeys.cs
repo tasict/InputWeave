@@ -139,8 +139,6 @@ public static class TextKeys
     public const string AgoDays = "AgoDays";
 
     // Sending files.
-    public const string SendFilesTitle = "SendFilesTitle";
-    public const string SendFilesTo = "SendFilesTo";
     public const string SendFilesSend = "SendFilesSend";
     public const string SendFilesFailed = "SendFilesFailed";
     public const string SendFilesOnlyFiles = "SendFilesOnlyFiles";
@@ -431,9 +429,12 @@ public static class TextKeys
     public const string ItemsFileMany = "ItemsFileMany";
     public const string ItemsAnd = "ItemsAnd";
 
-    // File Explorer's Send To.
-    public const string SendToNoneTitle = "SendToNoneTitle";
-    public const string SendToNoneMessage = "SendToNoneMessage";
+    // Where files go from Send To and Send Files…: the picker.
+    public const string SendPickTitle = "SendPickTitle";
+    public const string SendSummaryOneMore = "SendSummaryOneMore";
+    public const string SendSummaryMore = "SendSummaryMore";
+    public const string SendReasonFilesOff = "SendReasonFilesOff";
+    public const string SendNowhere = "SendNowhere";
 
     // The license, About, and updates.
     public const string NavLicense = "NavLicense";

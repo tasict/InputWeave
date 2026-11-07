@@ -193,5 +193,9 @@ public class LaunchTests
         Assert.Equal<double?>(0.25, locator.LocatorAt);
         Assert.Null(Launch.Parse(["--show-locator"]).LocatorAt);
         Assert.Equal("offer", Launch.Parse(["--show-notification=offer"]).Notification);
+        Assert.Equal("", Launch.Parse(["--show-send-picker"]).SendPicker);
+        Assert.Equal("none", Launch.Parse(["--show-send-picker", "none"]).SendPicker);
+        Assert.True(Launch.Parse(["--show-send-picker"]).Testing);
+        Assert.Null(Launch.Parse([]).SendPicker);
     }
 }

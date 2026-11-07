@@ -209,11 +209,12 @@ public sealed record AgentSnapshot
         Status.Devices.Where(d => d.State == ConnectionState.Connected).ToList();
 
     /// <summary>
-    /// Computers files can be sent to right now: connected, and files not
-    /// turned off with them here (<c>SetDeviceSharing</c>).
+    /// Computers files can be sent to right now: those without a reason
+    /// they can't (<see cref="SendTargets.Unavailable"/>: connected,
+    /// and files not turned off with them here, <c>SetDeviceSharing</c>).
     /// </summary>
     public IReadOnlyList<DeviceStatus> FileReceivers =>
-        Status.Devices.Where(d => d.State == ConnectionState.Connected && !d.FilesOff).ToList();
+        Status.Devices.Where(d => SendTargets.Unavailable(d) is null).ToList();
 
     /// <summary>Whether files can be sent to a computer right now.</summary>
     public bool CanReceiveFiles(string id) => FileReceivers.Any(d => d.Id == id);

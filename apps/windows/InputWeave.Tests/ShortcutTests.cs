@@ -394,10 +394,6 @@ public class DeviceSharingTests
             new UiText(TextKeys.DeviceFilesOff, "MacBook Pro"),
             DeviceText.CannotReceive(Sample.Model(macFilesOff: true), "mac", compact: false));
         Assert.Equal(new UiText(TextKeys.DeviceFilesOffShort), DeviceText.CannotReceive(Sample.Model(macFilesOff: true), "mac", compact: true));
-
-        Assert.Equal(new UiText(TextKeys.DeviceFilesOff, "MacBook Pro"), DeviceText.NoFileReceiver(Sample.Model(macFilesOff: true)));
-        Assert.Equal(new UiText(TextKeys.SendToNoneMessage), DeviceText.NoFileReceiver(Sample.Model(macOnline: false)));
-        Assert.Equal(new UiText(TextKeys.SendToNoneMessage), DeviceText.NoFileReceiver(Sample.Model(noDevices: true)));
     }
 
     [Fact]

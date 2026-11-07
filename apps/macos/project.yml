@@ -94,6 +94,17 @@ targets:
         NSRemovableVolumesUsageDescription: InputWeave sends files on removable volumes that you drag or send to your other computers, and saves files you drop there.
         SUFeedURL: $(INPUTWEAVE_APPCAST_URL)
         SUPublicEDKey: $(INPUTWEAVE_SPARKLE_PUBLIC_KEY)
+        # Finder's Services › Send with InputWeave, for files and folders
+        # (Support/SendService.swift); the item's name in other languages is
+        # in ServicesMenu.xcstrings. NSRequiredContext, even empty, has the
+        # item on without the user turning it on in Keyboard Shortcuts.
+        NSServices:
+          - NSMenuItem:
+              default: Send with InputWeave
+            NSMessage: sendFiles
+            NSPortName: InputWeave
+            NSSendFileTypes: [public.item]
+            NSRequiredContext: {}
         # The license (docs/architecture.md §11): Polar's API and InputWeave's
         # organization there, where Buy a License goes, and the customer
         # portal for Manage Computers. A Debug build also takes
@@ -132,6 +143,8 @@ targets:
       - path: InputWeave/Settings/LoginWindowText.swift
       - path: InputWeave/Settings/CursorSpeed.swift
       - path: InputWeave/Settings/WakeText.swift
+      - path: InputWeave/Support/SendTargets.swift
+      - path: InputWeave/Support/SendChooser.swift
       - path: InputWeave/Support/AgoText.swift
       - path: InputWeave/Support/ProblemWatch.swift
       - path: InputWeave/Support/LaunchReveal.swift

@@ -317,6 +317,24 @@ pub fn asleep(now: SystemTime, wake: WakeState) -> Snapshot {
     model
 }
 
+/// The sample with a fourth computer, connected but with file transfer
+/// turned off, for the picker of where files go: the Mac mini and the
+/// Studio PC can take them, the ThinkPad is offline.
+pub fn sending(now: SystemTime) -> Snapshot {
+    let mut model = snapshot(now);
+    let mut media = device(
+        "media",
+        "Living Room PC",
+        "windows",
+        ConnectionState::Connected,
+        7,
+        0,
+    );
+    media.files_off = true;
+    model.status.devices.push(media);
+    model
+}
+
 /// The state while this computer shows a pairing code.
 pub fn showing_code(now: SystemTime) -> PairingState {
     PairingState {

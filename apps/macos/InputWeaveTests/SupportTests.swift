@@ -664,14 +664,16 @@ final class AgentModelStateTests: XCTestCase {
 final class LaunchRevealTests: XCTestCase {
     func testOpeningTheAppBringsBackAHiddenIcon() {
         XCTAssertEqual(
-            LaunchReveal.decide(launchedAtLogin: false, iconShown: false, finishedSetup: true),
+            LaunchReveal.decide(launch: .opened, iconShown: false, finishedSetup: true),
             LaunchReveal(showsIcon: true, showsMainWindow: true))
         // Setup opens its own window.
         XCTAssertEqual(
-            LaunchReveal.decide(launchedAtLogin: false, iconShown: false, finishedSetup: false),
+            LaunchReveal.decide(launch: .opened, iconShown: false, finishedSetup: false),
             LaunchReveal(showsIcon: true, showsMainWindow: false))
-        XCTAssertEqual(LaunchReveal.decide(launchedAtLogin: false, iconShown: true, finishedSetup: true), LaunchReveal())
-        XCTAssertEqual(LaunchReveal.decide(launchedAtLogin: true, iconShown: false, finishedSetup: true), LaunchReveal())
+        XCTAssertEqual(LaunchReveal.decide(launch: .opened, iconShown: true, finishedSetup: true), LaunchReveal())
+        XCTAssertEqual(LaunchReveal.decide(launch: .atLogin, iconShown: false, finishedSetup: true), LaunchReveal())
+        // Opened for Send with InputWeave: only its panel.
+        XCTAssertEqual(LaunchReveal.decide(launch: .forService, iconShown: false, finishedSetup: true), LaunchReveal())
     }
 
     private func event(_ id: AEEventID, launch: OSType?) -> NSAppleEventDescriptor {
@@ -684,13 +686,24 @@ final class LaunchRevealTests: XCTestCase {
         return event
     }
 
-    func testTellsALoginLaunchFromTheEventThatOpenedTheApp() {
-        XCTAssertTrue(LaunchReveal.launchedAtLogin(event(kAEOpenApplication, launch: keyAELaunchedAsLogInItem)))
+    func testTellsHowTheAppWasLaunched() {
+        XCTAssertEqual(LaunchReveal.launch(event(kAEOpenApplication, launch: keyAELaunchedAsLogInItem), isDefault: true), .atLogin)
         // Opened from the Finder, the Dock or `open`.
-        XCTAssertFalse(LaunchReveal.launchedAtLogin(event(kAEOpenApplication, launch: nil)))
-        XCTAssertFalse(LaunchReveal.launchedAtLogin(event(kAEOpenApplication, launch: keyAELaunchedAsServiceItem)))
-        XCTAssertFalse(LaunchReveal.launchedAtLogin(event(kAEReopenApplication, launch: keyAELaunchedAsLogInItem)))
-        XCTAssertFalse(LaunchReveal.launchedAtLogin(nil))
+        XCTAssertEqual(LaunchReveal.launch(event(kAEOpenApplication, launch: nil), isDefault: true), .opened)
+        XCTAssertEqual(LaunchReveal.launch(nil, isDefault: true), .opened)
+        XCTAssertEqual(LaunchReveal.launch(event(kAEReopenApplication, launch: keyAELaunchedAsLogInItem), isDefault: true), .opened)
+        // For a service: as the event says, or as the launch is not the default one.
+        XCTAssertEqual(LaunchReveal.launch(event(kAEOpenApplication, launch: keyAELaunchedAsServiceItem), isDefault: true), .forService)
+        XCTAssertEqual(LaunchReveal.launch(event(kAEOpenApplication, launch: nil), isDefault: false), .forService)
+        XCTAssertEqual(LaunchReveal.launch(nil, isDefault: false), .forService)
+        XCTAssertEqual(
+            LaunchReveal.launch(event(kAEOpenApplication, launch: keyAELaunchedAsLogInItem), isDefault: false), .atLogin)
+    }
+
+    func testTellsMacOSAboutTheServicesOncePerBuild() {
+        XCTAssertTrue(ServicesRefresh.needed(recorded: nil, build: "10100"), "the first run")
+        XCTAssertTrue(ServicesRefresh.needed(recorded: "10001", build: "10100"), "a new build")
+        XCTAssertFalse(ServicesRefresh.needed(recorded: "10100", build: "10100"))
     }
 }
 

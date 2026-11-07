@@ -14,6 +14,19 @@ enum Preferences {
     /// Where development builds kept the license outbox before it moved to
     /// the keychain; only deleted (`KeychainLicenseOutboxStore`).
     static let licenseOutbox = "licenseOutbox"
+    /// The build (CFBundleVersion) that last told macOS to read the app's
+    /// services again (`ServicesRefresh`).
+    static let servicesBuild = "servicesBuild"
+}
+
+/// Whether to tell macOS to read the app's services again
+/// (`NSUpdateDynamicServices`): once per build, the first run included,
+/// so Send with InputWeave shows right after installing or updating
+/// without asking every launch.
+enum ServicesRefresh {
+    static func needed(recorded: String?, build: String) -> Bool {
+        recorded != build
+    }
 }
 
 /// Settings kept under the app's bundle identifier before 2026-10-27,

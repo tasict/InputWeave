@@ -10,6 +10,7 @@
 | `/usr/lib/systemd/user/app-cc.ctsite.inputweave.service` | here | the app, as the service D-Bus starts it in |
 | `/etc/xdg/autostart/cc.ctsite.inputweave-agent.desktop`, `/usr/libexec/inputweave/start-agent` | here | starts that service on desktops that do not start `graphical-session.target` |
 | `/usr/share/applications/cc.ctsite.inputweave.desktop` | here | the app in the application menu |
+| `/usr/share/kio/servicemenus/cc.ctsite.inputweave-send.desktop`, `/usr/share/kservices5/ServiceMenus/cc.ctsite.inputweave-send.desktop` | `cc.ctsite.inputweave-send.desktop` | Dolphin's Actions › Send with InputWeave (`inputweave-app --send`), where KDE Frameworks 6 (and 5.85 and later) and older Frameworks 5 look; Frameworks that read both keep one, by the file name |
 | `/usr/share/dbus-1/services/cc.ctsite.inputweave.service` | here | D-Bus activation of the app, through its unit |
 | `/usr/share/icons/hicolor/*/apps/cc.ctsite.inputweave.{png,svg}` | the macOS app icon's sizes, `docs/brand/app-icon.svg` | the icon |
 | `/usr/share/metainfo/cc.ctsite.inputweave.metainfo.xml` | here | AppStream, for software centres |

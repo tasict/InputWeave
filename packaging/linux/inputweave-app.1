@@ -4,6 +4,9 @@ inputweave-app \- the InputWeave app
 .SH SYNOPSIS
 .B inputweave-app
 .RB [ \-\-background ]
+.br
+.B inputweave-app \-\-send
+.IR file ...
 .SH DESCRIPTION
 The InputWeave app shows the background service's state and settings: the
 arrangement of the computers, pairing, file transfers and troubleshooting.
@@ -18,6 +21,12 @@ the background service (\fBinputweave\fR(1)) whether the app runs or not.
 .TP
 .B \-\-background
 Put up only the status icon, as when opened at login.
+.TP
+.BI \-\-send " file" ...
+Send the files and folders to another computer: at once when only one
+connected computer can receive files, otherwise after asking which. Every
+argument after it is a file. Dolphin's Send with InputWeave, under Actions
+in a file's menu, runs this.
 .TP
 .B \-\-version
 Print the version and exit.

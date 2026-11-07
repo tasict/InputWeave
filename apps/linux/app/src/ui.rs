@@ -79,6 +79,11 @@ pub struct Ui {
     /// The devices asked to wake, until the service answers: shared by
     /// every inspector and arrangement, which leave Wake off meanwhile.
     wakes: RefCell<wake::Pending>,
+    /// The picker of where files go while it is open, kept up to date.
+    send_picker: RefCell<Option<Rc<crate::send::Picker>>>,
+    /// Waiting for the agent to be connected (`connected_within`), woken by
+    /// the refresh that follows a change.
+    connect_waiters: RefCell<Vec<async_channel::Sender<()>>>,
 }
 
 /// The SHA-256 of the agent packaged beside the app, read when first
@@ -116,6 +121,25 @@ pub fn launched(app: &adw::Application, launch: Launch, remote: bool) {
     };
     let page = launch.page.as_deref().and_then(Page::from_name);
     let starting = first && !remote;
+    if let Some(paths) = launch.send {
+        // From the file manager: only the choice of computer, without the
+        // main window or setup. Started for it, the app stays in the
+        // background afterwards, so once that is over, with no panel to
+        // show its icon, the main window opens as after --background.
+        let then = if starting {
+            log::info("started to send files");
+            let weak = Rc::downgrade(&ui);
+            crate::send::Then::new(move || {
+                if let Some(ui) = weak.upgrade() {
+                    window_unless_tray(&ui, page);
+                }
+            })
+        } else {
+            crate::send::Then::none()
+        };
+        crate::send::from_file_manager(&ui, paths, then);
+        return;
+    }
     if starting {
         log::info(&format!(
             "started{}",
@@ -132,19 +156,8 @@ pub fn launched(app: &adw::Application, launch: Launch, remote: bool) {
         ui.open_setup();
     } else if !launch.background {
         ui.show_window(page);
-    } else if starting && !ui.tray_shown() {
-        // Without a panel to show the icon, staying in the background
-        // would leave nothing to find the app by. At login the panel may
-        // come up after the app, so give it a moment.
-        let weak = Rc::downgrade(&ui);
-        glib::timeout_add_seconds_local_once(PANEL_WAIT_SECONDS, move || {
-            if let Some(ui) = weak.upgrade()
-                && !ui.tray_shown()
-            {
-                log::info("no panel shows tray icons; opening the window");
-                ui.show_window(page);
-            }
-        });
+    } else if starting {
+        window_unless_tray(&ui, page);
     }
     if let Some(text) = launch.hud.clone() {
         ui.overlay().hud(&ui, &text);
@@ -161,6 +174,24 @@ pub fn launched(app: &adw::Application, launch: Launch, remote: bool) {
     {
         ui.overlay().glow(&crossed);
     }
+}
+
+/// Without a panel to show the tray icon, staying in the background would
+/// leave nothing to find the app by: opens the main window unless the icon
+/// shows within a moment (at login the panel may come up after the app).
+fn window_unless_tray(ui: &Rc<Ui>, page: Option<Page>) {
+    if ui.tray_shown() {
+        return;
+    }
+    let weak = Rc::downgrade(ui);
+    glib::timeout_add_seconds_local_once(PANEL_WAIT_SECONDS, move || {
+        if let Some(ui) = weak.upgrade()
+            && !ui.tray_shown()
+        {
+            log::info("no panel shows tray icons; opening the window");
+            ui.show_window(page);
+        }
+    });
 }
 
 impl Ui {
@@ -210,6 +241,8 @@ impl Ui {
             license: crate::license::Control::default(),
             abouts: RefCell::default(),
             wakes: RefCell::default(),
+            send_picker: RefCell::default(),
+            connect_waiters: RefCell::default(),
         });
         UI.with(|cell| *cell.borrow_mut() = Some(ui.clone()));
         let about = gio::SimpleAction::new("about", None);
@@ -439,6 +472,48 @@ impl Ui {
         window
     }
 
+    /// Whether the agent is connected now, or becomes so within `limit`, as
+    /// the refresh after a change says.
+    pub async fn connected_within(self: &Rc<Self>, limit: std::time::Duration) -> bool {
+        if self.snapshot().connected() {
+            return true;
+        }
+        let (waiter, woken) = async_channel::bounded::<()>(1);
+        self.connect_waiters.borrow_mut().push(waiter);
+        let _ = glib::future_with_timeout(limit, async move { woken.recv().await }).await;
+        self.snapshot().connected()
+    }
+
+    /// The picker of where files go, while it is open.
+    pub fn send_picker(&self) -> Option<Rc<crate::send::Picker>> {
+        self.send_picker.borrow().clone()
+    }
+
+    /// Keeps `picker` up to date with the agent until it closes.
+    pub fn keep_send_picker(self: &Rc<Self>, picker: &Rc<crate::send::Picker>) {
+        *self.send_picker.borrow_mut() = Some(picker.clone());
+        let (weak, closing) = (Rc::downgrade(self), Rc::downgrade(picker));
+        picker.dialog.connect_closed(move |_| {
+            let Some(ui) = weak.upgrade() else { return };
+            let mut kept = ui.send_picker.borrow_mut();
+            if kept
+                .as_ref()
+                .is_some_and(|p| closing.upgrade().is_some_and(|c| Rc::ptr_eq(p, &c)))
+            {
+                kept.take();
+            }
+        });
+    }
+
+    /// The main window while it is shown, for a dialog to go over.
+    pub fn shown_window(&self) -> Option<gtk::Widget> {
+        self.window
+            .borrow()
+            .as_ref()
+            .filter(|w| w.shown())
+            .map(|w| w.widget())
+    }
+
     /// The main window, shown and up to date.
     pub fn present_window(self: &Rc<Self>) -> Rc<MainWindow> {
         let window = self.window();
@@ -665,6 +740,19 @@ impl Ui {
         for about in self.abouts.borrow().iter() {
             about.update(licensed);
         }
+        let picker = self.send_picker.borrow().clone();
+        if let Some(picker) = picker {
+            picker.update(&model);
+        }
+        let mut waiters = self.connect_waiters.borrow_mut();
+        if model.connected() {
+            for waiter in waiters.drain(..) {
+                let _ = waiter.try_send(());
+            }
+        } else {
+            waiters.retain(|w| !w.is_closed());
+        }
+        drop(waiters);
         if self.fixed {
             return;
         }

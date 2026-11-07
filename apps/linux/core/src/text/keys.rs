@@ -109,8 +109,6 @@ pub const RELATIVE_HOURS_ONE: &str = "RelativeHoursOne";
 pub const RELATIVE_HOURS_MANY: &str = "RelativeHoursMany";
 pub const RELATIVE_DAYS_ONE: &str = "RelativeDaysOne";
 pub const RELATIVE_DAYS_MANY: &str = "RelativeDaysMany";
-pub const SEND_FILES_TITLE: &str = "SendFilesTitle";
-pub const SEND_FILES_TO: &str = "SendFilesTo";
 pub const SEND_FILES_SEND: &str = "SendFilesSend";
 pub const SEND_FILES_FAILED: &str = "SendFilesFailed";
 pub const SEND_FILES_CHECK_CONNECTED: &str = "SendFilesCheckConnected";
@@ -271,8 +269,14 @@ pub const ITEMS_FOLDER_MANY: &str = "ItemsFolderMany";
 pub const ITEMS_FILE_ONE: &str = "ItemsFileOne";
 pub const ITEMS_FILE_MANY: &str = "ItemsFileMany";
 pub const ITEMS_AND: &str = "ItemsAnd";
-pub const SEND_TO_NONE_TITLE: &str = "SendToNoneTitle";
-pub const SEND_TO_NONE_MESSAGE: &str = "SendToNoneMessage";
+pub const SEND_PICK_TITLE: &str = "SendPickTitle";
+pub const SEND_SUMMARY_ONE_MORE: &str = "SendSummaryOneMore";
+pub const SEND_SUMMARY_MORE: &str = "SendSummaryMore";
+pub const SEND_REASON_FILES_OFF: &str = "SendReasonFilesOff";
+pub const SEND_NOWHERE: &str = "SendNowhere";
+pub const SEND_FILES_LIMITS: &str = "SendFilesLimits";
+pub const HUD_SENDING_ONE: &str = "HudSendingOne";
+pub const HUD_SENDING_MANY: &str = "HudSendingMany";
 pub const TITLE_RELATIVE: &str = "TitleRelative";
 pub const SUBTITLE_RELATIVE: &str = "SubtitleRelative";
 pub const GENERAL_RELATIVE_AUTO: &str = "GeneralRelativeAuto";
@@ -592,8 +596,6 @@ pub const ALL: &[&str] = &[
     RELATIVE_HOURS_MANY,
     RELATIVE_DAYS_ONE,
     RELATIVE_DAYS_MANY,
-    SEND_FILES_TITLE,
-    SEND_FILES_TO,
     SEND_FILES_SEND,
     SEND_FILES_FAILED,
     SEND_FILES_CHECK_CONNECTED,
@@ -754,8 +756,14 @@ pub const ALL: &[&str] = &[
     ITEMS_FILE_ONE,
     ITEMS_FILE_MANY,
     ITEMS_AND,
-    SEND_TO_NONE_TITLE,
-    SEND_TO_NONE_MESSAGE,
+    SEND_PICK_TITLE,
+    SEND_SUMMARY_ONE_MORE,
+    SEND_SUMMARY_MORE,
+    SEND_REASON_FILES_OFF,
+    SEND_NOWHERE,
+    SEND_FILES_LIMITS,
+    HUD_SENDING_ONE,
+    HUD_SENDING_MANY,
     TITLE_RELATIVE,
     SUBTITLE_RELATIVE,
     GENERAL_RELATIVE_AUTO,

@@ -3,8 +3,8 @@
 # the agent and ctl
 # (/usr/bin/inputweave, the root workspace) and the GTK app
 # (/usr/bin/inputweave-app, apps/linux), their systemd user unit, desktop
-# entries, D-Bus service, icons, metainfo, man pages and the package
-# repository's source. Writes
+# entries, Dolphin's service menu, D-Bus service, icons, metainfo, man pages
+# and the package repository's source. Writes
 # dist/inputweave_<version>_<arch>.deb and runs lintian on it.
 #
 #   packaging/linux/build-deb.sh amd64|arm64
@@ -71,6 +71,12 @@ install -Dm644 "$pkg/cc.ctsite.inputweave.desktop" \
     "$root/usr/share/applications/cc.ctsite.inputweave.desktop"
 install -Dm644 "$pkg/cc.ctsite.inputweave-agent.desktop" \
     "$root/etc/xdg/autostart/cc.ctsite.inputweave-agent.desktop"
+# Dolphin's Actions > Send with InputWeave: the same file where KDE
+# Frameworks 6 (and 5.85 and later) and where older Frameworks 5 look.
+for dir in kio/servicemenus kservices5/ServiceMenus; do
+    install -Dm644 "$pkg/cc.ctsite.inputweave-send.desktop" \
+        "$root/usr/share/$dir/cc.ctsite.inputweave-send.desktop"
+done
 # The firewall's rules for InputWeave, which the package does not apply:
 # `sudo ufw allow InputWeave`, or firewalld's service.
 install -Dm644 "$pkg/inputweave.ufw" "$root/etc/ufw/applications.d/inputweave"

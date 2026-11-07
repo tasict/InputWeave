@@ -139,37 +139,56 @@ final class NotificationPermission {
 
 extension AgentModel {
     /// Waits until `condition` holds, looking again whenever something it
-    /// read from the model changes, rather than every so often.
+    /// read from the model changes, rather than every so often; or until
+    /// the task is cancelled.
     func wait(until condition: @escaping @MainActor () -> Bool) async {
-        while !condition() {
-            await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
-                let resume = ResumeOnce(continuation)
-                let met = withObservationTracking {
-                    condition()
-                } onChange: {
-                    resume()
+        while !condition() && !Task.isCancelled {
+            let resume = ResumeOnce()
+            await withTaskCancellationHandler {
+                await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+                    resume.set(continuation)
+                    let met = withObservationTracking {
+                        condition()
+                    } onChange: {
+                        resume()
+                    }
+                    if met {
+                        resume()
+                    }
                 }
-                if met {
-                    resume()
-                }
+            } onCancel: {
+                resume()
             }
         }
     }
 }
 
-/// Resumes a continuation the first time it is called: a change and the
-/// condition already holding may both try.
+/// Resumes a continuation the first time it is called: a change, the
+/// condition already holding and cancellation may each try, and
+/// cancellation may come before the continuation is there.
 private final class ResumeOnce: Sendable {
-    private let continuation: Mutex<CheckedContinuation<Void, Never>?>
+    private enum State {
+        case waiting
+        case set(CheckedContinuation<Void, Never>)
+        case done
+    }
 
-    init(_ continuation: CheckedContinuation<Void, Never>) {
-        self.continuation = Mutex(continuation)
+    private let state = Mutex(State.waiting)
+
+    func set(_ continuation: CheckedContinuation<Void, Never>) {
+        let resumeNow = state.withLock { state in
+            if case .done = state { return true }
+            state = .set(continuation)
+            return false
+        }
+        if resumeNow { continuation.resume() }
     }
 
     func callAsFunction() {
-        let pending = continuation.withLock { pending in
-            defer { pending = nil }
-            return pending
+        let pending: CheckedContinuation<Void, Never>? = state.withLock { state in
+            defer { state = .done }
+            if case .set(let continuation) = state { return continuation }
+            return nil
         }
         pending?.resume()
     }

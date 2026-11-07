@@ -1,3 +1,4 @@
+using Inputweave.App.V1;
 using InputWeave.Agent;
 
 namespace InputWeave.Support;
@@ -54,5 +55,20 @@ internal static class SampleDevices
             status.RelativeSupported = true;
         }
         return snapshot with { Arrangement = arrangement, Status = status };
+    }
+
+    /// <summary>
+    /// Made-up computers for the picker of where files go
+    /// (<see cref="Launch.ShowSendPickerArgument"/>): two that can take
+    /// them, one offline and one files are turned off with.
+    /// </summary>
+    public static AgentSnapshot Sending()
+    {
+        var status = new Status { ThisDeviceId = "pc", ThisDeviceName = "Windows Desktop" };
+        status.Devices.Add(new DeviceStatus { Id = "mac", Name = "MacBook Pro", Os = "macos", State = ConnectionState.Connected, RttMs = 3 });
+        status.Devices.Add(new DeviceStatus { Id = "mini", Name = "Mac mini", Os = "macos", State = ConnectionState.Offline });
+        status.Devices.Add(new DeviceStatus { Id = "media", Name = "Living Room PC", Os = "windows", State = ConnectionState.Connected, RttMs = 7, FilesOff = true });
+        status.Devices.Add(new DeviceStatus { Id = "laptop", Name = "ThinkPad", Os = "linux", State = ConnectionState.Connected, RttMs = 5 });
+        return new AgentSnapshot { Link = AgentLink.Connected, Status = status };
     }
 }
