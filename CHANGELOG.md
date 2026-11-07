@@ -2,7 +2,7 @@
 
 All notable changes to InputWeave are recorded here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and versions follow [Semantic Versioning](https://semver.org/). Each release's full notes are in [`docs/release-notes/`](docs/release-notes/README.md) and on its [GitHub release](https://github.com/tasict/InputWeave/releases).
 
-## [Unreleased]
+## [1.1.0] - 2026-11-07
 
 ### Added
 
@@ -13,7 +13,6 @@ All notable changes to InputWeave are recorded here. The format follows [Keep a 
 - Send files from the file manager: on a Mac, Finder's Services › Send with InputWeave; on Linux, Dolphin's Actions › Send with InputWeave (KDE Frameworks 5 and 6), which runs the new `inputweave-app --send <files>`. With one computer that can receive them connected they go at once, with a note saying where; otherwise InputWeave asks which.
 - Offline for now: Take Offline in a computer's inspector or right-click menu on the Arrangement page (Take This Computer Offline in the panel's ⋯ menu and the tray menu) keeps that computer apart from the whole group until someone brings it back: no computer controls it or is controlled by it, and the clipboard and files go neither to it nor from it. Every computer shows it as "Offline for now" and who set it; if it was being controlled at that moment, the keyboard and mouse come back at once with nothing left pressed on it. Any computer can bring it back, the one taken offline included, and it stays so across restarts. Every computer in the group needs this version: one still on 1.0 doesn't know about it, and the inspector says so. Also `inputweave ctl offline <id> on|off`.
 - Profiles (Settings › Profiles): named sets of settings this computer picks by the network it is on, or that you pick: whether it shares at all, which computers it connects to, and whether the clipboard and files go. Default and Other networks (used on every network not in another profile) are always there; updating puts the network you're on in Default, so nothing changes until you change something. A paused profile keeps this computer off the network entirely: it isn't announced, connects to no computer, and none can connect to it. Computers not checked in the profile in use see this computer as offline and show here as "Not in this profile". Networks are recognized by their router, with no permission needed; optionally, on macOS and Windows, also by their Wi-Fi name once you allow the app location access (on Linux always). The panel's title shows the profile in use, the ⋯ menu and tray menu switch it, and a notice says when it changes by itself. Also `inputweave ctl profile`.
-
 - Revoke the license on a computer: Revoke License… on the License page of any licensed computer frees that computer's place with Polar at once and tells it, now or when it next connects; it goes back to Trial. Removing a computer that uses the license offers Also revoke its license, ticked by default. A computer still on InputWeave 1.0 can't be revoked until it's updated.
 
 ### Changed
@@ -23,6 +22,7 @@ All notable changes to InputWeave are recorded here. The format follows [Keep a 
 
 ### Fixed
 
+- Linux: the Arrangement page shows the desktop picture of a computer running an X11 desktop other than GNOME and Plasma, such as Xfce or MATE, read from the root window, instead of none.
 - Changing shortcuts from two apps at once, or from the command line while an app changes them, no longer times out.
 
 ## [1.0.1] - 2026-11-06
@@ -54,5 +54,6 @@ The first public release.
 - An optional license (US$10, up to 5 computers) that shows "Licensed" instead of "Trial" in Settings and About; every feature works without it.
 - `inputweave ctl`, the command line for the background service.
 
+[1.1.0]: https://github.com/tasict/InputWeave/releases/tag/v1.1.0
 [1.0.1]: https://github.com/tasict/InputWeave/releases/tag/v1.0.1
 [1.0.0]: https://github.com/tasict/InputWeave/releases/tag/v1.0.0
