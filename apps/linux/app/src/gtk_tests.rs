@@ -71,6 +71,7 @@ fn gtk_behaviour() {
     synced_is_said_only_for_changes_while_shown(&ui);
     rows_show_ampersands_and_angle_brackets_as_they_are(&ui);
     the_license_page_follows_the_agent_and_sends_keys(&ui);
+    licenses_are_applied_and_revoked_also_as_computers_are_removed(&ui);
     the_crossed_edge_lights_up_on_x11();
 }
 
@@ -132,6 +133,485 @@ fn the_license_page_follows_the_agent_and_sends_keys(ui: &Rc<Ui>) {
     );
     assert!(!page.trial_shown());
     window.destroy();
+}
+
+/// Polar for the license tests: deactivate answers `status` (`None`: no
+/// answer), and every request is kept.
+#[derive(Default)]
+struct FakePolar {
+    status: std::sync::Mutex<Option<u16>>,
+    asked: std::sync::Mutex<Vec<String>>,
+}
+
+impl inputweave_app_core::polar::Transport for FakePolar {
+    fn post(
+        &self,
+        url: &str,
+        json: &str,
+        _timeout: std::time::Duration,
+    ) -> Result<inputweave_app_core::polar::Response, String> {
+        self.asked
+            .lock()
+            .unwrap()
+            .push(format!("{} {json}", url.rsplit('/').next().unwrap_or("")));
+        match *self.status.lock().unwrap() {
+            Some(status) => Ok(inputweave_app_core::polar::Response {
+                status,
+                ..Default::default()
+            }),
+            None => Err("unreachable".into()),
+        }
+    }
+}
+
+/// Every widget of type `T` under `widget`, itself included.
+fn all_of<T: IsA<gtk::Widget>>(widget: &gtk::Widget) -> Vec<T> {
+    let mut found: Vec<T> = widget.clone().downcast::<T>().into_iter().collect();
+    let mut child = widget.first_child();
+    while let Some(c) = child {
+        found.extend(all_of::<T>(&c));
+        child = c.next_sibling();
+    }
+    found
+}
+
+/// The button labelled `label` in the row titled `title`.
+fn row_button_in(widget: &gtk::Widget, title: &str, label: &str) -> gtk::Button {
+    all_of::<adw::ActionRow>(widget)
+        .into_iter()
+        .find(|r| r.title().as_str() == title)
+        .and_then(|r| {
+            all_of::<gtk::Button>(r.upcast_ref())
+                .into_iter()
+                .find(|b| b.label().as_deref() == Some(label))
+        })
+        .unwrap_or_else(|| panic!("no {label} in the row {title}"))
+}
+
+/// "Computers on this license" applies and revokes the license, and
+/// removing a computer that uses it offers to revoke it there.
+fn licenses_are_applied_and_revoked_also_as_computers_are_removed(ui: &Rc<Ui>) {
+    use crate::pages::inspector::RemoveQuestion;
+    use crate::pages::license::LicensePage;
+    use crate::strings::t;
+    use inputweave_app_core::license::Keeper;
+    use inputweave_app_core::proto::{
+        ApplyLicense, ConnectionState, DeviceStatus, License, LicenseState, LicenseUse,
+        LicensedDevice, RevokeLicense, Unpair,
+    };
+    use inputweave_app_core::text::keys;
+    use std::sync::Arc;
+    const KEY: &str = "INPUTWEAVE-7F3A2C1E-58D4-4B9A-A2E1-0C6D3F9B7E42";
+    let polar = Arc::new(FakePolar::default());
+    ui.license.use_transport(polar.clone());
+    ui.license.replace_keeper(Keeper::default());
+    ui.agent.record_fixed();
+    let uses = |id: &str, used: LicenseUse, activation_id: &str, legacy: bool| LicensedDevice {
+        id: id.into(),
+        name: String::new(),
+        licensed: used == LicenseUse::Licensed,
+        r#use: used as i32,
+        activation_id: activation_id.into(),
+        legacy,
+        can_take_back: matches!(used, LicenseUse::Waiting | LicenseUse::Activating),
+        key_out_of_reach: false,
+        legacy_refused: false,
+        waiting_to_apply: false,
+    };
+    let mut model = (*ui.snapshot()).clone();
+    for (id, name) in [("air", "MacBook Air"), ("imac", "iMac")] {
+        model.status.devices.push(DeviceStatus {
+            id: id.into(),
+            name: name.into(),
+            state: ConnectionState::Connected as i32,
+            paired: true,
+            ..Default::default()
+        });
+    }
+    // The Mac mini licensed, the Studio PC on trial, the ThinkPad (offline)
+    // waiting, the MacBook Air on 1.0, the iMac activating.
+    model.status.license = Some(License {
+        key: KEY.into(),
+        state: LicenseState::Licensed as i32,
+        activation_id: "act-me".into(),
+        apply_supported: true,
+        devices: vec![
+            uses("mac", LicenseUse::Licensed, "act-mac", false),
+            uses("laptop", LicenseUse::Waiting, "", false),
+            uses("air", LicenseUse::Licensed, "", true),
+            uses("imac", LicenseUse::Activating, "", false),
+        ],
+        ..Default::default()
+    });
+    ui.agent.show_fixed(model.clone());
+    let page = LicensePage::new(ui);
+    let window = window_with(page.widget());
+    page.update(&model);
+    settle();
+    let root: gtk::Widget = page.widget().clone().upcast();
+    let shown = labels(&root);
+    for text in [
+        t(keys::LICENSE_WAITING),
+        t(keys::LICENSE_LEGACY_NOTE),
+        t(keys::LICENSE_APPLY_NOTE),
+        "3 of 5".to_owned(),
+    ] {
+        assert!(shown.contains(&text), "{text} in {shown:?}");
+    }
+    // Five places in use (this one, the Mac, the ThinkPad, the Air, the
+    // iMac): nothing to apply.
+    let says = |text: &str| {
+        all_of::<gtk::Label>(&root)
+            .iter()
+            .any(|l| l.is_visible() && l.text().as_str() == text)
+    };
+    assert!(says(&t(keys::LICENSE_ALL_IN_USE)));
+    assert!(!says(&t(keys::LICENSE_NO_PLACES_BODY)));
+    let apply = row_button_in(&root, "Studio PC", &t(keys::LICENSE_APPLY));
+    assert!(!apply.is_sensitive());
+    assert!(
+        all_of::<adw::ActionRow>(&root)
+            .iter()
+            .find(|r| r.title().as_str() == "MacBook Air")
+            .is_some_and(|r| all_of::<gtk::Button>(r.upcast_ref()).is_empty()),
+        "no revoke for InputWeave 1.0"
+    );
+
+    // Don't Apply takes it back at once, waiting or activating; with a
+    // place free, Apply applies.
+    let before = ui.agent.sent().len();
+    row_button_in(&root, "ThinkPad", &t(keys::LICENSE_DONT_APPLY)).emit_clicked();
+    row_button_in(&root, "iMac", &t(keys::LICENSE_DONT_APPLY)).emit_clicked();
+    settle();
+    let mut fewer = model.clone();
+    if let Some(l) = fewer.status.license.as_mut() {
+        l.devices.retain(|d| d.id != "laptop");
+    }
+    ui.agent.show_fixed(fewer.clone());
+    page.update(&fewer);
+    settle();
+    assert!(!says(&t(keys::LICENSE_ALL_IN_USE)));
+    row_button_in(&root, "Studio PC", &t(keys::LICENSE_APPLY)).emit_clicked();
+    settle();
+    assert_eq!(
+        ui.agent.sent()[before..],
+        [
+            Command::RevokeLicense(RevokeLicense {
+                device_id: "laptop".into(),
+                activation_id: String::new(),
+                deactivated: false,
+            }),
+            Command::RevokeLicense(RevokeLicense {
+                device_id: "imac".into(),
+                activation_id: String::new(),
+                deactivated: false,
+            }),
+            Command::ApplyLicense(ApplyLicense {
+                device_id: "pc".into(),
+            }),
+        ]
+    );
+
+    // Revoke License…, kept: nothing. Confirmed: Polar frees the Mac's
+    // activation, then the agent is told it did.
+    let revoke = |answer: &str| {
+        row_button_in(&root, "Mac mini", &t(keys::LICENSE_REVOKE)).emit_clicked();
+        settle();
+        let dialog = all_of::<adw::AlertDialog>(&window.clone().upcast())
+            .pop()
+            .expect("the question");
+        assert_eq!(
+            dialog.heading().as_deref(),
+            Some("Revoke the license on Mac mini?")
+        );
+        // Return and Escape keep it.
+        assert_eq!(dialog.default_response().as_deref(), Some("keep"));
+        assert_eq!(dialog.close_response().as_str(), "keep");
+        dialog.emit_by_name::<()>("response", &[&answer]);
+        settle();
+    };
+    let before = ui.agent.sent().len();
+    revoke("keep");
+    assert!(polar.asked.lock().unwrap().is_empty());
+    *polar.status.lock().unwrap() = Some(204);
+    revoke("revoke");
+    // The fixed model does not pump by itself.
+    crate::license::pump(ui);
+    settle();
+    let asked = polar.asked.lock().unwrap().clone();
+    assert_eq!(asked.len(), 1, "{asked:?}");
+    assert!(asked[0].starts_with("deactivate ") && asked[0].contains("\"act-mac\""));
+    assert!(asked[0].contains(KEY), "with this computer's key");
+    assert_eq!(
+        ui.agent.sent()[before..],
+        [Command::RevokeLicense(RevokeLicense {
+            device_id: "mac".into(),
+            activation_id: "act-mac".into(),
+            deactivated: true,
+        })]
+    );
+    assert!(!ui.license.keeper().busy());
+    window.destroy();
+    polar.asked.lock().unwrap().clear();
+
+    // Removing the Mac: "Also revoke its license", checked.
+    let removed = |id: &str| -> Vec<Command> {
+        let before = ui.agent.sent().len();
+        let question = RemoveQuestion::new(ui, id);
+        question.dialog.emit_by_name::<()>("response", &[&"remove"]);
+        settle();
+        ui.agent.sent()[before..].to_vec()
+    };
+    let unpair = |id: &str| {
+        Command::Unpair(Unpair {
+            device_id: id.into(),
+        })
+    };
+    let told = |id: &str, activation_id: &str, deactivated: bool| {
+        Command::RevokeLicense(RevokeLicense {
+            device_id: id.into(),
+            activation_id: activation_id.into(),
+            deactivated,
+        })
+    };
+    let asked = || polar.asked.lock().unwrap().len();
+    let question = RemoveQuestion::new(ui, "mac");
+    // Return and Escape cancel.
+    assert_eq!(
+        question.dialog.default_response().as_deref(),
+        Some("cancel")
+    );
+    assert_eq!(question.dialog.close_response().as_str(), "cancel");
+    let check = question.revoke.clone().expect("the check box");
+    assert!(check.is_active());
+    assert_eq!(
+        check.label().as_deref(),
+        Some(t(keys::REMOVE_DEVICE_REVOKE).as_str())
+    );
+    assert!(question.line.is_none());
+    // Polar freed it, or it was gone: the agent is told it was, then it
+    // is unpaired, and nothing is said.
+    for status in [204, 404] {
+        *polar.status.lock().unwrap() = Some(status);
+        let before = ui.agent.sent().len();
+        let question = RemoveQuestion::new(ui, "mac");
+        question.dialog.emit_by_name::<()>("response", &[&"remove"]);
+        settle();
+        assert_eq!(
+            ui.agent.sent()[before..],
+            [told("mac", "act-mac", true), unpair("mac")],
+            "{status}"
+        );
+        assert!(question.notice.borrow().is_none(), "{status}");
+    }
+    assert_eq!(asked(), 2, "once each");
+    // The background service refused the revoke, or gave no answer: the
+    // computer is removed all the same, and the user is told.
+    for code in [
+        "license_unavailable",
+        "license_stale",
+        inputweave_app_core::agent::NO_RESULT,
+    ] {
+        *polar.status.lock().unwrap() = Some(204);
+        ui.agent.refuse_next(code);
+        let before = ui.agent.sent().len();
+        let question = RemoveQuestion::new(ui, "mac");
+        question.dialog.emit_by_name::<()>("response", &[&"remove"]);
+        settle();
+        assert_eq!(
+            ui.agent.sent()[before..],
+            [told("mac", "act-mac", true), unpair("mac")],
+            "{code}"
+        );
+        // Polar freed its place: said so, and that it was not told.
+        let notice = question.notice.borrow().clone().expect("the notice");
+        assert_eq!(
+            notice.heading().as_deref(),
+            Some("Mac mini was removed, and its place on the license is free."),
+            "{code}"
+        );
+        assert_eq!(
+            notice.body().as_str(),
+            "It couldn’t be told, so it may still show as licensed until it next checks \
+             its license with Polar.",
+            "{code}"
+        );
+        assert!(notice.has_response("ok") && !notice.has_response("manage"));
+        notice.close();
+    }
+    // Polar not reached and the revoke refused: the usual notice.
+    *polar.status.lock().unwrap() = None;
+    ui.agent.refuse_next("license_unavailable");
+    let before = ui.agent.sent().len();
+    let question = RemoveQuestion::new(ui, "mac");
+    question.dialog.emit_by_name::<()>("response", &[&"remove"]);
+    settle();
+    assert_eq!(
+        ui.agent.sent()[before..],
+        [told("mac", "act-mac", false), unpair("mac")]
+    );
+    let notice = question.notice.borrow().clone().expect("the notice");
+    assert_eq!(
+        notice.body().as_str(),
+        "Deactivate it in Polar’s customer portal to free its place."
+    );
+    assert!(notice.has_response("manage"));
+    notice.close();
+    // Polar not reached, refused, or asking to wait: the device is told it
+    // was not, it is removed all the same, and the user is told. While
+    // Polar asks to wait, it is not asked.
+    let not_freed = |status: Option<u16>, asks: bool| {
+        *polar.status.lock().unwrap() = status;
+        let (before, was_asked) = (ui.agent.sent().len(), asked());
+        let question = RemoveQuestion::new(ui, "mac");
+        question.dialog.emit_by_name::<()>("response", &[&"remove"]);
+        settle();
+        assert_eq!(
+            ui.agent.sent()[before..],
+            [told("mac", "act-mac", false), unpair("mac")],
+            "{status:?}"
+        );
+        assert_eq!(asked(), was_asked + usize::from(asks), "{status:?}");
+        let notice = question.notice.borrow().clone().expect("the notice");
+        assert_eq!(
+            notice.heading().as_deref(),
+            Some("Mac mini was removed, but its license couldn’t be revoked.")
+        );
+        assert_eq!(
+            notice.body().as_str(),
+            "Deactivate it in Polar’s customer portal to free its place."
+        );
+        assert!(notice.has_response("manage") && notice.has_response("ok"));
+        notice.close();
+    };
+    not_freed(None, true);
+    not_freed(Some(422), true);
+    not_freed(Some(429), true);
+    assert!(ui.license.keeper().polar_waits(SystemTime::now()));
+    not_freed(Some(204), false);
+    // Unchecked: only unpaired.
+    let question = RemoveQuestion::new(ui, "mac");
+    question.revoke.as_ref().expect("checked").set_active(false);
+    let before = ui.agent.sent().len();
+    question.dialog.emit_by_name::<()>("response", &[&"remove"]);
+    settle();
+    assert_eq!(ui.agent.sent()[before..], [unpair("mac")]);
+    // Activating: taken back without Polar, and nothing to say.
+    ui.license.replace_keeper(Keeper::default());
+    *polar.status.lock().unwrap() = Some(204);
+    let was_asked = asked();
+    let question = RemoveQuestion::new(ui, "imac");
+    assert!(question.revoke.is_some());
+    let before = ui.agent.sent().len();
+    question.dialog.emit_by_name::<()>("response", &[&"remove"]);
+    settle();
+    assert_eq!(
+        ui.agent.sent()[before..],
+        [told("imac", "", false), unpair("imac")]
+    );
+    assert_eq!(asked(), was_asked);
+    assert!(question.notice.borrow().is_none());
+    // Offline, maybe holding the key already: taken back and removed, and
+    // the user told it may still activate it; with the key never sent
+    // there, nothing to tell.
+    for out_of_reach in [true, false] {
+        let mut offline = fewer.clone();
+        if let Some(l) = offline.status.license.as_mut() {
+            l.devices.push(LicensedDevice {
+                key_out_of_reach: out_of_reach,
+                ..uses("laptop", LicenseUse::Waiting, "", false)
+            });
+        }
+        ui.agent.show_fixed(offline);
+        let question = RemoveQuestion::new(ui, "laptop");
+        assert!(question.revoke.as_ref().is_some_and(|c| c.is_active()));
+        let before = ui.agent.sent().len();
+        question.dialog.emit_by_name::<()>("response", &[&"remove"]);
+        settle();
+        assert_eq!(
+            ui.agent.sent()[before..],
+            [told("laptop", "", false), unpair("laptop")]
+        );
+        assert_eq!(asked(), was_asked, "no Polar");
+        let notice = question.notice.borrow().clone();
+        assert_eq!(notice.is_some(), out_of_reach);
+        if let Some(notice) = notice {
+            assert_eq!(
+                notice.heading().as_deref(),
+                Some("ThinkPad was removed, but its license couldn’t be revoked.")
+            );
+            assert_eq!(
+                notice.body().as_str(),
+                "It was offline. If it activates the license later, free its place in \
+                 Polar’s customer portal."
+            );
+            notice.close();
+        }
+    }
+    ui.agent.show_fixed(fewer.clone());
+    // On InputWeave 1.0: no check box, a line saying its place stays.
+    let question = RemoveQuestion::new(ui, "air");
+    assert!(question.revoke.is_none());
+    assert_eq!(
+        question.line.as_ref().map(|l| l.text().to_string()),
+        Some(
+            "MacBook Air runs InputWeave 1.0, so its license keeps its place after you remove it. \
+             To free it, deactivate it in Polar’s customer portal."
+                .to_owned()
+        )
+    );
+    assert_eq!(removed("air"), [unpair("air")]);
+    // On trial here, or a computer not on the license: as before.
+    assert!(RemoveQuestion::new(ui, "pc").revoke.is_none());
+    let mut on_trial = model.clone();
+    on_trial.status.license = None;
+    ui.agent.show_fixed(on_trial);
+    let question = RemoveQuestion::new(ui, "mac");
+    assert!(question.revoke.is_none() && question.line.is_none());
+    assert_eq!(removed("mac"), [unpair("mac")]);
+    // Not licensed now (every place taken), with applies owed: "Waiting
+    // to Apply", above "How the license works", with Don't Apply.
+    let mut owed = model.clone();
+    if let Some(l) = owed.status.license.as_mut() {
+        l.state = LicenseState::SeatsFull as i32;
+        l.devices = ["mac", "laptop", "pc"]
+            .into_iter()
+            .map(|id| LicensedDevice {
+                // The Studio PC holds a key its own user entered.
+                waiting_to_apply: id != "pc",
+                can_take_back: id != "pc",
+                ..uses(id, LicenseUse::Waiting, "", false)
+            })
+            .collect();
+    }
+    ui.agent.show_fixed(owed.clone());
+    let page = LicensePage::new(ui);
+    let window = window_with(page.widget());
+    page.update(&owed);
+    settle();
+    let root: gtk::Widget = page.widget().clone().upcast();
+    let mapped = |text: &str| {
+        all_of::<gtk::Label>(&root)
+            .iter()
+            .filter(|l| l.is_mapped() && l.text().as_str() == text)
+            .count()
+    };
+    assert_eq!(mapped(&t(keys::LICENSE_WAITING_TITLE)), 1);
+    assert_eq!(mapped(&t(keys::LICENSE_WAITS_FOR_LICENSE)), 2);
+    assert_eq!(mapped("Studio PC"), 0, "not waiting to apply");
+    assert_eq!(mapped(&t(keys::LICENSE_FULL_BODY)), 1, "the note stays");
+    assert_eq!(mapped(&t(keys::LICENSE_APPLY)), 0, "nothing to apply");
+    let before = ui.agent.sent().len();
+    row_button_in(&root, "Mac mini", &t(keys::LICENSE_DONT_APPLY)).emit_clicked();
+    settle();
+    assert_eq!(ui.agent.sent()[before..], [told("mac", "", false)]);
+    // Licensed again: they are on the licensed list instead.
+    page.update(&model);
+    settle();
+    assert_eq!(mapped(&t(keys::LICENSE_WAITING_TITLE)), 0);
+    window.destroy();
+    ui.agent.show_fixed(model);
+    ui.license.replace_keeper(Keeper::default());
 }
 
 /// Every label's text under `widget`.

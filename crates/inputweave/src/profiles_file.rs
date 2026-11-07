@@ -77,6 +77,8 @@ use std::path::Path;
 use serde::Serialize;
 use tracing::warn;
 
+use crate::hex::hex;
+
 const HEADER: &str = "# Profiles, written by the InputWeave agent.\n\
                       # Edit only while the agent is stopped.\n\n";
 
@@ -377,17 +379,6 @@ pub fn network_id(salt: &str, what: &str) -> String {
     use sha2::{Digest, Sha256};
     let digest = Sha256::digest(format!("inputweave network 2\n{salt}\n{what}").as_bytes());
     hex(&digest[..16])
-}
-
-/// `bytes` in lower case hexadecimal.
-pub(crate) fn hex(bytes: &[u8]) -> String {
-    use std::fmt::Write;
-    bytes
-        .iter()
-        .fold(String::with_capacity(bytes.len() * 2), |mut out, b| {
-            let _ = write!(out, "{b:02x}");
-            out
-        })
 }
 
 impl ProfilesFile {

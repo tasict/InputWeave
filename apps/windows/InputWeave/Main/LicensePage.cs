@@ -13,10 +13,10 @@ namespace InputWeave.Main;
 /// The License page, opened from the item at the foot of
 /// the sidebar: in trial, what a license is and Buy a License / Enter
 /// License Key; licensed, the woven label, who it is licensed to, the
-/// computers on the license, Manage Computers and Remove License; and the
-/// sixth computer, a refused key and an unreadable license file. The
-/// license is the background service's; Polar is asked by the app's
-/// <see cref="LicenseWorker"/>.
+/// computers on the license (applying it to them and revoking it there),
+/// Manage Computers and Remove License; and the sixth computer, a refused
+/// key and an unreadable license file. The license is the background
+/// service's; Polar is asked by the app's <see cref="LicenseWorker"/>.
 /// </summary>
 internal sealed partial class LicensePage : UserControl, IMainPage
 {
@@ -36,7 +36,7 @@ internal sealed partial class LicensePage : UserControl, IMainPage
     {
         var worker = App.Instance.License;
         keyDialog?.Follow(snapshot.Status.License, worker.Withdrawing(snapshot.Status.License));
-        var view = LicenseView.For(snapshot.Status.License, snapshot.Status.ThisDeviceName, worker.Withdrawing(snapshot.Status.License));
+        var view = LicenseView.For(snapshot.Status, worker.Withdrawing(snapshot.Status.License));
         var key = snapshot.Status.License?.Key ?? "";
         // Everything said about the work comes from the work and the service's license.
         var state = (View: view, Problem: worker.Problem(key), worker.RemoveFailed, worker.SeatNotFreed, worker.Unreadable);
@@ -44,7 +44,10 @@ internal sealed partial class LicensePage : UserControl, IMainPage
             && before.View.SourceName == view.SourceName && before.Problem == state.Problem
             && before.RemoveFailed == state.RemoveFailed && before.SeatNotFreed == state.SeatNotFreed
             && before.Unreadable == state.Unreadable
-            && before.View.Computers.SequenceEqual(view.Computers))
+            && before.View.ApplySupported == view.ApplySupported && before.View.LicensedElsewhere == view.LicensedElsewhere
+            && before.View.Computers.SequenceEqual(view.Computers)
+            && before.View.Rows.SequenceEqual(view.Rows)
+            && before.View.WaitingToApply.SequenceEqual(view.WaitingToApply))
         {
             return;
         }
@@ -112,6 +115,16 @@ internal sealed partial class LicensePage : UserControl, IMainPage
                 break;
         }
         card.Children.Add(new TextBlock { Text = Strings.Get(TextKeys.LicensePrice), TextWrapping = TextWrapping.Wrap });
+        if (view.LicensedElsewhere is { } holder)
+        {
+            card.Children.Add(new InfoBar
+            {
+                IsOpen = true,
+                IsClosable = false,
+                Severity = InfoBarSeverity.Informational,
+                Message = Strings.Format(TextKeys.LicenseElsewhere, holder),
+            });
+        }
         var buttons = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, Margin = new Thickness(0, 4, 0, 0) };
         if (view.Variant == LicenseVariant.SeatsFull)
         {
@@ -125,6 +138,13 @@ internal sealed partial class LicensePage : UserControl, IMainPage
         }
         card.Children.Add(buttons);
         page.Children.Add(Spaced(Ui.Card(card)));
+
+        // Applied from here before the license was lost: sent once it is back.
+        if (view.WaitingToApply.Count != 0)
+        {
+            page.Children.Add(Ui.Header(Strings.Get(TextKeys.LicenseWaitingToApply)));
+            page.Children.Add(Ui.Card([.. view.WaitingToApply.Select(r => (UIElement)Row(r, allPlacesUsed: false))]));
+        }
 
         page.Children.Add(Ui.Header(Strings.Get(TextKeys.LicenseHowTitle)));
         var steps = new List<UIElement>();
@@ -164,19 +184,182 @@ internal sealed partial class LicensePage : UserControl, IMainPage
 
         var count = Ui.Secondary(Strings.Format(TextKeys.LicenseCount, view.LicensedCount), caption: false);
         page.Children.Add(Ui.Header(Strings.Get(TextKeys.LicenseComputers), count));
-        var rows = view.Computers.Select(c => (UIElement)Ui.Row(
-            c.Name,
-            null,
-            Ui.Secondary(Strings.Get(c.ThisComputer ? TextKeys.LicenseThisComputer : c.Licensed ? TextKeys.LicensePaired : TextKeys.LicenseNotActivated), caption: false),
-            new FontIcon { Glyph = "" })).ToArray();
-        page.Children.Add(Ui.Card(rows));
-        var note = Ui.Secondary(Strings.Get(TextKeys.LicenseListNote));
-        note.Margin = new Thickness(2, 8, 0, 0);
-        page.Children.Add(note);
+        if (view.ApplySupported)
+        {
+            ShowRows(view);
+        }
+        else
+        {
+            // A background service before 1.1: the computers that say they use the key.
+            var rows = view.Computers.Select(c => (UIElement)Ui.Row(
+                c.Name,
+                null,
+                Ui.Secondary(Strings.Get(c.ThisComputer ? TextKeys.LicenseThisComputer : c.Licensed ? TextKeys.LicensePaired : TextKeys.LicenseNotActivated), caption: false),
+                new FontIcon { Glyph = "\ue7f8" })).ToArray();
+            page.Children.Add(Ui.Card(rows));
+            var note = Ui.Secondary(Strings.Get(TextKeys.LicenseListNote));
+            note.Margin = new Thickness(2, 8, 0, 0);
+            page.Children.Add(note);
+        }
         var buttons = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, Margin = new Thickness(0, 16, 0, 0) };
         buttons.Children.Add(Ui.Button(Strings.Get(TextKeys.LicenseManage), () => Open(PolarClient.PortalUrl)));
         buttons.Children.Add(Ui.Button(Strings.Get(TextKeys.LicenseRemove), Remove));
         page.Children.Add(buttons);
+    }
+
+    /// <summary>
+    /// "Computers on this license": this computer, then every computer it
+    /// trusts, each with how it stands and what can be done; under them why
+    /// Apply License may not work, and that only these computers use it.
+    /// </summary>
+    private void ShowRows(LicenseView view)
+    {
+        page.Children.Add(Ui.Card([.. view.Rows.Select(r => (UIElement)Row(r, view.AllPlacesUsed))]));
+        if (view.NoPlaces)
+        {
+            page.Children.Add(Spaced(Bar(TextKeys.LicenseNoPlacesNote, InfoBarSeverity.Warning, portal: true)));
+        }
+        if (view.AllPlacesUsed)
+        {
+            var full = Ui.Secondary(Strings.Get(TextKeys.LicenseAllInUse), caption: false);
+            full.Margin = new Thickness(2, 10, 0, 0);
+            page.Children.Add(full);
+        }
+        var note = Ui.Secondary(Strings.Get(TextKeys.LicenseAppliedNote));
+        note.Margin = new Thickness(2, 8, 0, 0);
+        page.Children.Add(note);
+    }
+
+    /// <summary>A computer on the license: its name and what is said under it, how it stands, and its button.</summary>
+    private Grid Row(LicenseRow row, bool allPlacesUsed)
+    {
+        var words = new StackPanel { Spacing = 2 };
+        words.Children.Add(new TextBlock { Text = row.Name, TextWrapping = TextWrapping.Wrap });
+        foreach (var key in new[] { row.LineKey, row.NoteKey })
+        {
+            if (key is not null)
+            {
+                words.Children.Add(Ui.Secondary(Strings.Get(key)));
+            }
+        }
+        var trailing = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 16 };
+        trailing.Children.Add(Standing(row.State));
+        Button? button = null;
+        if (row.CanRevoke)
+        {
+            button = Ui.Button(Strings.Get(TextKeys.LicenseRevoke), () => ConfirmRevoke(row, button!));
+        }
+        else if (row.CanApply)
+        {
+            button = Ui.Button(Strings.Get(TextKeys.LicenseApply), () => Act(button!, $"apply the license to {row.Id}", () => App.Instance.License.ApplyAsync(row.Id)));
+            button.IsEnabled = !allPlacesUsed;
+        }
+        else if (row.CanTakeBack)
+        {
+            button = Ui.Button(Strings.Get(TextKeys.LicenseDontApply), () => Act(button!, $"don't apply the license to {row.Id}", () => App.Instance.License.DontApplyAsync(row.Id)));
+        }
+        if (button is not null)
+        {
+            button.VerticalAlignment = VerticalAlignment.Center;
+            trailing.Children.Add(button);
+        }
+        return Ui.Row(words, trailing, new FontIcon { Glyph = "\ue7f4" });
+    }
+
+    /// <summary>How a computer stands on the license, at the right of its row.</summary>
+    private static FrameworkElement Standing(LicenseRowState state)
+    {
+        var panel = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 6, VerticalAlignment = VerticalAlignment.Center };
+        TextBlock Text(string key, string brush = "TextFillColorSecondaryBrush") => new()
+        {
+            Text = Strings.Get(key),
+            Foreground = Brand.System(brush),
+            VerticalAlignment = VerticalAlignment.Center,
+        };
+        switch (state)
+        {
+            case LicenseRowState.ThisComputer or LicenseRowState.Licensed:
+                panel.Children.Add(new FontIcon
+                {
+                    Glyph = "\ue73e",
+                    FontSize = 14,
+                    Foreground = Brand.System("SystemFillColorSuccessBrush"),
+                    VerticalAlignment = VerticalAlignment.Center,
+                });
+                panel.Children.Add(Text(TextKeys.LicenseLicensed, "TextFillColorPrimaryBrush"));
+                break;
+            case LicenseRowState.Activating:
+                panel.Children.Add(new ProgressRing { IsActive = true, Width = 16, Height = 16, VerticalAlignment = VerticalAlignment.Center });
+                panel.Children.Add(Text(TextKeys.LicenseActivating));
+                break;
+            case LicenseRowState.Waiting:
+                panel.Children.Add(Text(TextKeys.LicenseWaiting));
+                break;
+            case LicenseRowState.NoPlaces:
+                panel.Children.Add(Text(TextKeys.LicenseNoPlaces, "SystemFillColorCautionBrush"));
+                break;
+            case LicenseRowState.OtherLicense:
+                panel.Children.Add(Text(TextKeys.LicenseOtherLicense));
+                break;
+            case LicenseRowState.AwaitingLicense:
+                panel.Children.Add(Text(TextKeys.LicenseAwaitingLicense));
+                break;
+            default:
+                panel.Children.Add(Text(TextKeys.LicenseTrial));
+                break;
+        }
+        return panel;
+    }
+
+    /// <summary>Apply License or Don't Apply: the button waits for the service; the row then shows what it says.</summary>
+    private async void Act(Button button, string what, Func<Task<bool>> command)
+    {
+        button.IsEnabled = false;
+        try
+        {
+            await command();
+        }
+        catch (Exception e)
+        {
+            AppLog.Info($"license: {what}: {e.Message}");
+        }
+        Invalidate();
+        App.Instance.RefreshNow();
+    }
+
+    /// <summary>Revoke License…: asks first; the row turns to trial as the service says so.</summary>
+    private async void ConfirmRevoke(LicenseRow row, Button button)
+    {
+        if (XamlRoot is null)
+        {
+            return;
+        }
+        var dialog = new ContentDialog
+        {
+            XamlRoot = XamlRoot,
+            Title = Strings.Format(TextKeys.LicenseRevokeTitle, row.Name),
+            Content = new TextBlock { Text = Strings.Format(TextKeys.LicenseRevokeBody, row.Name), TextWrapping = TextWrapping.Wrap },
+            PrimaryButtonText = Strings.Get(TextKeys.LicenseRevokeConfirm),
+            CloseButtonText = Strings.Get(TextKeys.LicenseKeep),
+            DefaultButton = ContentDialogButton.Close,
+        };
+        try
+        {
+            if (await dialog.ShowAsync() != ContentDialogResult.Primary)
+            {
+                return;
+            }
+            AppLog.Info($"license: revoke on {row.Id}");
+            // Polar first, which may take a while: not asked twice meanwhile.
+            button.IsEnabled = false;
+            await App.Instance.License.RevokeAsync(row.Id, row.ActivationId);
+        }
+        catch (Exception e)
+        {
+            AppLog.Info($"revoke license: {e.Message}");
+        }
+        Invalidate();
+        App.Instance.RefreshNow();
     }
 
     private static FrameworkElement Spaced(FrameworkElement card)

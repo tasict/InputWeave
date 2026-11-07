@@ -16,7 +16,6 @@
 
 use std::collections::BTreeMap;
 use std::fmt;
-use std::fmt::Write as _;
 use std::io::Write as _;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -281,10 +280,7 @@ impl PreviewFiles {
 
 /// `<display id in hex>.jpg`.
 fn file_name(display_id: &str) -> String {
-    let mut name = String::with_capacity(display_id.len() * 2 + 4);
-    for b in display_id.bytes() {
-        let _ = write!(name, "{b:02x}");
-    }
+    let mut name = crate::hex::hex(display_id.as_bytes());
     name.push_str(".jpg");
     name
 }

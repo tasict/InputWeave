@@ -456,6 +456,46 @@ public class AgentModelTests
     }
 
     [Fact]
+    public async Task AppliesTheLicenseToAComputerAndRevokesIt()
+    {
+        var agent = new FakeAgent();
+        agent.Status.License = new License { Key = "INPUTWEAVE-KEY", State = LicenseState.Licensed, ActivationId = "act-pc", ApplySupported = true };
+        await using var model = agent.Model();
+        model.Start();
+        await Eventually("a connection", () => model.Snapshot.Link == AgentLink.Connected);
+
+        await model.ApplyLicenseAsync("mac");
+        Assert.Equal("mac", agent.Received[^1].ApplyLicense.DeviceId);
+        Assert.Equal(LicenseUse.Activating, Assert.Single(model.Snapshot.Status.License.Devices).Use);
+
+        await model.RevokeLicenseAsync("mac", "act-mac", deactivated: true);
+        var revoke = agent.Received[^1].RevokeLicense;
+        Assert.Equal(("mac", "act-mac", true), (revoke.DeviceId, revoke.ActivationId, revoke.Deactivated));
+        Assert.Empty(model.Snapshot.Status.License.Devices);
+
+        Assert.Equal("unknown_device", (await Assert.ThrowsAsync<AgentRefusal>(() => model.ApplyLicenseAsync("ghost"))).Code);
+        Assert.Equal("unknown_device", (await Assert.ThrowsAsync<AgentRefusal>(() => model.RevokeLicenseAsync("ghost", "", deactivated: false))).Code);
+    }
+
+    [Fact]
+    public async Task SaysAnActivationOfAnEarlierKeyIsFreed()
+    {
+        var agent = new FakeAgent();
+        agent.Status.License = new License { ApplySupported = true };
+        agent.Status.License.ToFree.Add(new LicenseActivation { Key = "INPUTWEAVE-OLD", ActivationId = "act-old" });
+        await using var model = agent.Model();
+        model.Start();
+        await Eventually("a connection", () => model.Snapshot.Link == AgentLink.Connected);
+        Assert.Single(model.Snapshot.Status.License.ToFree);
+
+        await model.LicenseActivationFreedAsync("act-old");
+        Assert.Equal("act-old", agent.Received[^1].LicenseActivationFreed.ActivationId);
+        Assert.Empty(model.Snapshot.Status.License.ToFree);
+        // Again, or one never listed: nothing changes.
+        await model.LicenseActivationFreedAsync("act-old");
+    }
+
+    [Fact]
     public async Task SetsWakingAsTheCursorIsPushedTowardAComputer()
     {
         var agent = new FakeAgent();

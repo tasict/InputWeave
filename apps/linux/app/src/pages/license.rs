@@ -1,8 +1,9 @@
 //! The License page: "Trial" with Buy a License and Enter
 //! License Key, or the woven "Licensed" label with the computers on the
-//! license; the Enter License Key dialog and the Remove License question.
-//! Nothing else in the app speaks of the license but its sidebar row and
-//! About.
+//! license, where it is applied to them and revoked; the Enter License Key
+//! dialog, the Remove License and Revoke License questions. Nothing else in
+//! the app speaks of the license but its sidebar row, About, and the
+//! question that removes a computer.
 
 use std::cell::RefCell;
 use std::rc::Rc;
@@ -10,10 +11,13 @@ use std::time::{Duration, SystemTime};
 
 use adw::prelude::*;
 use inputweave_app_core::license::{Keeper, Problem, plausible_key};
-use inputweave_app_core::license_text::{self, Entry, Notice, View};
+use inputweave_app_core::license_text::{
+    self, Computers, Entry, Notice, Row, RowButton, Standing, View,
+};
 use inputweave_app_core::polar;
 use inputweave_app_core::snapshot::Snapshot;
 use inputweave_app_core::text::keys;
+use inputweave_app_core::{log, ui};
 
 use crate::license;
 use crate::strings::{t, tr};
@@ -37,6 +41,13 @@ pub struct LicensePage {
     /// Try Again beside them, after the license was found invalid.
     invalid_try: gtk::Button,
     full_buttons: gtk::Box,
+    /// The paired computer this one can have the license applied from.
+    elsewhere: InfoBox,
+    /// "Waiting to Apply": applies that wait for this computer to be
+    /// licensed again.
+    waiting: adw::PreferencesGroup,
+    waiting_rows: RefCell<Vec<adw::ActionRow>>,
+    waiting_shown: RefCell<Vec<Row>>,
     how: adw::PreferencesGroup,
     licensed: gtk::Box,
     woven: Rc<Woven>,
@@ -44,10 +55,65 @@ pub struct LicensePage {
     line: gtk::Label,
     computers: adw::PreferencesGroup,
     count: gtk::Label,
+    /// Under the list: a computer found no place left.
+    no_places: gtk::Box,
+    /// Under the list: every place is in use.
+    all_in_use: gtk::Label,
+    footer: gtk::Label,
     rows: RefCell<Vec<adw::ActionRow>>,
-    shown_rows: RefCell<Vec<(String, String)>>,
+    shown_rows: RefCell<Option<Shown>>,
     dialog: RefCell<Option<Rc<KeyDialog>>>,
     ui: std::rc::Weak<Ui>,
+}
+
+/// What the rows of "Computers on this license" were made from.
+#[derive(Clone, PartialEq)]
+enum Shown {
+    Listed(Vec<(String, String)>),
+    Applying(Vec<Row>),
+}
+
+/// A box with an icon and a wrapped text, tinted as the icon: blue for
+/// information, the warning color for a warning.
+struct InfoBox {
+    widget: gtk::Box,
+    label: gtk::Label,
+}
+
+impl InfoBox {
+    fn new(warning: bool) -> InfoBox {
+        let widget = gtk::Box::builder()
+            .spacing(10)
+            .css_classes([
+                "iw-license-box",
+                if warning {
+                    "iw-license-warning"
+                } else {
+                    "iw-license-info"
+                },
+            ])
+            .visible(false)
+            .build();
+        let icon = gtk::Image::builder()
+            .icon_name(if warning {
+                "dialog-warning-symbolic"
+            } else {
+                "dialog-information-symbolic"
+            })
+            .valign(gtk::Align::Start)
+            .accessible_role(gtk::AccessibleRole::Presentation)
+            .css_classes([if warning { "warning" } else { "accent" }])
+            .build();
+        let label = gtk::Label::builder()
+            .wrap(true)
+            .xalign(0.0)
+            .hexpand(true)
+            .max_width_chars(60)
+            .build();
+        widget.append(&icon);
+        widget.append(&label);
+        InfoBox { widget, label }
+    }
 }
 
 fn pill(key: &str, suggested: bool) -> gtk::Button {
@@ -116,6 +182,8 @@ impl LicensePage {
         let invalid_try = pill(keys::LICENSE_TRY_AGAIN, false);
         invalid_try.set_visible(false);
         trial_buttons.append(&invalid_try);
+        let elsewhere = InfoBox::new(false);
+        elsewhere.widget.set_margin_top(6);
         let manage_full = pill(keys::LICENSE_MANAGE, true);
         let try_again = pill(keys::LICENSE_TRY_AGAIN, false);
         let full_buttons = gtk::Box::builder()
@@ -131,9 +199,15 @@ impl LicensePage {
         trial.append(&spinner);
         trial.append(&seat_portal);
         trial.append(&price);
+        trial.append(&elsewhere.widget);
         trial.append(&trial_buttons);
         trial.append(&full_buttons);
         column.append(&trial);
+        let waiting = adw::PreferencesGroup::builder()
+            .title(t(keys::LICENSE_WAITING_TITLE))
+            .visible(false)
+            .build();
+        column.append(&waiting);
 
         let how = adw::PreferencesGroup::builder()
             .title(t(keys::LICENSE_HOW_TITLE))
@@ -142,7 +216,7 @@ impl LicensePage {
         for (n, key) in [
             keys::LICENSE_HOW_BUY,
             keys::LICENSE_HOW_ENTER,
-            keys::LICENSE_HOW_PAIRED,
+            keys::LICENSE_HOW_APPLY,
         ]
         .into_iter()
         .enumerate()
@@ -181,9 +255,34 @@ impl LicensePage {
             .build();
         let computers = adw::PreferencesGroup::builder()
             .title(t(keys::LICENSE_COMPUTERS))
-            .description(t(keys::LICENSE_LIST_NOTE))
             .header_suffix(&count)
             .build();
+        // Not rows: under the list, in this order.
+        let no_places = InfoBox::new(true);
+        no_places.label.set_label(&t(keys::LICENSE_NO_PLACES_BODY));
+        let manage_places = gtk::Button::builder()
+            .label(t(keys::LICENSE_MANAGE))
+            .valign(gtk::Align::Center)
+            .build();
+        no_places.widget.append(&manage_places);
+        no_places.widget.set_margin_top(12);
+        computers.add(&no_places.widget);
+        let caption = |text: &str| {
+            gtk::Label::builder()
+                .label(text)
+                .wrap(true)
+                .xalign(0.0)
+                .margin_top(12)
+                .margin_start(6)
+                .margin_end(6)
+                .css_classes(["dim-label", "caption"])
+                .build()
+        };
+        let all_in_use = caption(&t(keys::LICENSE_ALL_IN_USE));
+        all_in_use.set_visible(false);
+        computers.add(&all_in_use);
+        let footer = caption(&t(keys::LICENSE_LIST_NOTE));
+        computers.add(&footer);
         let manage = pill(keys::LICENSE_MANAGE, false);
         let remove = pill(keys::LICENSE_REMOVE, false);
         remove.add_css_class("iw-remove");
@@ -221,6 +320,10 @@ impl LicensePage {
             trial_buttons,
             invalid_try: invalid_try.clone(),
             full_buttons,
+            elsewhere,
+            waiting,
+            waiting_rows: RefCell::new(Vec::new()),
+            waiting_shown: RefCell::new(Vec::new()),
             how,
             licensed: licensed_all,
             woven,
@@ -228,8 +331,11 @@ impl LicensePage {
             line,
             computers,
             count,
+            no_places: no_places.widget,
+            all_in_use,
+            footer,
             rows: RefCell::new(Vec::new()),
-            shown_rows: RefCell::new(Vec::new()),
+            shown_rows: RefCell::new(None),
             dialog: RefCell::new(None),
             ui: Rc::downgrade(ui),
         });
@@ -240,7 +346,7 @@ impl LicensePage {
                 license::open(&ui, polar::CHECKOUT_URL);
             }
         });
-        for button in [&manage, &manage_full, &seat_portal] {
+        for button in [&manage, &manage_full, &seat_portal, &manage_places] {
             let weak = Rc::downgrade(ui);
             button.connect_clicked(move |_| {
                 if let Some(ui) = weak.upgrade() {
@@ -282,13 +388,17 @@ impl LicensePage {
     }
 
     pub fn update(&self, model: &Snapshot) {
-        let license = model.status.license.as_ref();
         let ui = self.ui.upgrade();
         let fresh = Keeper::default();
         let keeper = ui.as_ref().map(|ui| ui.license.keeper());
         let keeper = keeper.as_deref().unwrap_or(&fresh);
-        match license_text::view(license, &model.status.this_device_name, keeper) {
-            View::Trial { notice } => {
+        match license_text::view(&model.status, keeper) {
+            View::Trial {
+                notice,
+                elsewhere,
+                waiting,
+            } => {
+                self.show_waiting(waiting);
                 let quiet = notice.as_ref().is_some_and(Notice::quiet);
                 self.trial.set_visible(true);
                 self.how.set_visible(!quiet);
@@ -310,6 +420,15 @@ impl LicensePage {
                 self.spinner.set_visible(notice == Some(Notice::Removing));
                 self.seat_portal
                     .set_visible(notice == Some(Notice::SeatWaiting));
+                match elsewhere.filter(|_| !quiet) {
+                    Some(name) => {
+                        self.elsewhere
+                            .label
+                            .set_label(&tr(&ui!(keys::LICENSE_ELSEWHERE, name)));
+                        self.elsewhere.widget.set_visible(true);
+                    }
+                    None => self.elsewhere.widget.set_visible(false),
+                }
                 self.trial_buttons
                     .set_visible(!quiet && notice != Some(Notice::SeatsFull));
                 self.full_buttons
@@ -324,6 +443,7 @@ impl LicensePage {
                 count,
             } => {
                 self.trial.set_visible(false);
+                self.show_waiting(Vec::new());
                 self.how.set_visible(false);
                 self.licensed.set_visible(true);
                 self.woven.set_text(t(keys::LICENSE_LICENSED));
@@ -333,33 +453,138 @@ impl LicensePage {
                 }
                 self.line.set_label(&tr(&line));
                 self.count.set_label(&tr(&count));
-                let shown: Vec<(String, String)> = computers
-                    .iter()
-                    .map(|c| (c.name.clone(), tr(&c.note)))
-                    .collect();
-                if *self.shown_rows.borrow() != shown {
+                let shown = match computers {
+                    Computers::Listed(listed) => {
+                        self.no_places.set_visible(false);
+                        self.all_in_use.set_visible(false);
+                        self.footer.set_label(&t(keys::LICENSE_LIST_NOTE));
+                        Shown::Listed(
+                            listed
+                                .iter()
+                                .map(|c| (c.name.clone(), tr(&c.note)))
+                                .collect(),
+                        )
+                    }
+                    Computers::Applying(list) => {
+                        self.no_places.set_visible(list.no_places);
+                        self.all_in_use.set_visible(list.all_in_use);
+                        self.footer.set_label(&t(keys::LICENSE_APPLY_NOTE));
+                        Shown::Applying(list.rows)
+                    }
+                };
+                if self.shown_rows.borrow().as_ref() != Some(&shown) {
                     for row in self.rows.borrow_mut().drain(..) {
                         self.computers.remove(&row);
                     }
-                    for (name, note) in &shown {
-                        let row = adw::ActionRow::builder()
-                            .use_markup(false)
-                            .title(name.as_str())
-                            .build();
-                        row.add_prefix(&gtk::Image::from_icon_name("computer-symbolic"));
-                        row.add_suffix(
-                            &gtk::Label::builder()
-                                .label(note.as_str())
-                                .css_classes(["dim-label"])
-                                .build(),
-                        );
-                        self.computers.add(&row);
-                        self.rows.borrow_mut().push(row);
+                    let made: Vec<adw::ActionRow> = match &shown {
+                        Shown::Listed(listed) => listed
+                            .iter()
+                            .map(|(name, note)| listed_row(name, note))
+                            .collect(),
+                        Shown::Applying(rows) => {
+                            rows.iter().map(|row| self.applying_row(row)).collect()
+                        }
+                    };
+                    for row in &made {
+                        self.computers.add(row);
                     }
-                    *self.shown_rows.borrow_mut() = shown;
+                    *self.rows.borrow_mut() = made;
+                    *self.shown_rows.borrow_mut() = Some(shown);
                 }
             }
         }
+    }
+
+    /// "Waiting to Apply", with `rows`; hidden without any.
+    fn show_waiting(&self, rows: Vec<Row>) {
+        self.waiting.set_visible(!rows.is_empty());
+        if *self.waiting_shown.borrow() == rows {
+            return;
+        }
+        for row in self.waiting_rows.borrow_mut().drain(..) {
+            self.waiting.remove(&row);
+        }
+        let made: Vec<adw::ActionRow> = rows.iter().map(|r| self.applying_row(r)).collect();
+        for row in &made {
+            self.waiting.add(row);
+        }
+        *self.waiting_rows.borrow_mut() = made;
+        *self.waiting_shown.borrow_mut() = rows;
+    }
+
+    /// A row of the list that applies and revokes the license.
+    fn applying_row(&self, row: &Row) -> adw::ActionRow {
+        let lines: Vec<String> = row.lines().iter().map(tr).collect();
+        let action = adw::ActionRow::builder()
+            .use_markup(false)
+            .title(row.name.as_str())
+            .subtitle(lines.join("\n"))
+            .subtitle_lines(0)
+            .build();
+        action.add_prefix(&gtk::Image::from_icon_name("computer-symbolic"));
+        let end = gtk::Box::builder()
+            .spacing(8)
+            .valign(gtk::Align::Center)
+            .build();
+        // Only the long one wraps; the others stay on one line.
+        let state = gtk::Label::builder()
+            .label(tr(&row.standing.text()))
+            .wrap(matches!(
+                row.standing,
+                Standing::Waiting | Standing::WaitsForLicense
+            ))
+            .max_width_chars(18)
+            .justify(gtk::Justification::Right)
+            .xalign(1.0)
+            .build();
+        match row.standing {
+            Standing::Licensed => {
+                end.append(
+                    &gtk::Image::builder()
+                        .icon_name("object-select-symbolic")
+                        .accessible_role(gtk::AccessibleRole::Presentation)
+                        .css_classes(["success"])
+                        .build(),
+                );
+                state.add_css_class("success");
+            }
+            Standing::Activating => {
+                end.append(&gtk::Spinner::builder().spinning(true).build());
+                state.add_css_class("dim-label");
+            }
+            Standing::NoPlaces => state.add_css_class("warning"),
+            Standing::Trial
+            | Standing::Waiting
+            | Standing::OtherLicense
+            | Standing::WaitsForLicense => state.add_css_class("dim-label"),
+        }
+        end.append(&state);
+        if let Some(button) = &row.button {
+            let widget = gtk::Button::builder()
+                .label(tr(&button.text()))
+                .valign(gtk::Align::Center)
+                .build();
+            if let RowButton::Apply { enabled } = button {
+                widget.set_sensitive(*enabled);
+            }
+            let (weak, id, name, button) = (
+                self.ui.clone(),
+                row.id.clone(),
+                row.name.clone(),
+                button.clone(),
+            );
+            widget.connect_clicked(move |widget| {
+                let Some(ui) = weak.upgrade() else { return };
+                match &button {
+                    RowButton::Apply { .. } => license::apply(&ui, &id),
+                    RowButton::DontApply => license::dont_apply(&ui, &id),
+                    RowButton::Revoke { .. } => confirm_revoke(&ui, widget, &id, &name),
+                }
+            });
+            end.append(&widget);
+        }
+        action.add_suffix(&end);
+        action
     }
 
     /// Brings the Enter License Key dialog up to date, whichever page is
@@ -608,6 +833,75 @@ impl KeyDialog {
             }
         }
     }
+}
+
+/// A row of the list agents before 1.1 show: the name, and "This
+/// computer" or "Paired".
+fn listed_row(name: &str, note: &str) -> adw::ActionRow {
+    let row = adw::ActionRow::builder()
+        .use_markup(false)
+        .title(name)
+        .build();
+    row.add_prefix(&gtk::Image::from_icon_name("computer-symbolic"));
+    row.add_suffix(
+        &gtk::Label::builder()
+            .label(note)
+            .css_classes(["dim-label"])
+            .build(),
+    );
+    row
+}
+
+/// The Revoke License question for the computer `name`.
+fn revoke_question(name: &str) -> adw::AlertDialog {
+    let dialog = adw::AlertDialog::builder()
+        .heading(tr(&ui!(keys::LICENSE_REVOKE_TITLE, name)))
+        .body(tr(&ui!(keys::LICENSE_REVOKE_BODY, name)))
+        .default_response("keep")
+        .close_response("keep")
+        .build();
+    dialog.add_responses(&[
+        ("keep", &t(keys::LICENSE_KEEP)),
+        ("revoke", &t(keys::LICENSE_REVOKE_CONFIRM)),
+    ]);
+    dialog.set_response_appearance("revoke", adw::ResponseAppearance::Destructive);
+    dialog
+}
+
+/// Revoke License…: asked first; confirmed, the activation the computer
+/// holds then (as the agent says now) is freed and the agent told.
+fn confirm_revoke(ui: &Rc<Ui>, from: &impl IsA<gtk::Widget>, id: &str, name: &str) {
+    let dialog = revoke_question(name);
+    let (weak, id) = (Rc::downgrade(ui), id.to_owned());
+    dialog.connect_response(None, move |_, response| {
+        if response != "revoke" {
+            return;
+        }
+        let Some(ui) = weak.upgrade() else { return };
+        let model = ui.snapshot();
+        let list = license_text::applying(&model.status);
+        let held = list.rows.iter().find_map(|r| match &r.button {
+            Some(RowButton::Revoke { activation_id }) if r.id == id => Some(activation_id.clone()),
+            _ => None,
+        });
+        match held {
+            Some(activation_id) => license::revoke(&ui, &id, &activation_id),
+            None => log::info(&format!(
+                "the license on {id} changed while Revoke License was asked; nothing revoked"
+            )),
+        }
+    });
+    dialog.present(Some(from));
+}
+
+/// For screenshots: the Revoke License question.
+pub fn revoke_question_for_screenshot(
+    name: &str,
+    from: &impl IsA<gtk::Widget>,
+) -> adw::AlertDialog {
+    let dialog = revoke_question(name);
+    dialog.present(Some(from));
+    dialog
 }
 
 /// The Remove License question.

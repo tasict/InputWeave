@@ -64,7 +64,7 @@ final class TransferNotifier: NotificationSource {
             primed = true
             for transfer in incoming {
                 states[transfer.transferID] = transfer.state
-                if transfer.state == .waitingForAnswer { ask(transfer) }
+                if StatusPresentation.asksAbout(transfer) { ask(transfer) }
             }
             return
         }

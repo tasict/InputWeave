@@ -279,10 +279,7 @@ impl Config {
     /// computer's name, falling back to the id.
     pub fn resolve_device(&mut self, fingerprint: &Fingerprint, computer_name: Option<String>) {
         if self.device.id.is_empty() {
-            self.device.id = fingerprint.as_bytes()[..8]
-                .iter()
-                .map(|b| format!("{b:02x}"))
-                .collect();
+            self.device.id = crate::hex::hex(&fingerprint.as_bytes()[..8]);
         }
         if self.device.name.is_empty() {
             self.device.name = computer_name

@@ -671,12 +671,14 @@ message RequestPermission {
 // Enters a license key on this computer, as the user typed or pasted it
 // (Enter License Key). It replaces any key this computer had, which starts
 // over as LICENSE_STATE_PENDING_ACTIVATION for the app to activate with
-// Polar, and lets this computer take keys from paired devices again if its
-// license had been removed (License.opted_out), and forgets the keys Polar
-// refused here before, so they may be taken again. The key this computer
-// already has, licensed or waiting, is kept as it is, activation and all;
-// one Polar refused starts over, for the app to try again (Try Again sends
-// this with the same key). Leading and trailing spaces are dropped.
+// Polar; applying the license to other devices that has not reached them
+// yet is dropped with the old key. The key this computer already has,
+// licensed or waiting, is kept as it is, activation and all; one Polar
+// refused starts over, for the app to try again (Try Again sends this with
+// the same key). A revoked activation is never licensed again: the key a
+// device revoked here (LICENSE_STATE_REVOKED) starts over too, and the
+// revoked activation is listed in License.to_free for the app to free.
+// Leading and trailing spaces are dropped.
 // Refused with "invalid_license_key" for a key that is not 20 to 96
 // printable ASCII characters without spaces. Answered with Status. This,
 // RecordLicenseResult and RemoveLicense are refused with
@@ -689,7 +691,7 @@ message SetLicenseKey {
 
 // What Polar answered about `key`, which the app asked (activate or
 // validate): the agent keeps it in this computer's license and tells paired
-// devices. An answer counts only for the state it answers: `activated`
+// devices how it stands (never the key itself, except as LicenseInfo says). An answer counts only for the state it answers: `activated`
 // while the license waits for activation; `validated`, and `refused` with
 // an activation_id, for the activation this computer has
 // (License.activation_id) while licensed; `refused` without one while the
@@ -753,11 +755,71 @@ enum LicenseRefusal {
 }
 
 // Removes the license from this computer (Remove License): its key and
-// activation are forgotten, and it takes no key from paired devices until a
-// key is entered here again (License.opted_out). The app frees the seat
-// with Polar (deactivate) itself before sending this, and sends this even
-// when Polar cannot be reached. Answered with Status.
-message RemoveLicense {}
+// activation are forgotten, and applying the license to other devices that
+// has not reached them yet is dropped; revoking it there goes on. Other
+// devices keep their license. The app frees the seat with Polar
+// (deactivate) itself before sending this, and sends this even when Polar
+// cannot be reached; it also sends this once it freed the activation of a
+// license another device revoked here (LICENSE_STATE_REVOKED). Answered with
+// Status. `key` and `activation_id` are the license as the app saw it when
+// it asked (activation_id empty while it had none): the agent removes it
+// only while it is still so, and refuses a removal that waited past a
+// newer license with "license_stale". An empty `key` removes whatever is
+// there (ctl, apps before 1.1).
+message RemoveLicense {
+  string key = 1;
+  string activation_id = 2;
+}
+
+// Applies this computer's license to another device (Apply License): the
+// agent sends it the key (peer LicenseAssign) now, or as soon as it
+// connects, and that device's app activates it with Polar, taking one of
+// the license's places. A device on InputWeave 1.0 gets the key as 1.0 did
+// (LicenseInfo). License.devices shows how it goes. Applying it again to a
+// device whose places were full (LICENSE_USE_NO_PLACES) tries again.
+// Answered with Status. Refused with "not_licensed" unless this computer is
+// licensed (LICENSE_STATE_LICENSED), "unknown_device" for a device this
+// agent does not trust (or this one), "license_full" while this computer
+// and the devices licensed, activating or waiting for the license
+// (LICENSE_USE_LICENSED, _ACTIVATING, _WAITING) are 5 already,
+// "licensed_elsewhere" for a device licensed with another key, and as
+// SetLicenseKey says for an unavailable license or an agent keeping none.
+message ApplyLicense {
+  string device_id = 1;
+}
+
+// Revokes this computer's license on another device (Revoke License), and
+// takes back applying it (Don't Apply). For a device licensed with this
+// computer's key, the app names its activation (LicensedDevice.activation_id)
+// and first asks Polar once to deactivate it, unless Polar asked the app to
+// wait: `deactivated` says Polar did, or said it was gone; otherwise the
+// device deactivates it itself. For a device waiting for the key, or the
+// key not yet sent there, the app names no activation: what was applied is
+// taken back (LicensedDevice.can_take_back). The agent tells the device
+// (peer LicenseRevoke) now, or as soon as it connects, naming what it
+// revokes, so that it never undoes a license applied there since.
+// Meanwhile License.devices shows the device as not on the license.
+// Answered with Status; a device with nothing to revoke or take back
+// changes nothing. Refused with "unknown_device" for a device this agent
+// does not trust (or this one), "license_legacy" for a device licensed
+// under InputWeave 1.0, which cannot be told (LicensedDevice.legacy),
+// "license_stale" for an activation the device is no longer licensed with,
+// "invalid_license_result" for an activation id that is not 128 printable
+// ASCII characters at most, "not_licensed" while this computer has no key,
+// and as SetLicenseKey says for an unavailable license or an agent keeping
+// none.
+message RevokeLicense {
+  string device_id = 1;
+  string activation_id = 2;
+  bool deactivated = 3;
+}
+
+// The app freed an activation listed in License.to_free with Polar
+// (deactivate answered 2xx, or 404 as it was gone already): the agent
+// forgets it. Answered with Status; one not listed changes nothing.
+message LicenseActivationFreed {
+  string activation_id = 1;
+}
 
 message ClientMessage {
   uint64 request_id = 1;
@@ -814,6 +876,9 @@ message ClientMessage {
     WakeDevice wake_device = 51;
     SetWakeOnPush set_wake_on_push = 52;
     SetOfflineForNow set_offline_for_now = 53;
+    ApplyLicense apply_license = 54;
+    RevokeLicense revoke_license = 55;
+    LicenseActivationFreed license_activation_freed = 56;
     AddProfile add_profile = 60;
     EditProfile edit_profile = 61;
     RemoveProfile remove_profile = 62;
@@ -1275,8 +1340,11 @@ message OfflineChange {
 enum LicenseState {
   // No key: the app shows "Trial".
   LICENSE_STATE_NONE = 0;
-  // A key for the app to activate with Polar: entered here, or taken from
-  // a paired device. Shown as "Trial" until it is activated.
+  // A key for the app to activate with Polar: entered here, or applied to
+  // this computer from another device (License.source_device_id). Shown as
+  // "Trial" until it is activated. The agent opens the app, in the
+  // background, when another device applies a key here and no app is
+  // connected.
   LICENSE_STATE_PENDING_ACTIVATION = 1;
   // Activated here; the app shows "Licensed".
   LICENSE_STATE_LICENSED = 2;
@@ -1291,6 +1359,12 @@ enum LicenseState {
   // the other License fields are empty. The agent reads the file again
   // every two minutes, and the state changes once it can.
   LICENSE_STATE_UNAVAILABLE = 5;
+  // Another device revoked the license here without deactivating this
+  // computer's activation (key and activation_id are kept): the app
+  // deactivates it with Polar and then sends RemoveLicense, as for Remove
+  // License, without asking. Shown as "Trial". The agent opens the app, in
+  // the background, when no app is connected.
+  LICENSE_STATE_REVOKED = 6;
 }
 
 // This computer's license (Status.license).
@@ -1304,26 +1378,105 @@ message License {
   // When Polar last activated or confirmed this computer, in seconds since
   // 1970; 0 when it never did.
   uint64 validated_at = 5;
-  // The paired device the key came from, and what this device calls it;
-  // both empty when the key was entered here.
+  // The paired device that applied the key here (from InputWeave 1.0 on,
+  // also one it was synced from), and what this device calls it; both empty
+  // when the key was entered here.
   string source_device_id = 6;
   string source_device_name = 7;
-  // The license was removed here (RemoveLicense): keys from paired devices
-  // are not taken until a key is entered here (SetLicenseKey).
+  // Agents before 1.1 only: the license was removed here, and keys from
+  // paired devices were not taken until one was entered. Always false now:
+  // no key is taken from another device unless it applies it here.
   bool opted_out = 8;
-  // The paired devices that use the same key, as each last said, for
-  // "Computers on this license". Devices that never said (agents before
-  // licenses) are not listed; offline ones are, as they last said.
+  // The trusted devices with something to show on "Computers on this
+  // license" (LicensedDevice.use other than LICENSE_USE_NONE), as each last
+  // said and as this computer applied or revoked it; the others are not
+  // listed, and show as on trial. Offline ones are listed as they last
+  // said. Devices that never said (agents before licenses) are listed only
+  // while this computer applies the license to them.
   repeated LicensedDevice devices = 9;
+  // This agent applies and revokes licenses (ApplyLicense, RevokeLicense,
+  // LicensedDevice.use). Agents before 1.1 leave it false: the apps then
+  // offer neither.
+  bool apply_supported = 10;
+  // Activations of keys this computer had before, still taking a place: one
+  // another device revoked here without deactivating it, when another key
+  // was entered here before the app freed it. The app frees each with Polar
+  // (deactivate, with the key given here), whatever the license is now, and
+  // says so (LicenseActivationFreed); it never drops one because the
+  // license changed. The agent opens the app for them, in the background.
+  repeated LicenseActivation to_free = 11;
+}
+
+// An activation of a key (License.to_free).
+message LicenseActivation {
+  string key = 1;
+  string activation_id = 2;
 }
 
 message LicensedDevice {
   string id = 1;
   // What this device calls it.
   string name = 2;
-  // Activated there with this key; false while it waits or found the seats
-  // full.
+  // Activated there with this computer's key (use is LICENSE_USE_LICENSED).
   bool licensed = 3;
+  LicenseUse use = 4;
+  // Its activation at Polar while use is LICENSE_USE_LICENSED and it said
+  // which (InputWeave 1.0 never does): what Revoke License deactivates.
+  string activation_id = 5;
+  // It last spoke as InputWeave 1.0: it cannot be told of a revoke, so the
+  // apps offer none, and it is never named as where to get the license from.
+  bool legacy = 6;
+  // What was applied there can be taken back (Don't Apply, RevokeLicense
+  // without an activation): the apply waits for it (LICENSE_USE_WAITING), or
+  // went to it and it has not activated the key yet (LICENSE_USE_ACTIVATING;
+  // not for a key its own user entered there, nor once the key went to a
+  // device on InputWeave 1.0, which cannot be told to drop it: the apps then
+  // show the legacy note instead).
+  bool can_take_back = 7;
+  // It is offline (LICENSE_USE_WAITING) and may hold the key from an apply
+  // already: taking it back reaches it only once it connects, so not if it
+  // is removed now. Removing it with "Also revoke its license" then says the
+  // license could not be revoked.
+  bool key_out_of_reach = 8;
+  // On InputWeave 1.0, it did not take the license applied from here (its
+  // user had removed the license there, and 1.0 then takes no key from
+  // another device): listed on trial (LICENSE_USE_NONE), for the apps to say
+  // so; applying it again works once it runs 1.1.
+  bool legacy_refused = 9;
+  // Waiting (LICENSE_USE_WAITING) for an apply from here that it has not
+  // shown yet: it goes as the device connects, or as this computer is
+  // licensed again. While this computer is not licensed, the License page
+  // lists these, and only these, under Waiting to Apply. Not set for a
+  // device waiting with the key it holds already (its own user entered it,
+  // or it took an apply), which is listed as usual once this computer is
+  // licensed.
+  bool waiting_to_apply = 10;
+}
+
+// How a device stands on this computer's license (LicensedDevice.use).
+enum LicenseUse {
+  // On trial there, as far as this computer knows, or revoked from here:
+  // Apply License (while this computer is licensed).
+  LICENSE_USE_NONE = 0;
+  // Activated there with this computer's key: Revoke License.
+  LICENSE_USE_LICENSED = 1;
+  // The key is there, or on its way to it, as it is connected, and its app
+  // activates it: Don't Apply while can_take_back.
+  LICENSE_USE_ACTIVATING = 2;
+  // Applied from here while it is offline: the key goes to it as it
+  // connects (Don't Apply takes it back); or offline holding the key from an
+  // apply, which it activates once it is back; or applied from here while
+  // this computer is not licensed (seats full, invalid), sent only once it
+  // is licensed again. A device taken offline for now is still connected
+  // for this.
+  LICENSE_USE_WAITING = 3;
+  // Polar said every place on the license is taken; Apply License tries
+  // again.
+  LICENSE_USE_NO_PLACES = 4;
+  // Licensed there with another key, or, while this computer has no key,
+  // licensed at all; or on InputWeave 1.0 holding another key, which 1.0
+  // does not give up for an applied one.
+  LICENSE_USE_OTHER_LICENSE = 5;
 }
 
 // The graphical session of a device (Status.session).

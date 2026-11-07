@@ -846,6 +846,10 @@ final class LaunchRevealTests: XCTestCase {
         XCTAssertEqual(LaunchReveal.decide(launch: .atLogin, iconShown: false, finishedSetup: true), LaunchReveal())
         // Opened for Send with InputWeave: only its panel.
         XCTAssertEqual(LaunchReveal.decide(launch: .forService, iconShown: false, finishedSetup: true), LaunchReveal())
+        // Opened by the background service: what the status calls for (the
+        // pairing code, a file offer, the license's work) and nothing else.
+        XCTAssertEqual(LaunchReveal.decide(launch: .inBackground, iconShown: false, finishedSetup: true), LaunchReveal())
+        XCTAssertEqual(LaunchReveal.decide(launch: .inBackground, iconShown: false, finishedSetup: false), LaunchReveal())
     }
 
     private func event(_ id: AEEventID, launch: OSType?) -> NSAppleEventDescriptor {
@@ -870,6 +874,44 @@ final class LaunchRevealTests: XCTestCase {
         XCTAssertEqual(LaunchReveal.launch(nil, isDefault: false), .forService)
         XCTAssertEqual(
             LaunchReveal.launch(event(kAEOpenApplication, launch: keyAELaunchedAsLogInItem), isDefault: false), .atLogin)
+    }
+
+    /// The background service opens the app with `--background` for every
+    /// need: what shows the pairing code and asks about a file offer
+    /// depends on its status alone, never on how the app was launched.
+    func testABackgroundLaunchStillShowsThePairingCodeAndAsksAboutFiles() {
+        XCTAssertEqual(LaunchReveal.decide(launch: .inBackground, iconShown: false, finishedSetup: true), LaunchReveal())
+        var pairing = PairingState()
+        pairing.phase = .showCode
+        XCTAssertTrue(StatusPresentation.showsPairingCode(pairing))
+        pairing.phase = .idle
+        XCTAssertFalse(StatusPresentation.showsPairingCode(pairing))
+
+        var offer = FileTransfer()
+        offer.state = .waitingForAnswer
+        XCTAssertTrue(StatusPresentation.asksAbout(offer))
+        var sent = offer
+        sent.outgoing = true
+        XCTAssertFalse(StatusPresentation.asksAbout(sent), "sent from here: the other computer asks")
+        var pasted = offer
+        pasted.clipboard = true
+        XCTAssertFalse(StatusPresentation.asksAbout(pasted))
+        var arriving = offer
+        arriving.state = .transferring
+        XCTAssertFalse(StatusPresentation.asksAbout(arriving))
+    }
+
+    func testTellsTheBackgroundServiceOpenedIt() {
+        let app = "/Applications/InputWeave.app/Contents/MacOS/InputWeave"
+        // `open -g -b cc.ctsite.inputweave --args --background`: an ordinary
+        // open, but for the argument.
+        XCTAssertEqual(
+            LaunchReveal.launch(event(kAEOpenApplication, launch: nil), isDefault: true, arguments: [app, "--background"]),
+            .inBackground)
+        XCTAssertEqual(LaunchReveal.launch(nil, isDefault: true, arguments: [app, "-NSQuitAlwaysKeepsWindows", "NO", "--background"]), .inBackground)
+        XCTAssertEqual(LaunchReveal.launch(nil, isDefault: true, arguments: [app]), .opened)
+        XCTAssertEqual(LaunchReveal.launch(nil, isDefault: true, arguments: [app, "--backgrounds"]), .opened)
+        XCTAssertEqual(LaunchReveal.launch(nil, isDefault: true, arguments: ["--background"]), .opened, "the program itself is no argument")
     }
 
     func testTellsMacOSAboutTheServicesOncePerBuild() {

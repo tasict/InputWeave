@@ -805,7 +805,9 @@ impl Broker {
         let state = self.state();
         let reason = match need {
             Need::ClipboardFiles => LaunchReason::ClipboardFiles,
-            Need::PairingCode | Need::FileOffer => LaunchReason::AskUser,
+            // Started whether or not the user quit it, as on macOS and
+            // Linux; it opens no window for it.
+            Need::PairingCode | Need::FileOffer | Need::License => LaunchReason::AskUser,
         };
         let launch = says(agent_to_broker::Msg::LaunchApp(LaunchApp {
             reason: reason.into(),

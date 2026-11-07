@@ -683,7 +683,7 @@ mod tests {
     #[test]
     fn the_report_never_holds_the_license_key_or_whose_it_is() {
         use super::super::folder_access::FolderAccess;
-        use super::super::license::{LicenseState, LicenseStatus, LicensedDevice};
+        use super::super::license::{LicenseState, LicenseStatus, LicenseUse, LicensedDevice};
         use crate::config::Config;
         use iw_core::hotkey::Hotkeys;
 
@@ -699,12 +699,18 @@ mod tests {
                 validated_at: 1_793_800_000,
                 source_device_id: "win".to_owned(),
                 source_device_name: "Office PC".to_owned(),
-                opted_out: false,
                 devices: vec![LicensedDevice {
                     id: "win".to_owned(),
                     name: "Office PC".to_owned(),
-                    licensed: true,
+                    licensed_use: LicenseUse::Licensed,
+                    activation_id: "act-of-the-office-pc".to_owned(),
+                    legacy: false,
+                    can_take_back: false,
+                    key_out_of_reach: false,
+                    legacy_refused: false,
+                    waiting_to_apply: false,
                 }],
+                to_free: Vec::new(),
             }),
             ..Status::initial(
                 &Config::default(),
@@ -735,16 +741,11 @@ mod tests {
             offline: Default::default(),
         };
         let out = report(&fixed, &snapshot, UNIX_EPOCH);
-        for secret in [KEY, ACTIVATION, EMAIL, "SECRET-KEY"] {
+        for secret in [KEY, ACTIVATION, EMAIL, "SECRET-KEY", "act-of-the-office-pc"] {
             assert!(!out.contains(secret), "{secret:?} in\n{out}");
         }
         // What helps find a problem is still there.
-        for expected in [
-            "INPUTWEAVE-…7E42",
-            "Licensed",
-            "Office PC",
-            "opted_out: false",
-        ] {
+        for expected in ["INPUTWEAVE-…7E42", "Licensed", "Office PC", "use: Licensed"] {
             assert!(out.contains(expected), "no {expected:?} in\n{out}");
         }
     }

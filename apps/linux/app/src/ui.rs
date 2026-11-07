@@ -131,7 +131,7 @@ pub fn launched(app: &adw::Application, launch: Launch, remote: bool) {
             let weak = Rc::downgrade(&ui);
             crate::send::Then::new(move || {
                 if let Some(ui) = weak.upgrade() {
-                    window_unless_tray(&ui, page);
+                    window_unless_tray(&ui, page, false);
                 }
             })
         } else {
@@ -157,7 +157,7 @@ pub fn launched(app: &adw::Application, launch: Launch, remote: bool) {
     } else if !launch.background {
         ui.show_window(page);
     } else if starting {
-        window_unless_tray(&ui, page);
+        window_unless_tray(&ui, page, launch.by_agent);
     }
     if let Some(text) = launch.hud.clone() {
         ui.overlay().hud(&ui, &text);
@@ -179,18 +179,25 @@ pub fn launched(app: &adw::Application, launch: Launch, remote: bool) {
 /// Without a panel to show the tray icon, staying in the background would
 /// leave nothing to find the app by: opens the main window unless the icon
 /// shows within a moment (at login the panel may come up after the app).
-fn window_unless_tray(ui: &Rc<Ui>, page: Option<Page>) {
+/// Not when the agent started it for license work (another device applied
+/// or revoked the license here): that is done without a word, and nothing
+/// shows.
+fn window_unless_tray(ui: &Rc<Ui>, page: Option<Page>, by_agent: bool) {
     if ui.tray_shown() {
         return;
     }
     let weak = Rc::downgrade(ui);
     glib::timeout_add_seconds_local_once(PANEL_WAIT_SECONDS, move || {
-        if let Some(ui) = weak.upgrade()
-            && !ui.tray_shown()
-        {
-            log::info("no panel shows tray icons; opening the window");
-            ui.show_window(page);
+        let Some(ui) = weak.upgrade() else { return };
+        if ui.tray_shown() {
+            return;
         }
+        if by_agent && ui.license.saw_unasked_work() {
+            log::info("started for the license's work; staying in the background");
+            return;
+        }
+        log::info("no panel shows tray icons; opening the window");
+        ui.show_window(page);
     });
 }
 

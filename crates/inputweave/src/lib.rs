@@ -5,6 +5,7 @@ pub mod config;
 mod convert;
 #[cfg(any(unix, windows))]
 pub mod ctl;
+pub(crate) mod hex;
 pub mod log_file;
 pub mod login_window;
 pub mod offline_file;

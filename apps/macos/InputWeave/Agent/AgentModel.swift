@@ -466,8 +466,53 @@ final class AgentModel {
         }
     }
 
-    func removeLicense() async throws {
-        if case .status(let status) = try await request(.removeLicense(.init())) {
+    /// Removes the license from this computer while it is still `key`
+    /// with `activationID`, as the app saw it when it asked; refused with
+    /// "license_stale" once it is another.
+    func removeLicense(key: String, activationID: String) async throws {
+        var remove = Inputweave_App_V1_RemoveLicense()
+        remove.key = key
+        remove.activationID = activationID
+        if case .status(let status) = try await request(.removeLicense(remove)) {
+            self.status = status
+        }
+    }
+
+    /// Applies this computer's license to another device, which activates
+    /// it with Polar itself; how it goes shows in `License.devices`. A
+    /// refusal's code says why ("not_licensed", "unknown_device",
+    /// "license_full", "licensed_elsewhere", "license_unavailable",
+    /// "unsupported").
+    func applyLicense(deviceID: String) async throws {
+        var apply = Inputweave_App_V1_ApplyLicense()
+        apply.deviceID = deviceID
+        if case .status(let status) = try await request(.applyLicense(apply)) {
+            self.status = status
+        }
+    }
+
+    /// Revokes this computer's license on another device (`activationID`,
+    /// its activation, and whether Polar `deactivated` it, which the device
+    /// otherwise does itself), or takes back applying it there (no
+    /// activation). A refusal's code says why ("unknown_device",
+    /// "license_legacy", "license_stale", "invalid_license_result",
+    /// "not_licensed", "license_unavailable", "unsupported").
+    func revokeLicense(deviceID: String, activationID: String, deactivated: Bool) async throws {
+        var revoke = Inputweave_App_V1_RevokeLicense()
+        revoke.deviceID = deviceID
+        revoke.activationID = activationID
+        revoke.deactivated = deactivated
+        if case .status(let status) = try await request(.revokeLicense(revoke)) {
+            self.status = status
+        }
+    }
+
+    /// Polar freed an activation of a key this computer had before, which
+    /// the service listed to be freed (`License.to_free`): it forgets it.
+    func licenseActivationFreed(_ activationID: String) async throws {
+        var freed = Inputweave_App_V1_LicenseActivationFreed()
+        freed.activationID = activationID
+        if case .status(let status) = try await request(.licenseActivationFreed(freed)) {
             self.status = status
         }
     }

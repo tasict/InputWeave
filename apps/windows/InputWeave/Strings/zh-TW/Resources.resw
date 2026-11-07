@@ -1256,7 +1256,7 @@
     <value>輸入授權碼</value>
   </data>
   <data name="LicenseManage" xml:space="preserve">
-    <value>管理電腦</value>
+    <value>管理電腦…</value>
   </data>
   <data name="LicenseTryAgain" xml:space="preserve">
     <value>再試一次</value>
@@ -1274,7 +1274,7 @@
     <value>在其中一台電腦輸入授權碼。</value>
   </data>
   <data name="LicenseHow3" xml:space="preserve">
-    <value>已配對的電腦會自動取得授權，最多 5 台。</value>
+    <value>在那台的授權頁選擇其他要使用授權的電腦，最多 5 台。</value>
   </data>
   <data name="LicensePolarNote" xml:space="preserve">
     <value>付款與收據由 Polar 處理。</value>
@@ -1352,7 +1352,7 @@
     <value>要從這台電腦移除授權嗎？</value>
   </data>
   <data name="LicenseRemoveBody" xml:space="preserve">
-    <value>這會空出 5 台中的一個名額，其他電腦的授權不受影響。這台之後不會再從已配對的電腦自動取得授權，直到你再次輸入授權碼。</value>
+    <value>這會空出 5 台中的一個名額，其他電腦的授權不受影響。之後可以再輸入授權碼，或從已授權的電腦再套用到這台。</value>
   </data>
   <data name="LicenseRemovedOffline" xml:space="preserve">
     <value>連不上 Polar，所以這台在授權上的名額還沒空出來。InputWeave 會在連得上 Polar 時釋放它，你也可以到 Polar 的顧客入口自己釋放。</value>
@@ -1689,5 +1689,86 @@
   </data>
   <data name="HudProfileSwitchedPaused" xml:space="preserve">
     <value>已切換到「{0}」，鍵鼠共享已暫停。</value>
+  </data>
+  <data name="LicenseRevoke" xml:space="preserve">
+    <value>取消授權…</value>
+  </data>
+  <data name="LicenseApply" xml:space="preserve">
+    <value>套用授權</value>
+  </data>
+  <data name="LicenseWaiting" xml:space="preserve">
+    <value>離線，連上後套用</value>
+  </data>
+  <data name="LicenseDontApply" xml:space="preserve">
+    <value>不套用</value>
+  </data>
+  <data name="LicenseNoPlaces" xml:space="preserve">
+    <value>名額已滿</value>
+  </data>
+  <data name="LicenseNoPlacesNote" xml:space="preserve">
+    <value>Polar 說這份授權已經用在 5 台電腦上，其中可能有沒和這台配對的電腦。到 Polar 的顧客入口停用一台不再使用的電腦後，再套用一次。</value>
+  </data>
+  <data name="LicenseOtherLicense" xml:space="preserve">
+    <value>另一份授權</value>
+  </data>
+  <data name="LicenseOtherLicenseNote" xml:space="preserve">
+    <value>這台使用另一份授權。</value>
+  </data>
+  <data name="LicenseLegacyNote" xml:space="preserve">
+    <value>InputWeave 1.0：更新到 1.1 後才能在這裡取消；要立刻空出名額，請到 Polar 的顧客入口。</value>
+  </data>
+  <data name="LicenseAllInUse" xml:space="preserve">
+    <value>5 台都用了。要套用到其他電腦，先取消其中一台的授權。</value>
+  </data>
+  <data name="LicenseAppliedNote" xml:space="preserve">
+    <value>只有在這裡套用的電腦才會使用授權，新配對的電腦不會自動取得。全部的電腦請到 Polar 的顧客入口查看。</value>
+  </data>
+  <data name="LicenseRevokeTitle" xml:space="preserve">
+    <value>要取消「{0}」的授權嗎？</value>
+  </data>
+  <data name="LicenseRevokeBody" xml:space="preserve">
+    <value>「{0}」會回到試用中，所有功能照常可用，並空出 5 台中的一個名額。之後可以再套用。</value>
+  </data>
+  <data name="LicenseRevokeConfirm" xml:space="preserve">
+    <value>取消授權</value>
+  </data>
+  <data name="LicenseKeep" xml:space="preserve">
+    <value>保留</value>
+  </data>
+  <data name="LicenseElsewhere" xml:space="preserve">
+    <value>「{0}」已授權。要讓這台也使用這份授權，請在「{0}」的授權頁套用到這台。</value>
+  </data>
+  <data name="RemoveDeviceRevoke" xml:space="preserve">
+    <value>同時取消它的授權</value>
+  </data>
+  <data name="RemoveDeviceRevokeNote" xml:space="preserve">
+    <value>空出 5 台中的一個名額；它會回到試用中。</value>
+  </data>
+  <data name="RemoveDeviceLegacy" xml:space="preserve">
+    <value>「{0}」是 InputWeave 1.0：移除後它的授權仍佔著名額；要空出名額，請到 Polar 的顧客入口停用它。</value>
+  </data>
+  <data name="RemoveDeviceNotRevoked" xml:space="preserve">
+    <value>已移除「{0}」，但沒能取消它的授權。</value>
+  </data>
+  <data name="RemoveDeviceNotRevokedBody" xml:space="preserve">
+    <value>到 Polar 的顧客入口停用它，名額才會空出來。</value>
+  </data>
+  <data name="RemoveDeviceNotRevokedOffline" xml:space="preserve">
+    <value>它當時沒有連線。之後如果它啟用了授權，請到 Polar 的顧客入口空出它的名額。</value>
+  </data>
+  <data name="LicenseLegacyRefusedNote" xml:space="preserve">
+    <value>InputWeave 1.0 沒有接受這份授權；把它更新到 1.1 後再套用。</value>
+  </data>
+  <data name="LicenseWaitingToApply" xml:space="preserve">
+    <value>等待套用</value>
+  </data>
+  <data name="LicenseAwaitingLicense" xml:space="preserve">
+    <value>這台電腦恢復授權後套用</value>
+  </data>
+  <data name="RemoveDeviceNotTold" xml:space="preserve">
+    <value>已移除「{0}」，它在授權上的名額也已空出。</value>
+  </data>
+  <data name="RemoveDeviceNotToldBody" xml:space="preserve">
+    <value>沒能通知它，所以在它下次向 Polar 確認授權之前，可能仍顯示為已授權。</value>
   </data>
 </root>

@@ -1366,7 +1366,7 @@
     <value>Enter license key</value>
   </data>
   <data name="LicenseManage" xml:space="preserve">
-    <value>Manage computers</value>
+    <value>Manage computers…</value>
   </data>
   <data name="LicenseTryAgain" xml:space="preserve">
     <value>Try again</value>
@@ -1384,7 +1384,7 @@
     <value>Enter the key on one of your computers.</value>
   </data>
   <data name="LicenseHow3" xml:space="preserve">
-    <value>Your paired computers pick up the license by themselves, up to 5 in all.</value>
+    <value>On that computer’s License page, choose the other computers that use it, up to 5 in all.</value>
   </data>
   <data name="LicensePolarNote" xml:space="preserve">
     <value>Payment and receipts are handled by Polar.</value>
@@ -1462,7 +1462,7 @@
     <value>Remove the license from this computer?</value>
   </data>
   <data name="LicenseRemoveBody" xml:space="preserve">
-    <value>This frees one of your 5 computers. Your other computers keep their license, and this one won’t pick it up from them again until you enter the key.</value>
+    <value>This frees one of your 5 places. Your other computers keep their license. You can enter the key again later, or apply it to this computer from a licensed one.</value>
   </data>
   <data name="LicenseRemovedOffline" xml:space="preserve">
     <value>Polar couldn’t be reached, so this computer’s place on the license isn’t free yet. InputWeave frees it once Polar can be reached, or you can free it in Polar’s customer portal.</value>
@@ -1813,5 +1813,86 @@
   <data name="HudProfileSwitchedPaused" xml:space="preserve">
     <value>Switched to {0}. Sharing is paused.</value>
     <comment>{0} is the profile.</comment>
+  </data>
+  <data name="LicenseRevoke" xml:space="preserve">
+    <value>Revoke license…</value>
+  </data>
+  <data name="LicenseApply" xml:space="preserve">
+    <value>Apply license</value>
+  </data>
+  <data name="LicenseWaiting" xml:space="preserve">
+    <value>Offline. Applies when it connects</value>
+  </data>
+  <data name="LicenseDontApply" xml:space="preserve">
+    <value>Don’t apply</value>
+  </data>
+  <data name="LicenseNoPlaces" xml:space="preserve">
+    <value>No places left</value>
+  </data>
+  <data name="LicenseNoPlacesNote" xml:space="preserve">
+    <value>Polar says this license is already on 5 computers, maybe including some not paired with this one. Free one you no longer use in Polar’s customer portal, then apply again.</value>
+  </data>
+  <data name="LicenseOtherLicense" xml:space="preserve">
+    <value>Another license</value>
+  </data>
+  <data name="LicenseOtherLicenseNote" xml:space="preserve">
+    <value>This computer uses a different license.</value>
+  </data>
+  <data name="LicenseLegacyNote" xml:space="preserve">
+    <value>InputWeave 1.0: you can revoke it here once it’s updated to 1.1. To free its place now, use Polar’s customer portal.</value>
+  </data>
+  <data name="LicenseAllInUse" xml:space="preserve">
+    <value>All 5 are in use. To apply the license to another computer, revoke it on one first.</value>
+  </data>
+  <data name="LicenseAppliedNote" xml:space="preserve">
+    <value>Only computers you apply the license to here use it; newly paired computers don’t get it by themselves. Polar’s customer portal lists all of them.</value>
+  </data>
+  <data name="LicenseRevokeTitle" xml:space="preserve">
+    <value>Revoke the license on {0}?</value>
+  </data>
+  <data name="LicenseRevokeBody" xml:space="preserve">
+    <value>{0} goes back to trial with every feature still working, and one of your 5 places is freed. You can apply it again later.</value>
+  </data>
+  <data name="LicenseRevokeConfirm" xml:space="preserve">
+    <value>Revoke license</value>
+  </data>
+  <data name="LicenseKeep" xml:space="preserve">
+    <value>Keep</value>
+  </data>
+  <data name="LicenseElsewhere" xml:space="preserve">
+    <value>{0} is licensed. To use the license here too, apply it to this computer from {0}’s License page.</value>
+  </data>
+  <data name="RemoveDeviceRevoke" xml:space="preserve">
+    <value>Also revoke its license</value>
+  </data>
+  <data name="RemoveDeviceRevokeNote" xml:space="preserve">
+    <value>Frees one of your 5 places; it goes back to trial.</value>
+  </data>
+  <data name="RemoveDeviceLegacy" xml:space="preserve">
+    <value>{0} runs InputWeave 1.0, so its license keeps its place after you remove it. To free it, deactivate it in Polar’s customer portal.</value>
+  </data>
+  <data name="RemoveDeviceNotRevoked" xml:space="preserve">
+    <value>{0} was removed, but its license couldn’t be revoked.</value>
+  </data>
+  <data name="RemoveDeviceNotRevokedBody" xml:space="preserve">
+    <value>Deactivate it in Polar’s customer portal to free its place.</value>
+  </data>
+  <data name="RemoveDeviceNotRevokedOffline" xml:space="preserve">
+    <value>It was offline. If it activates the license later, free its place in Polar’s customer portal.</value>
+  </data>
+  <data name="LicenseLegacyRefusedNote" xml:space="preserve">
+    <value>InputWeave 1.0 didn’t take the license. Update it to 1.1, then apply it again.</value>
+  </data>
+  <data name="LicenseWaitingToApply" xml:space="preserve">
+    <value>Waiting to apply</value>
+  </data>
+  <data name="LicenseAwaitingLicense" xml:space="preserve">
+    <value>Applies once this computer is licensed again</value>
+  </data>
+  <data name="RemoveDeviceNotTold" xml:space="preserve">
+    <value>{0} was removed, and its place on the license is free.</value>
+  </data>
+  <data name="RemoveDeviceNotToldBody" xml:space="preserve">
+    <value>It couldn’t be told, so it may still show as licensed until it next checks its license with Polar.</value>
   </data>
 </root>

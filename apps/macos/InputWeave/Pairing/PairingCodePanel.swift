@@ -15,7 +15,7 @@ final class PairingCodePanel {
 
     /// Shows or hides the panel to match the pairing state.
     func update() {
-        if model.pairing.phase == .showCode {
+        if StatusPresentation.showsPairingCode(model.pairing) {
             show()
         } else {
             panel?.orderOut(nil)

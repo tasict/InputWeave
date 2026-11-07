@@ -166,6 +166,7 @@ targets:
       - path: InputWeave/Support/AgoText.swift
       - path: InputWeave/Support/ProblemWatch.swift
       - path: InputWeave/Support/LaunchReveal.swift
+      - path: InputWeave/Support/StatusPresentation.swift
       - path: InputWeave/Support/OutdatedService.swift
       - path: InputWeave/Support/Preferences.swift
       - path: InputWeave/Support/Brand.swift
@@ -181,6 +182,7 @@ targets:
       - path: InputWeave/Support/EdgeGlow.swift
       - path: InputWeave/License/PolarClient.swift
       - path: InputWeave/License/LicenseController.swift
+      - path: InputWeave/License/LicenseText.swift
       - path: InputWeave/Generated
       # The translations, for the tests that read words in each language.
       - path: InputWeave/Localizable.xcstrings

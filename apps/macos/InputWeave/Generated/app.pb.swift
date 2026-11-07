@@ -535,8 +535,11 @@ nonisolated enum Inputweave_App_V1_LicenseState: SwiftProtobuf.Enum, Swift.CaseI
   /// No key: the app shows "Trial".
   case none // = 0
 
-  /// A key for the app to activate with Polar: entered here, or taken from
-  /// a paired device. Shown as "Trial" until it is activated.
+  /// A key for the app to activate with Polar: entered here, or applied to
+  /// this computer from another device (License.source_device_id). Shown as
+  /// "Trial" until it is activated. The agent opens the app, in the
+  /// background, when another device applies a key here and no app is
+  /// connected.
   case pendingActivation // = 1
 
   /// Activated here; the app shows "Licensed".
@@ -555,6 +558,13 @@ nonisolated enum Inputweave_App_V1_LicenseState: SwiftProtobuf.Enum, Swift.CaseI
   /// the other License fields are empty. The agent reads the file again
   /// every two minutes, and the state changes once it can.
   case unavailable // = 5
+
+  /// Another device revoked the license here without deactivating this
+  /// computer's activation (key and activation_id are kept): the app
+  /// deactivates it with Polar and then sends RemoveLicense, as for Remove
+  /// License, without asking. Shown as "Trial". The agent opens the app, in
+  /// the background, when no app is connected.
+  case revoked // = 6
   case UNRECOGNIZED(Int)
 
   init() {
@@ -569,6 +579,7 @@ nonisolated enum Inputweave_App_V1_LicenseState: SwiftProtobuf.Enum, Swift.CaseI
     case 3: self = .seatsFull
     case 4: self = .invalid
     case 5: self = .unavailable
+    case 6: self = .revoked
     default: self = .UNRECOGNIZED(rawValue)
     }
   }
@@ -581,6 +592,7 @@ nonisolated enum Inputweave_App_V1_LicenseState: SwiftProtobuf.Enum, Swift.CaseI
     case .seatsFull: return 3
     case .invalid: return 4
     case .unavailable: return 5
+    case .revoked: return 6
     case .UNRECOGNIZED(let i): return i
     }
   }
@@ -593,6 +605,80 @@ nonisolated enum Inputweave_App_V1_LicenseState: SwiftProtobuf.Enum, Swift.CaseI
     .seatsFull,
     .invalid,
     .unavailable,
+    .revoked,
+  ]
+
+}
+
+/// How a device stands on this computer's license (LicensedDevice.use).
+nonisolated enum Inputweave_App_V1_LicenseUse: SwiftProtobuf.Enum, Swift.CaseIterable {
+  typealias RawValue = Int
+
+  /// On trial there, as far as this computer knows, or revoked from here:
+  /// Apply License (while this computer is licensed).
+  case none // = 0
+
+  /// Activated there with this computer's key: Revoke License.
+  case licensed // = 1
+
+  /// The key is there, or on its way to it, as it is connected, and its app
+  /// activates it: Don't Apply while can_take_back.
+  case activating // = 2
+
+  /// Applied from here while it is offline: the key goes to it as it
+  /// connects (Don't Apply takes it back); or offline holding the key from an
+  /// apply, which it activates once it is back; or applied from here while
+  /// this computer is not licensed (seats full, invalid), sent only once it
+  /// is licensed again. A device taken offline for now is still connected
+  /// for this.
+  case waiting // = 3
+
+  /// Polar said every place on the license is taken; Apply License tries
+  /// again.
+  case noPlaces // = 4
+
+  /// Licensed there with another key, or, while this computer has no key,
+  /// licensed at all; or on InputWeave 1.0 holding another key, which 1.0
+  /// does not give up for an applied one.
+  case otherLicense // = 5
+  case UNRECOGNIZED(Int)
+
+  init() {
+    self = .none
+  }
+
+  init?(rawValue: Int) {
+    switch rawValue {
+    case 0: self = .none
+    case 1: self = .licensed
+    case 2: self = .activating
+    case 3: self = .waiting
+    case 4: self = .noPlaces
+    case 5: self = .otherLicense
+    default: self = .UNRECOGNIZED(rawValue)
+    }
+  }
+
+  var rawValue: Int {
+    switch self {
+    case .none: return 0
+    case .licensed: return 1
+    case .activating: return 2
+    case .waiting: return 3
+    case .noPlaces: return 4
+    case .otherLicense: return 5
+    case .UNRECOGNIZED(let i): return i
+    }
+  }
+
+  // The compiler won't synthesize support with the UNRECOGNIZED case.
+  static let allCases: [Inputweave_App_V1_LicenseUse] = [
+    .none,
+    .licensed,
+    .activating,
+    .waiting,
+    .noPlaces,
+    .otherLicense,
   ]
 
 }
@@ -2484,12 +2570,14 @@ nonisolated struct Inputweave_App_V1_RequestPermission: Sendable {
 /// Enters a license key on this computer, as the user typed or pasted it
 /// (Enter License Key). It replaces any key this computer had, which starts
 /// over as LICENSE_STATE_PENDING_ACTIVATION for the app to activate with
-/// Polar, and lets this computer take keys from paired devices again if its
-/// license had been removed (License.opted_out), and forgets the keys Polar
-/// refused here before, so they may be taken again. The key this computer
-/// already has, licensed or waiting, is kept as it is, activation and all;
-/// one Polar refused starts over, for the app to try again (Try Again sends
-/// this with the same key). Leading and trailing spaces are dropped.
+/// Polar; applying the license to other devices that has not reached them
+/// yet is dropped with the old key. The key this computer already has,
+/// licensed or waiting, is kept as it is, activation and all; one Polar
+/// refused starts over, for the app to try again (Try Again sends this with
+/// the same key). A revoked activation is never licensed again: the key a
+/// device revoked here (LICENSE_STATE_REVOKED) starts over too, and the
+/// revoked activation is listed in License.to_free for the app to free.
+/// Leading and trailing spaces are dropped.
 /// Refused with "invalid_license_key" for a key that is not 20 to 96
 /// printable ASCII characters without spaces. Answered with Status. This,
 /// RecordLicenseResult and RemoveLicense are refused with
@@ -2510,7 +2598,7 @@ nonisolated struct Inputweave_App_V1_SetLicenseKey: Sendable {
 
 /// What Polar answered about `key`, which the app asked (activate or
 /// validate): the agent keeps it in this computer's license and tells paired
-/// devices. An answer counts only for the state it answers: `activated`
+/// devices how it stands (never the key itself, except as LicenseInfo says). An answer counts only for the state it answers: `activated`
 /// while the license waits for activation; `validated`, and `refused` with
 /// an activation_id, for the activation this computer has
 /// (License.activation_id) while licensed; `refused` without one while the
@@ -2631,14 +2719,101 @@ nonisolated struct Inputweave_App_V1_LicenseValidated: Sendable {
 }
 
 /// Removes the license from this computer (Remove License): its key and
-/// activation are forgotten, and it takes no key from paired devices until a
-/// key is entered here again (License.opted_out). The app frees the seat
-/// with Polar (deactivate) itself before sending this, and sends this even
-/// when Polar cannot be reached. Answered with Status.
+/// activation are forgotten, and applying the license to other devices that
+/// has not reached them yet is dropped; revoking it there goes on. Other
+/// devices keep their license. The app frees the seat with Polar
+/// (deactivate) itself before sending this, and sends this even when Polar
+/// cannot be reached; it also sends this once it freed the activation of a
+/// license another device revoked here (LICENSE_STATE_REVOKED). Answered with
+/// Status. `key` and `activation_id` are the license as the app saw it when
+/// it asked (activation_id empty while it had none): the agent removes it
+/// only while it is still so, and refuses a removal that waited past a
+/// newer license with "license_stale". An empty `key` removes whatever is
+/// there (ctl, apps before 1.1).
 nonisolated struct Inputweave_App_V1_RemoveLicense: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
   // methods supported on all messages.
+
+  var key: String = String()
+
+  var activationID: String = String()
+
+  var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  init() {}
+}
+
+/// Applies this computer's license to another device (Apply License): the
+/// agent sends it the key (peer LicenseAssign) now, or as soon as it
+/// connects, and that device's app activates it with Polar, taking one of
+/// the license's places. A device on InputWeave 1.0 gets the key as 1.0 did
+/// (LicenseInfo). License.devices shows how it goes. Applying it again to a
+/// device whose places were full (LICENSE_USE_NO_PLACES) tries again.
+/// Answered with Status. Refused with "not_licensed" unless this computer is
+/// licensed (LICENSE_STATE_LICENSED), "unknown_device" for a device this
+/// agent does not trust (or this one), "license_full" while this computer
+/// and the devices licensed, activating or waiting for the license
+/// (LICENSE_USE_LICENSED, _ACTIVATING, _WAITING) are 5 already,
+/// "licensed_elsewhere" for a device licensed with another key, and as
+/// SetLicenseKey says for an unavailable license or an agent keeping none.
+nonisolated struct Inputweave_App_V1_ApplyLicense: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  var deviceID: String = String()
+
+  var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  init() {}
+}
+
+/// Revokes this computer's license on another device (Revoke License), and
+/// takes back applying it (Don't Apply). For a device licensed with this
+/// computer's key, the app names its activation (LicensedDevice.activation_id)
+/// and first asks Polar once to deactivate it, unless Polar asked the app to
+/// wait: `deactivated` says Polar did, or said it was gone; otherwise the
+/// device deactivates it itself. For a device waiting for the key, or the
+/// key not yet sent there, the app names no activation: what was applied is
+/// taken back (LicensedDevice.can_take_back). The agent tells the device
+/// (peer LicenseRevoke) now, or as soon as it connects, naming what it
+/// revokes, so that it never undoes a license applied there since.
+/// Meanwhile License.devices shows the device as not on the license.
+/// Answered with Status; a device with nothing to revoke or take back
+/// changes nothing. Refused with "unknown_device" for a device this agent
+/// does not trust (or this one), "license_legacy" for a device licensed
+/// under InputWeave 1.0, which cannot be told (LicensedDevice.legacy),
+/// "license_stale" for an activation the device is no longer licensed with,
+/// "invalid_license_result" for an activation id that is not 128 printable
+/// ASCII characters at most, "not_licensed" while this computer has no key,
+/// and as SetLicenseKey says for an unavailable license or an agent keeping
+/// none.
+nonisolated struct Inputweave_App_V1_RevokeLicense: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  var deviceID: String = String()
+
+  var activationID: String = String()
+
+  var deactivated: Bool = false
+
+  var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  init() {}
+}
+
+/// The app freed an activation listed in License.to_free with Polar
+/// (deactivate answered 2xx, or 404 as it was gone already): the agent
+/// forgets it. Answered with Status; one not listed changes nothing.
+nonisolated struct Inputweave_App_V1_LicenseActivationFreed: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  var activationID: String = String()
 
   var unknownFields = SwiftProtobuf.UnknownStorage()
 
@@ -3070,6 +3245,30 @@ nonisolated struct Inputweave_App_V1_ClientMessage: Sendable {
     set {command = .setOfflineForNow(newValue)}
   }
 
+  var applyLicense: Inputweave_App_V1_ApplyLicense {
+    get {
+      if case .applyLicense(let v)? = command {return v}
+      return Inputweave_App_V1_ApplyLicense()
+    }
+    set {command = .applyLicense(newValue)}
+  }
+
+  var revokeLicense: Inputweave_App_V1_RevokeLicense {
+    get {
+      if case .revokeLicense(let v)? = command {return v}
+      return Inputweave_App_V1_RevokeLicense()
+    }
+    set {command = .revokeLicense(newValue)}
+  }
+
+  var licenseActivationFreed: Inputweave_App_V1_LicenseActivationFreed {
+    get {
+      if case .licenseActivationFreed(let v)? = command {return v}
+      return Inputweave_App_V1_LicenseActivationFreed()
+    }
+    set {command = .licenseActivationFreed(newValue)}
+  }
+
   var addProfile: Inputweave_App_V1_AddProfile {
     get {
       if case .addProfile(let v)? = command {return v}
@@ -3197,6 +3396,9 @@ nonisolated struct Inputweave_App_V1_ClientMessage: Sendable {
     case wakeDevice(Inputweave_App_V1_WakeDevice)
     case setWakeOnPush(Inputweave_App_V1_SetWakeOnPush)
     case setOfflineForNow(Inputweave_App_V1_SetOfflineForNow)
+    case applyLicense(Inputweave_App_V1_ApplyLicense)
+    case revokeLicense(Inputweave_App_V1_RevokeLicense)
+    case licenseActivationFreed(Inputweave_App_V1_LicenseActivationFreed)
     case addProfile(Inputweave_App_V1_AddProfile)
     case editProfile(Inputweave_App_V1_EditProfile)
     case removeProfile(Inputweave_App_V1_RemoveProfile)
@@ -4010,20 +4212,53 @@ nonisolated struct Inputweave_App_V1_License: Sendable {
   /// 1970; 0 when it never did.
   var validatedAt: UInt64 = 0
 
-  /// The paired device the key came from, and what this device calls it;
-  /// both empty when the key was entered here.
+  /// The paired device that applied the key here (from InputWeave 1.0 on,
+  /// also one it was synced from), and what this device calls it; both empty
+  /// when the key was entered here.
   var sourceDeviceID: String = String()
 
   var sourceDeviceName: String = String()
 
-  /// The license was removed here (RemoveLicense): keys from paired devices
-  /// are not taken until a key is entered here (SetLicenseKey).
+  /// Agents before 1.1 only: the license was removed here, and keys from
+  /// paired devices were not taken until one was entered. Always false now:
+  /// no key is taken from another device unless it applies it here.
   var optedOut: Bool = false
 
-  /// The paired devices that use the same key, as each last said, for
-  /// "Computers on this license". Devices that never said (agents before
-  /// licenses) are not listed; offline ones are, as they last said.
+  /// The trusted devices with something to show on "Computers on this
+  /// license" (LicensedDevice.use other than LICENSE_USE_NONE), as each last
+  /// said and as this computer applied or revoked it; the others are not
+  /// listed, and show as on trial. Offline ones are listed as they last
+  /// said. Devices that never said (agents before licenses) are listed only
+  /// while this computer applies the license to them.
   var devices: [Inputweave_App_V1_LicensedDevice] = []
+
+  /// This agent applies and revokes licenses (ApplyLicense, RevokeLicense,
+  /// LicensedDevice.use). Agents before 1.1 leave it false: the apps then
+  /// offer neither.
+  var applySupported: Bool = false
+
+  /// Activations of keys this computer had before, still taking a place: one
+  /// another device revoked here without deactivating it, when another key
+  /// was entered here before the app freed it. The app frees each with Polar
+  /// (deactivate, with the key given here), whatever the license is now, and
+  /// says so (LicenseActivationFreed); it never drops one because the
+  /// license changed. The agent opens the app for them, in the background.
+  var toFree: [Inputweave_App_V1_LicenseActivation] = []
+
+  var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  init() {}
+}
+
+/// An activation of a key (License.to_free).
+nonisolated struct Inputweave_App_V1_LicenseActivation: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  var key: String = String()
+
+  var activationID: String = String()
 
   var unknownFields = SwiftProtobuf.UnknownStorage()
 
@@ -4040,9 +4275,47 @@ nonisolated struct Inputweave_App_V1_LicensedDevice: Sendable {
   /// What this device calls it.
   var name: String = String()
 
-  /// Activated there with this key; false while it waits or found the seats
-  /// full.
+  /// Activated there with this computer's key (use is LICENSE_USE_LICENSED).
   var licensed: Bool = false
+
+  var use: Inputweave_App_V1_LicenseUse = .none
+
+  /// Its activation at Polar while use is LICENSE_USE_LICENSED and it said
+  /// which (InputWeave 1.0 never does): what Revoke License deactivates.
+  var activationID: String = String()
+
+  /// It last spoke as InputWeave 1.0: it cannot be told of a revoke, so the
+  /// apps offer none, and it is never named as where to get the license from.
+  var legacy: Bool = false
+
+  /// What was applied there can be taken back (Don't Apply, RevokeLicense
+  /// without an activation): the apply waits for it (LICENSE_USE_WAITING), or
+  /// went to it and it has not activated the key yet (LICENSE_USE_ACTIVATING;
+  /// not for a key its own user entered there, nor once the key went to a
+  /// device on InputWeave 1.0, which cannot be told to drop it: the apps then
+  /// show the legacy note instead).
+  var canTakeBack: Bool = false
+
+  /// It is offline (LICENSE_USE_WAITING) and may hold the key from an apply
+  /// already: taking it back reaches it only once it connects, so not if it
+  /// is removed now. Removing it with "Also revoke its license" then says the
+  /// license could not be revoked.
+  var keyOutOfReach: Bool = false
+
+  /// On InputWeave 1.0, it did not take the license applied from here (its
+  /// user had removed the license there, and 1.0 then takes no key from
+  /// another device): listed on trial (LICENSE_USE_NONE), for the apps to say
+  /// so; applying it again works once it runs 1.1.
+  var legacyRefused: Bool = false
+
+  /// Waiting (LICENSE_USE_WAITING) for an apply from here that it has not
+  /// shown yet: it goes as the device connects, or as this computer is
+  /// licensed again. While this computer is not licensed, the License page
+  /// lists these, and only these, under Waiting to Apply. Not set for a
+  /// device waiting with the key it holds already (its own user entered it,
+  /// or it took an apply), which is listed as usual once this computer is
+  /// licensed.
+  var waitingToApply: Bool = false
 
   var unknownFields = SwiftProtobuf.UnknownStorage()
 
@@ -5097,7 +5370,11 @@ nonisolated extension Inputweave_App_V1_ProfileKind: SwiftProtobuf._ProtoNamePro
 }
 
 nonisolated extension Inputweave_App_V1_LicenseState: SwiftProtobuf._ProtoNameProviding {
-  static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{2}\0LICENSE_STATE_NONE\0\u{1}LICENSE_STATE_PENDING_ACTIVATION\0\u{1}LICENSE_STATE_LICENSED\0\u{1}LICENSE_STATE_SEATS_FULL\0\u{1}LICENSE_STATE_INVALID\0\u{1}LICENSE_STATE_UNAVAILABLE\0")
+  static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{2}\0LICENSE_STATE_NONE\0\u{1}LICENSE_STATE_PENDING_ACTIVATION\0\u{1}LICENSE_STATE_LICENSED\0\u{1}LICENSE_STATE_SEATS_FULL\0\u{1}LICENSE_STATE_INVALID\0\u{1}LICENSE_STATE_UNAVAILABLE\0\u{1}LICENSE_STATE_REVOKED\0")
+}
+
+nonisolated extension Inputweave_App_V1_LicenseUse: SwiftProtobuf._ProtoNameProviding {
+  static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{2}\0LICENSE_USE_NONE\0\u{1}LICENSE_USE_LICENSED\0\u{1}LICENSE_USE_ACTIVATING\0\u{1}LICENSE_USE_WAITING\0\u{1}LICENSE_USE_NO_PLACES\0\u{1}LICENSE_USE_OTHER_LICENSE\0")
 }
 
 nonisolated extension Inputweave_App_V1_SessionType: SwiftProtobuf._ProtoNameProviding {
@@ -7414,18 +7691,134 @@ nonisolated extension Inputweave_App_V1_LicenseValidated: SwiftProtobuf.Message,
 
 nonisolated extension Inputweave_App_V1_RemoveLicense: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   static let protoMessageName: String = _protobuf_package + ".RemoveLicense"
-  static let _protobuf_nameMap = SwiftProtobuf._NameMap()
+  static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}key\0\u{3}activation_id\0")
 
   mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
-    // Load everything into unknown fields
-    while try decoder.nextFieldNumber() != nil {}
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeSingularStringField(value: &self.key) }()
+      case 2: try { try decoder.decodeSingularStringField(value: &self.activationID) }()
+      default: break
+      }
+    }
   }
 
   func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    if !self.key.isEmpty {
+      try visitor.visitSingularStringField(value: self.key, fieldNumber: 1)
+    }
+    if !self.activationID.isEmpty {
+      try visitor.visitSingularStringField(value: self.activationID, fieldNumber: 2)
+    }
     try unknownFields.traverse(visitor: &visitor)
   }
 
   static func ==(lhs: Inputweave_App_V1_RemoveLicense, rhs: Inputweave_App_V1_RemoveLicense) -> Bool {
+    if lhs.key != rhs.key {return false}
+    if lhs.activationID != rhs.activationID {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
+nonisolated extension Inputweave_App_V1_ApplyLicense: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  static let protoMessageName: String = _protobuf_package + ".ApplyLicense"
+  static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}device_id\0")
+
+  mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeSingularStringField(value: &self.deviceID) }()
+      default: break
+      }
+    }
+  }
+
+  func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    if !self.deviceID.isEmpty {
+      try visitor.visitSingularStringField(value: self.deviceID, fieldNumber: 1)
+    }
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  static func ==(lhs: Inputweave_App_V1_ApplyLicense, rhs: Inputweave_App_V1_ApplyLicense) -> Bool {
+    if lhs.deviceID != rhs.deviceID {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
+nonisolated extension Inputweave_App_V1_RevokeLicense: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  static let protoMessageName: String = _protobuf_package + ".RevokeLicense"
+  static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}device_id\0\u{3}activation_id\0\u{1}deactivated\0")
+
+  mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeSingularStringField(value: &self.deviceID) }()
+      case 2: try { try decoder.decodeSingularStringField(value: &self.activationID) }()
+      case 3: try { try decoder.decodeSingularBoolField(value: &self.deactivated) }()
+      default: break
+      }
+    }
+  }
+
+  func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    if !self.deviceID.isEmpty {
+      try visitor.visitSingularStringField(value: self.deviceID, fieldNumber: 1)
+    }
+    if !self.activationID.isEmpty {
+      try visitor.visitSingularStringField(value: self.activationID, fieldNumber: 2)
+    }
+    if self.deactivated != false {
+      try visitor.visitSingularBoolField(value: self.deactivated, fieldNumber: 3)
+    }
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  static func ==(lhs: Inputweave_App_V1_RevokeLicense, rhs: Inputweave_App_V1_RevokeLicense) -> Bool {
+    if lhs.deviceID != rhs.deviceID {return false}
+    if lhs.activationID != rhs.activationID {return false}
+    if lhs.deactivated != rhs.deactivated {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
+nonisolated extension Inputweave_App_V1_LicenseActivationFreed: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  static let protoMessageName: String = _protobuf_package + ".LicenseActivationFreed"
+  static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}activation_id\0")
+
+  mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeSingularStringField(value: &self.activationID) }()
+      default: break
+      }
+    }
+  }
+
+  func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    if !self.activationID.isEmpty {
+      try visitor.visitSingularStringField(value: self.activationID, fieldNumber: 1)
+    }
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  static func ==(lhs: Inputweave_App_V1_LicenseActivationFreed, rhs: Inputweave_App_V1_LicenseActivationFreed) -> Bool {
+    if lhs.activationID != rhs.activationID {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }
@@ -7433,7 +7826,7 @@ nonisolated extension Inputweave_App_V1_RemoveLicense: SwiftProtobuf.Message, Sw
 
 nonisolated extension Inputweave_App_V1_ClientMessage: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   static let protoMessageName: String = _protobuf_package + ".ClientMessage"
-  static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}request_id\0\u{1}hello\0\u{3}get_status\0\u{3}set_sharing\0\u{3}start_pairing\0\u{3}submit_pairing_code\0\u{3}cancel_pairing\0\u{1}unpair\0\u{3}get_nearby\0\u{3}get_pairing\0\u{3}get_arrangement\0\u{3}set_arrangement\0\u{3}set_device_name\0\u{3}set_device_options\0\u{3}set_clipboard_sync\0\u{3}send_files\0\u{3}cancel_transfer\0\u{3}answer_file_offer\0\u{3}get_transfers\0\u{3}set_file_settings\0\u{3}get_diagnostics\0\u{3}set_locked\0\u{3}jump_to\0\u{3}set_edge_options\0\u{3}set_preview_sharing\0\u{3}remove_transfer\0\u{3}clear_transfers\0\u{3}begin_drag\0\u{3}end_drag\0\u{3}accept_drag\0\u{3}decline_drag\0\u{3}set_hotkeys\0\u{3}set_switch_modifier\0\u{3}identify_screens\0\u{3}rename_device\0\u{3}set_device_sharing\0\u{3}set_login_window_access\0\u{3}clipboard_files_placed\0\u{3}paste_clipboard_files\0\u{3}clipboard_files_gone\0\u{3}clipboard_files_place\0\u{3}user_quit_app\0\u{3}set_relative_mouse\0\u{3}set_relative_auto\0\u{3}request_folder_access\0\u{3}request_permission\0\u{3}set_license_key\0\u{3}record_license_result\0\u{3}remove_license\0\u{3}set_device_speed\0\u{3}wake_device\0\u{3}set_wake_on_push\0\u{3}set_offline_for_now\0\u{4}\u{7}add_profile\0\u{3}edit_profile\0\u{3}remove_profile\0\u{3}select_profile\0\u{3}add_network_to_profile\0\u{3}remove_network\0\u{3}rename_network\0\u{3}set_wifi_names\0\u{3}report_wifi_name\0")
+  static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}request_id\0\u{1}hello\0\u{3}get_status\0\u{3}set_sharing\0\u{3}start_pairing\0\u{3}submit_pairing_code\0\u{3}cancel_pairing\0\u{1}unpair\0\u{3}get_nearby\0\u{3}get_pairing\0\u{3}get_arrangement\0\u{3}set_arrangement\0\u{3}set_device_name\0\u{3}set_device_options\0\u{3}set_clipboard_sync\0\u{3}send_files\0\u{3}cancel_transfer\0\u{3}answer_file_offer\0\u{3}get_transfers\0\u{3}set_file_settings\0\u{3}get_diagnostics\0\u{3}set_locked\0\u{3}jump_to\0\u{3}set_edge_options\0\u{3}set_preview_sharing\0\u{3}remove_transfer\0\u{3}clear_transfers\0\u{3}begin_drag\0\u{3}end_drag\0\u{3}accept_drag\0\u{3}decline_drag\0\u{3}set_hotkeys\0\u{3}set_switch_modifier\0\u{3}identify_screens\0\u{3}rename_device\0\u{3}set_device_sharing\0\u{3}set_login_window_access\0\u{3}clipboard_files_placed\0\u{3}paste_clipboard_files\0\u{3}clipboard_files_gone\0\u{3}clipboard_files_place\0\u{3}user_quit_app\0\u{3}set_relative_mouse\0\u{3}set_relative_auto\0\u{3}request_folder_access\0\u{3}request_permission\0\u{3}set_license_key\0\u{3}record_license_result\0\u{3}remove_license\0\u{3}set_device_speed\0\u{3}wake_device\0\u{3}set_wake_on_push\0\u{3}set_offline_for_now\0\u{3}apply_license\0\u{3}revoke_license\0\u{3}license_activation_freed\0\u{4}\u{4}add_profile\0\u{3}edit_profile\0\u{3}remove_profile\0\u{3}select_profile\0\u{3}add_network_to_profile\0\u{3}remove_network\0\u{3}rename_network\0\u{3}set_wifi_names\0\u{3}report_wifi_name\0")
 
   mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -8118,6 +8511,45 @@ nonisolated extension Inputweave_App_V1_ClientMessage: SwiftProtobuf.Message, Sw
           self.command = .setOfflineForNow(v)
         }
       }()
+      case 54: try {
+        var v: Inputweave_App_V1_ApplyLicense?
+        var hadOneofValue = false
+        if let current = self.command {
+          hadOneofValue = true
+          if case .applyLicense(let m) = current {v = m}
+        }
+        try decoder.decodeSingularMessageField(value: &v)
+        if let v = v {
+          if hadOneofValue {try decoder.handleConflictingOneOf()}
+          self.command = .applyLicense(v)
+        }
+      }()
+      case 55: try {
+        var v: Inputweave_App_V1_RevokeLicense?
+        var hadOneofValue = false
+        if let current = self.command {
+          hadOneofValue = true
+          if case .revokeLicense(let m) = current {v = m}
+        }
+        try decoder.decodeSingularMessageField(value: &v)
+        if let v = v {
+          if hadOneofValue {try decoder.handleConflictingOneOf()}
+          self.command = .revokeLicense(v)
+        }
+      }()
+      case 56: try {
+        var v: Inputweave_App_V1_LicenseActivationFreed?
+        var hadOneofValue = false
+        if let current = self.command {
+          hadOneofValue = true
+          if case .licenseActivationFreed(let m) = current {v = m}
+        }
+        try decoder.decodeSingularMessageField(value: &v)
+        if let v = v {
+          if hadOneofValue {try decoder.handleConflictingOneOf()}
+          self.command = .licenseActivationFreed(v)
+        }
+      }()
       case 60: try {
         var v: Inputweave_App_V1_AddProfile?
         var hadOneofValue = false
@@ -8456,6 +8888,18 @@ nonisolated extension Inputweave_App_V1_ClientMessage: SwiftProtobuf.Message, Sw
     case .setOfflineForNow?: try {
       guard case .setOfflineForNow(let v)? = self.command else { preconditionFailure() }
       try visitor.visitSingularMessageField(value: v, fieldNumber: 53)
+    }()
+    case .applyLicense?: try {
+      guard case .applyLicense(let v)? = self.command else { preconditionFailure() }
+      try visitor.visitSingularMessageField(value: v, fieldNumber: 54)
+    }()
+    case .revokeLicense?: try {
+      guard case .revokeLicense(let v)? = self.command else { preconditionFailure() }
+      try visitor.visitSingularMessageField(value: v, fieldNumber: 55)
+    }()
+    case .licenseActivationFreed?: try {
+      guard case .licenseActivationFreed(let v)? = self.command else { preconditionFailure() }
+      try visitor.visitSingularMessageField(value: v, fieldNumber: 56)
     }()
     case .addProfile?: try {
       guard case .addProfile(let v)? = self.command else { preconditionFailure() }
@@ -9447,7 +9891,7 @@ nonisolated extension Inputweave_App_V1_OfflineChange: SwiftProtobuf.Message, Sw
 
 nonisolated extension Inputweave_App_V1_License: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   static let protoMessageName: String = _protobuf_package + ".License"
-  static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}key\0\u{1}state\0\u{3}activation_id\0\u{3}customer_email\0\u{3}validated_at\0\u{3}source_device_id\0\u{3}source_device_name\0\u{3}opted_out\0\u{1}devices\0")
+  static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}key\0\u{1}state\0\u{3}activation_id\0\u{3}customer_email\0\u{3}validated_at\0\u{3}source_device_id\0\u{3}source_device_name\0\u{3}opted_out\0\u{1}devices\0\u{3}apply_supported\0\u{3}to_free\0")
 
   mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -9464,6 +9908,8 @@ nonisolated extension Inputweave_App_V1_License: SwiftProtobuf.Message, SwiftPro
       case 7: try { try decoder.decodeSingularStringField(value: &self.sourceDeviceName) }()
       case 8: try { try decoder.decodeSingularBoolField(value: &self.optedOut) }()
       case 9: try { try decoder.decodeRepeatedMessageField(value: &self.devices) }()
+      case 10: try { try decoder.decodeSingularBoolField(value: &self.applySupported) }()
+      case 11: try { try decoder.decodeRepeatedMessageField(value: &self.toFree) }()
       default: break
       }
     }
@@ -9497,6 +9943,12 @@ nonisolated extension Inputweave_App_V1_License: SwiftProtobuf.Message, SwiftPro
     if !self.devices.isEmpty {
       try visitor.visitRepeatedMessageField(value: self.devices, fieldNumber: 9)
     }
+    if self.applySupported != false {
+      try visitor.visitSingularBoolField(value: self.applySupported, fieldNumber: 10)
+    }
+    if !self.toFree.isEmpty {
+      try visitor.visitRepeatedMessageField(value: self.toFree, fieldNumber: 11)
+    }
     try unknownFields.traverse(visitor: &visitor)
   }
 
@@ -9510,6 +9962,43 @@ nonisolated extension Inputweave_App_V1_License: SwiftProtobuf.Message, SwiftPro
     if lhs.sourceDeviceName != rhs.sourceDeviceName {return false}
     if lhs.optedOut != rhs.optedOut {return false}
     if lhs.devices != rhs.devices {return false}
+    if lhs.applySupported != rhs.applySupported {return false}
+    if lhs.toFree != rhs.toFree {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
+nonisolated extension Inputweave_App_V1_LicenseActivation: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  static let protoMessageName: String = _protobuf_package + ".LicenseActivation"
+  static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}key\0\u{3}activation_id\0")
+
+  mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeSingularStringField(value: &self.key) }()
+      case 2: try { try decoder.decodeSingularStringField(value: &self.activationID) }()
+      default: break
+      }
+    }
+  }
+
+  func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    if !self.key.isEmpty {
+      try visitor.visitSingularStringField(value: self.key, fieldNumber: 1)
+    }
+    if !self.activationID.isEmpty {
+      try visitor.visitSingularStringField(value: self.activationID, fieldNumber: 2)
+    }
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  static func ==(lhs: Inputweave_App_V1_LicenseActivation, rhs: Inputweave_App_V1_LicenseActivation) -> Bool {
+    if lhs.key != rhs.key {return false}
+    if lhs.activationID != rhs.activationID {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }
@@ -9517,7 +10006,7 @@ nonisolated extension Inputweave_App_V1_License: SwiftProtobuf.Message, SwiftPro
 
 nonisolated extension Inputweave_App_V1_LicensedDevice: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   static let protoMessageName: String = _protobuf_package + ".LicensedDevice"
-  static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}id\0\u{1}name\0\u{1}licensed\0")
+  static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}id\0\u{1}name\0\u{1}licensed\0\u{1}use\0\u{3}activation_id\0\u{1}legacy\0\u{3}can_take_back\0\u{3}key_out_of_reach\0\u{3}legacy_refused\0\u{3}waiting_to_apply\0")
 
   mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -9528,6 +10017,13 @@ nonisolated extension Inputweave_App_V1_LicensedDevice: SwiftProtobuf.Message, S
       case 1: try { try decoder.decodeSingularStringField(value: &self.id) }()
       case 2: try { try decoder.decodeSingularStringField(value: &self.name) }()
       case 3: try { try decoder.decodeSingularBoolField(value: &self.licensed) }()
+      case 4: try { try decoder.decodeSingularEnumField(value: &self.use) }()
+      case 5: try { try decoder.decodeSingularStringField(value: &self.activationID) }()
+      case 6: try { try decoder.decodeSingularBoolField(value: &self.legacy) }()
+      case 7: try { try decoder.decodeSingularBoolField(value: &self.canTakeBack) }()
+      case 8: try { try decoder.decodeSingularBoolField(value: &self.keyOutOfReach) }()
+      case 9: try { try decoder.decodeSingularBoolField(value: &self.legacyRefused) }()
+      case 10: try { try decoder.decodeSingularBoolField(value: &self.waitingToApply) }()
       default: break
       }
     }
@@ -9543,6 +10039,27 @@ nonisolated extension Inputweave_App_V1_LicensedDevice: SwiftProtobuf.Message, S
     if self.licensed != false {
       try visitor.visitSingularBoolField(value: self.licensed, fieldNumber: 3)
     }
+    if self.use != .none {
+      try visitor.visitSingularEnumField(value: self.use, fieldNumber: 4)
+    }
+    if !self.activationID.isEmpty {
+      try visitor.visitSingularStringField(value: self.activationID, fieldNumber: 5)
+    }
+    if self.legacy != false {
+      try visitor.visitSingularBoolField(value: self.legacy, fieldNumber: 6)
+    }
+    if self.canTakeBack != false {
+      try visitor.visitSingularBoolField(value: self.canTakeBack, fieldNumber: 7)
+    }
+    if self.keyOutOfReach != false {
+      try visitor.visitSingularBoolField(value: self.keyOutOfReach, fieldNumber: 8)
+    }
+    if self.legacyRefused != false {
+      try visitor.visitSingularBoolField(value: self.legacyRefused, fieldNumber: 9)
+    }
+    if self.waitingToApply != false {
+      try visitor.visitSingularBoolField(value: self.waitingToApply, fieldNumber: 10)
+    }
     try unknownFields.traverse(visitor: &visitor)
   }
 
@@ -9550,6 +10067,13 @@ nonisolated extension Inputweave_App_V1_LicensedDevice: SwiftProtobuf.Message, S
     if lhs.id != rhs.id {return false}
     if lhs.name != rhs.name {return false}
     if lhs.licensed != rhs.licensed {return false}
+    if lhs.use != rhs.use {return false}
+    if lhs.activationID != rhs.activationID {return false}
+    if lhs.legacy != rhs.legacy {return false}
+    if lhs.canTakeBack != rhs.canTakeBack {return false}
+    if lhs.keyOutOfReach != rhs.keyOutOfReach {return false}
+    if lhs.legacyRefused != rhs.legacyRefused {return false}
+    if lhs.waitingToApply != rhs.waitingToApply {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }

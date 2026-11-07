@@ -1,6 +1,7 @@
 using System.Globalization;
 using Inputweave.App.V1;
 using InputWeave.Agent;
+using InputWeave.Licensing;
 using InputWeave.Panel;
 using InputWeave.Settings;
 using InputWeave.Support;
@@ -730,7 +731,15 @@ internal sealed partial class DeviceInspector : UserControl
             () => App.Instance.Model.SetDeviceSharingAsync(target, clipboardIsOff, filesAreOff));
     }
 
-    /// <summary>Asks before the computer stops trusting the other one.</summary>
+    /// <summary>
+    /// Asks before the computer stops trusting the other one. While this
+    /// computer is licensed and the other one is on its license, it also
+    /// offers to revoke the license there ("Also revoke its license",
+    /// checked), or, for one on InputWeave 1.0, says that it keeps its
+    /// place. Revoking keeps the dialog open, with progress, until Polar has
+    /// answered; the computer is removed whatever came of it, and a license
+    /// that could not be revoked is said afterwards.
+    /// </summary>
     private async void ConfirmRemoval()
     {
         if (model is null || XamlRoot is null)
@@ -738,20 +747,107 @@ internal sealed partial class DeviceInspector : UserControl
             return;
         }
         var device = id;
+        var name = model.NameOf(device);
+        var root = XamlRoot;
+        var license = model.Status.License;
+        var worker = App.Instance.License;
+        bool licensed = LicenseView.For(license, model.Status.ThisDeviceName, worker.Withdrawing(license)).IsLicensed;
+        var content = new StackPanel { Spacing = 12 };
+        content.Children.Add(new TextBlock { Text = Strings.Get(TextKeys.RemoveDeviceMessage), TextWrapping = TextWrapping.Wrap });
+        CheckBox? revoke = null;
+        switch (LicenseView.OnRemoval(license, licensed, device))
+        {
+            case RemovalOffer.Legacy:
+                content.Children.Add(Ui.Secondary(Strings.Format(TextKeys.RemoveDeviceLegacy, name), caption: false));
+                break;
+            case RemovalOffer.Revoke:
+                revoke = new CheckBox { Content = Strings.Get(TextKeys.RemoveDeviceRevoke), IsChecked = true };
+                var note = Ui.Secondary(Strings.Get(TextKeys.RemoveDeviceRevokeNote));
+                // Under the box's words, not under the box.
+                note.Margin = new Thickness(28, -4, 0, 0);
+                var choice = new StackPanel();
+                choice.Children.Add(revoke);
+                choice.Children.Add(note);
+                content.Children.Add(choice);
+                break;
+        }
+        var progress = new ProgressBar { IsIndeterminate = true, Visibility = Visibility.Collapsed };
+        content.Children.Add(progress);
         var dialog = new ContentDialog
         {
-            XamlRoot = XamlRoot,
-            Title = Strings.Format(TextKeys.RemoveDeviceTitle, model.NameOf(device)),
-            Content = Strings.Get(TextKeys.RemoveDeviceMessage),
+            XamlRoot = root,
+            Title = Strings.Format(TextKeys.RemoveDeviceTitle, name),
+            Content = content,
             PrimaryButtonText = Strings.Get(TextKeys.RemoveDeviceConfirm),
             CloseButtonText = Strings.Get(TextKeys.Cancel),
             DefaultButton = ContentDialogButton.Close,
         };
+        var notice = RemovalNotice.None;
+        bool revoking = false;
+        dialog.PrimaryButtonClick += async (_, args) =>
+        {
+            if (revoke?.IsChecked != true)
+            {
+                return;
+            }
+            revoking = true;
+            var deferral = args.GetDeferral();
+            dialog.IsPrimaryButtonEnabled = false;
+            revoke.IsEnabled = false;
+            progress.Visibility = Visibility.Visible;
+            try
+            {
+                notice = await worker.RemoveDeviceAsync(device, revoke: true, () => App.Instance.Model.UnpairAsync(device));
+            }
+            catch (Exception e)
+            {
+                AppLog.Info($"remove device {device}: {e.Message}");
+            }
+            deferral.Complete();
+        };
         try
         {
-            if (await dialog.ShowAsync() == ContentDialogResult.Primary)
+            if (await dialog.ShowAsync() != ContentDialogResult.Primary)
+            {
+                return;
+            }
+            if (!revoking)
             {
                 App.Instance.Send($"unpair {device}", () => App.Instance.Model.UnpairAsync(device));
+                return;
+            }
+            App.Instance.RefreshNow();
+            if (notice == RemovalNotice.NotTold)
+            {
+                // Its place is free already: nothing to do in the customer portal.
+                await new ContentDialog
+                {
+                    XamlRoot = root,
+                    Title = Strings.Format(TextKeys.RemoveDeviceNotTold, name),
+                    Content = new TextBlock { Text = Strings.Get(TextKeys.RemoveDeviceNotToldBody), TextWrapping = TextWrapping.Wrap },
+                    CloseButtonText = Strings.Get(TextKeys.Ok),
+                    DefaultButton = ContentDialogButton.Close,
+                }.ShowAsync();
+            }
+            else if (notice != RemovalNotice.None)
+            {
+                var said = new ContentDialog
+                {
+                    XamlRoot = root,
+                    Title = Strings.Format(TextKeys.RemoveDeviceNotRevoked, name),
+                    Content = new TextBlock
+                    {
+                        Text = Strings.Get(notice == RemovalNotice.Offline ? TextKeys.RemoveDeviceNotRevokedOffline : TextKeys.RemoveDeviceNotRevokedBody),
+                        TextWrapping = TextWrapping.Wrap,
+                    },
+                    PrimaryButtonText = Strings.Get(TextKeys.LicenseManage),
+                    CloseButtonText = Strings.Get(TextKeys.Ok),
+                    DefaultButton = ContentDialogButton.Close,
+                };
+                if (await said.ShowAsync() == ContentDialogResult.Primary)
+                {
+                    LicensePage.Open(PolarClient.PortalUrl);
+                }
             }
         }
         catch (Exception e)

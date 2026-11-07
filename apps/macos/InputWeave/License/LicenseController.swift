@@ -18,11 +18,31 @@ protocol LicenseAgent: AnyObject {
     /// Returns the record as the service answered it.
     @discardableResult func setLicenseKey(_ key: String) async throws -> LicenseRecord
     func recordLicense(_ result: Inputweave_App_V1_RecordLicenseResult) async throws
-    func removeLicense() async throws
+    /// Removes the license, only while it is still `key` with
+    /// `activationID`; refused with "license_stale" once it is not.
+    func removeLicense(key: String, activationID: String) async throws
+    /// Applies this computer's license to another device.
+    func applyLicense(deviceID: String) async throws
+    /// Revokes it there (`activationID`, the device's activation, and
+    /// whether Polar deactivated it), or takes back applying it (no
+    /// activation).
+    func revokeLicense(deviceID: String, activationID: String, deactivated: Bool) async throws
+    /// Stops trusting a device (Remove Device).
+    func unpair(_ deviceID: String) async throws
+    /// The device is connected, as the service last said, or taken offline
+    /// for now, which keeps its connection: what the service tells it
+    /// reaches it.
+    func isConnected(_ deviceID: String) -> Bool
+    /// Polar freed an activation of an earlier key (`License.to_free`).
+    func licenseActivationFreed(_ activationID: String) async throws
 }
 
 extension AgentModel: LicenseAgent {
     var license: LicenseRecord { status.license }
+
+    func isConnected(_ deviceID: String) -> Bool {
+        device(deviceID).map { $0.state == .connected || $0.offlineForNow } ?? false
+    }
     var licenseLinked: Bool { link == .connected }
     var thisComputerName: String { status.thisDeviceName.isEmpty ? "Mac" : status.thisDeviceName }
 }
@@ -40,10 +60,18 @@ struct LicenseOutbox: Codable, Equatable, Sendable {
         case refuse
         /// Ask Polar to free an activation.
         case free
-        /// Ask the service to remove the license.
+        /// Ask the service to remove the license, while it is still `key`
+        /// with `activationID`, as it was when this was queued.
         case remove
         /// Give the service a key the user entered; never kept.
         case setKey
+        /// Tell the service the license was revoked on another device
+        /// (`deviceID`, its `activationID`), and whether Polar deactivated
+        /// that (`deactivated`): asked once before this was queued.
+        case revoke
+        /// Tell the service Polar freed an activation it listed to be
+        /// freed (`License.to_free`).
+        case freed
     }
 
     struct Op: Codable, Equatable, Identifiable, Sendable {
@@ -59,6 +87,20 @@ struct LicenseOutbox: Codable, Equatable, Sendable {
         var noLongerValid = false
         /// For `free`: the user removed the license here.
         var fromRemove = false
+        /// For `revoke`: the device the license is revoked on, and whether
+        /// Polar deactivated its activation.
+        var deviceID = ""
+        var deactivated = false
+        /// For `free` and then `remove`: another device revoked the license
+        /// here without freeing this computer's activation, so it is freed
+        /// and the license removed without a word.
+        var revoked = false
+        /// For `free`: an activation of an earlier key the service listed to
+        /// be freed (`License.to_free`), which it is told of once freed.
+        var toFree = false
+        /// For the user's `remove`: how many times the service said the
+        /// license had changed since it was asked for (`license_stale`).
+        var staleTries = 0
         /// Failed attempts, and when to try again.
         var tries = 0
         var notBefore: Date?
@@ -68,12 +110,15 @@ struct LicenseOutbox: Codable, Equatable, Sendable {
         var soonest: Date?
 
         enum CodingKeys: String, CodingKey {
-            case id, kind, key, activationID, email, validatedAt, refusal, noLongerValid, fromRemove, tries, notBefore, soonest
+            case id, kind, key, activationID, email, validatedAt, refusal, noLongerValid, fromRemove, deviceID, deactivated
+            case revoked, toFree, staleTries, tries, notBefore, soonest
         }
 
         /// The service's ops run in order, one after another; Polar's
         /// (activate, free) only need their own wait to be over.
-        var isService: Bool { kind == .report || kind == .refuse || kind == .remove || kind == .setKey }
+        var isService: Bool {
+            kind == .report || kind == .refuse || kind == .remove || kind == .setKey || kind == .revoke || kind == .freed
+        }
 
         /// Goes to the service only once the store holds it: a report
         /// carries an activation a restart must not lose, and a removal
@@ -85,16 +130,21 @@ struct LicenseOutbox: Codable, Equatable, Sendable {
     var ops: [Op] = []
     /// The key whose activation the service refused for good, with what
     /// its record said then: not activated again while it says the same.
-    /// Dropped once the record says anything else.
+    /// Dropped once the record says anything else. Also a license revoked
+    /// here that the service refused to remove: not removed again while
+    /// the record says the same.
     var stalled: [String: String] = [:]
+    /// Polar asked for no request before this (`Retry-After`), whoever
+    /// asks.
+    var polarNotBefore: Date?
 
     enum CodingKeys: String, CodingKey {
-        case ops, stalled
+        case ops, stalled, polarNotBefore
     }
 
     /// What is kept: everything but the user's typing.
     var kept: LicenseOutbox {
-        LicenseOutbox(ops: ops.filter { $0.kind != .setKey }, stalled: stalled)
+        LicenseOutbox(ops: ops.filter { $0.kind != .setKey }, stalled: stalled, polarNotBefore: polarNotBefore)
     }
 
     mutating func remove(_ op: Op) {
@@ -135,17 +185,56 @@ struct LicenseOutbox: Codable, Equatable, Sendable {
     /// `activationID`). Nothing is activated or reported from now on: an
     /// activation Polar made that the service has not taken is freed
     /// instead, and this computer's is freed once the service removed it.
+    /// Revoking it on other devices goes on, and so does every free queued
+    /// already, such as one of an activation revoked here; only the removal
+    /// that would have followed that one is dropped, as this one removes
+    /// the license.
     mutating func removal(key: String, activationID: String) {
         stalled = [:]
+        ops.removeAll { $0.kind == .remove && $0.revoked }
         var frees = ops.filter { $0.kind == .report }.map {
             Op(kind: .free, key: $0.key, activationID: $0.activationID, fromRemove: true)
         }
         ops.removeAll { $0.kind == .activate || $0.kind == .report || $0.kind == .refuse }
-        if !key.isEmpty, !activationID.isEmpty, !frees.contains(where: { $0.activationID == activationID }) {
+        if !key.isEmpty, !activationID.isEmpty, !frees.contains(where: { $0.activationID == activationID }),
+            !ops.contains(where: { $0.kind == .free && $0.activationID == activationID }) {
             frees.append(Op(kind: .free, key: key, activationID: activationID, fromRemove: true))
         }
         ops.append(contentsOf: frees)
         ops.append(Op(kind: .remove, key: key, activationID: activationID))
+    }
+
+    /// Another device revoked the license here (`key`), leaving this
+    /// computer's `activationID` for it to free: Polar frees it first, and
+    /// only then is the license removed, each tried until done.
+    mutating func quietRemoval(key: String, activationID: String) {
+        if !key.isEmpty, !activationID.isEmpty, !ops.contains(where: { $0.kind == .free && $0.activationID == activationID }) {
+            ops.append(Op(kind: .free, key: key, activationID: activationID, revoked: true))
+        }
+        ops.append(Op(kind: .remove, key: key, activationID: activationID, revoked: true))
+    }
+
+    /// Queues a free for each activation of an earlier key the service
+    /// lists (`License.to_free`) and nothing frees yet, and tells the
+    /// service once Polar freed it.
+    mutating func freeEarlier(_ activations: [Inputweave_App_V1_LicenseActivation]) {
+        for activation in activations where !activation.key.isEmpty && !activation.activationID.isEmpty {
+            let id = activation.activationID
+            guard !ops.contains(where: {
+                $0.activationID == id && ($0.kind == .free || $0.kind == .freed || ($0.kind == .remove && $0.revoked))
+            }) else { continue }
+            ops.append(Op(kind: .free, key: activation.key, activationID: id, toFree: true))
+        }
+    }
+
+    /// The user revoked this computer's license on another device
+    /// (`deviceID`, its `activationID`), Polar having deactivated that or
+    /// not: the service is told, until it answers. Once only, however
+    /// often it is asked for.
+    mutating func revocation(key: String, deviceID: String, activationID: String, deactivated: Bool) {
+        guard !ops.contains(where: { $0.kind == .revoke && $0.deviceID == deviceID && $0.activationID == activationID })
+        else { return }
+        ops.append(Op(kind: .revoke, key: key, activationID: activationID, deviceID: deviceID, deactivated: deactivated))
     }
 }
 
@@ -156,6 +245,7 @@ extension LicenseOutbox {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         ops = try container.decodeIfPresent([Lenient<Op>].self, forKey: .ops)?.compactMap(\.value) ?? []
         stalled = try container.decodeIfPresent([String: String].self, forKey: .stalled) ?? [:]
+        polarNotBefore = try container.decodeIfPresent(Date.self, forKey: .polarNotBefore)
     }
 
     private struct Lenient<Value: Decodable>: Decodable {
@@ -179,6 +269,11 @@ extension LicenseOutbox.Op {
         refusal = try container.decodeIfPresent(Int.self, forKey: .refusal) ?? 0
         noLongerValid = try container.decodeIfPresent(Bool.self, forKey: .noLongerValid) ?? false
         fromRemove = try container.decodeIfPresent(Bool.self, forKey: .fromRemove) ?? false
+        deviceID = try container.decodeIfPresent(String.self, forKey: .deviceID) ?? ""
+        deactivated = try container.decodeIfPresent(Bool.self, forKey: .deactivated) ?? false
+        revoked = try container.decodeIfPresent(Bool.self, forKey: .revoked) ?? false
+        toFree = try container.decodeIfPresent(Bool.self, forKey: .toFree) ?? false
+        staleTries = try container.decodeIfPresent(Int.self, forKey: .staleTries) ?? 0
         tries = try container.decodeIfPresent(Int.self, forKey: .tries) ?? 0
         notBefore = try container.decodeIfPresent(Date.self, forKey: .notBefore)
         soonest = try container.decodeIfPresent(Date.self, forKey: .soonest)
@@ -370,6 +465,9 @@ final class LicenseController {
     /// The last write of the outbox failed; what has to be kept first
     /// waits.
     private(set) var saveFailing = false
+    /// The devices Apply License or Don't Apply was just sent for, until
+    /// the service answers.
+    private(set) var applying: Set<String> = []
     let links: LicenseLinks
 
     /// Polar confirms a license at most this often, while License or About
@@ -379,6 +477,9 @@ final class LicenseController {
     static let attemptEvery: TimeInterval = 3_600
     /// Two 404s at least this far apart make the license invalid.
     static let notFoundGap: TimeInterval = 60
+    /// The user's Remove License is asked for at most this often, as the
+    /// license keeps changing under it (`license_stale`).
+    static let removeAttempts = 3
     /// Waits before an operation's next try.
     static let retryDelays: [Duration] = [.seconds(30), .seconds(120), .seconds(600), .seconds(3_600)]
     /// Refusals that are only for now: the service cannot read its license
@@ -449,26 +550,34 @@ final class LicenseController {
         let license = agent.license
         guard license.state == .licensed else { return false }
         return !outbox.ops.contains {
-            ($0.kind == .remove && $0.key == license.key) || ($0.kind == .free && $0.activationID == license.activationID)
+            ($0.kind == .remove && !$0.revoked && $0.key == license.key)
+                || ($0.kind == .free && $0.activationID == license.activationID)
         }
     }
 
-    /// Remove License's first attempt is under way.
+    /// Remove License's first attempt is under way. A removal for a
+    /// license revoked from another device is never shown: the user here
+    /// did nothing.
     var removing: Bool {
-        guard let remove = outbox.ops.first(where: { $0.kind == .remove }) else { return false }
+        guard let remove = outbox.ops.first(where: { $0.kind == .remove && !$0.revoked }) else { return false }
         return remove.tries == 0 && !serviceAway && !saveFailing && loading != .unreadable
     }
 
     /// Remove License was tried and the service has not taken it yet, or
     /// cannot be asked for now.
     var removalPending: Bool {
-        outbox.ops.contains(where: { $0.kind == .remove }) && !removing
+        outbox.ops.contains(where: { $0.kind == .remove && !$0.revoked }) && !removing
     }
 
     /// The removed activation's seat is still taken: Polar could not be
     /// told yet.
     var seatNotFreedYet: Bool {
-        outbox.ops.contains { $0.kind == .free && $0.fromRemove && $0.tries > 0 }
+        outbox.ops.contains { $0.kind == .free && $0.fromRemove && !$0.revoked && $0.tries > 0 }
+    }
+
+    /// Revoke License for `deviceID` waits to reach the service.
+    func revoking(_ deviceID: String) -> Bool {
+        outbox.ops.contains { $0.kind == .revoke && $0.deviceID == deviceID }
     }
 
     // MARK: - Driven by the service's status
@@ -508,10 +617,14 @@ final class LicenseController {
         let license = agent.license
         if agent.licenseLinked {
             let current = signature(license)
+            let time = now()
             change { outbox in
                 outbox.stalled = outbox.stalled.filter { $0.key == license.key && $0.value == current }
+                outbox.freeEarlier(license.toFree)
+                if let until = outbox.polarNotBefore, until <= time { outbox.polarNotBefore = nil }
             }
             queueActivation(license)
+            queueRevokedRemoval(license)
         }
         kick()
         if surfaces > 0 { confirmIfDue() }
@@ -583,6 +696,116 @@ final class LicenseController {
         kick()
     }
 
+    /// Apply License: the service sends the key to the device, whose app
+    /// activates it; nothing goes to Polar from here. Its row then shows
+    /// what the service says.
+    func apply(_ deviceID: String) async {
+        await sendForDevice(deviceID, "Applying the license") {
+            try await $0.applyLicense(deviceID: deviceID)
+        }
+    }
+
+    /// Don't Apply: takes back applying the license to a device that has
+    /// not activated it yet (`LicensedDevice.can_take_back`).
+    func dontApply(_ deviceID: String) async {
+        await sendForDevice(deviceID, "Taking back the license") {
+            try await $0.revokeLicense(deviceID: deviceID, activationID: "", deactivated: false)
+        }
+    }
+
+    /// Sends a command for a device's row once at a time; a refusal leaves
+    /// the row as the service shows it, and is only logged.
+    private func sendForDevice(
+        _ deviceID: String, _ what: String, _ command: @MainActor (any LicenseAgent) async throws -> Void
+    ) async {
+        guard !applying.contains(deviceID) else { return }
+        applying.insert(deviceID)
+        defer { applying.remove(deviceID) }
+        do {
+            try await command(agent)
+        } catch let refusal as AgentRefusal {
+            log.notice("\(what, privacy: .public) for \(deviceID, privacy: .public) was refused: \(refusal.code, privacy: .public) \(refusal.detail, privacy: .public)")
+        } catch {
+            log.notice("\(what, privacy: .public) for \(deviceID, privacy: .public) failed: \(error.localizedDescription, privacy: .public)")
+        }
+    }
+
+    /// Revoke License, once confirmed: Polar is asked once to deactivate
+    /// the device's activation with this computer's key, then the service
+    /// is told, with whether Polar did, so the device goes back to trial
+    /// (freeing its activation itself when Polar did not). Telling the
+    /// service is kept and tried until it answers.
+    func revoke(_ deviceID: String, activationID: String) async {
+        guard !applying.contains(deviceID),
+            !outbox.ops.contains(where: { $0.kind == .revoke && $0.deviceID == deviceID && $0.activationID == activationID })
+        else { return }
+        applying.insert(deviceID)
+        defer { applying.remove(deviceID) }
+        let key = agent.license.key
+        let deactivated = await deactivateOnce(key: key, activationID: activationID, of: deviceID)
+        change { $0.revocation(key: key, deviceID: deviceID, activationID: activationID, deactivated: deactivated) }
+        if loading == .unreadable { load() }
+        kick()
+    }
+
+    /// Asks Polar once to deactivate another device's activation, unless
+    /// Polar asked to wait: whether it did, or said the activation was
+    /// gone. Never asked again by this app; the device frees it otherwise.
+    private func deactivateOnce(key: String, activationID: String, of deviceID: String) async -> Bool {
+        guard !key.isEmpty, !activationID.isEmpty else { return false }
+        guard !polarWaiting else {
+            log.notice("Polar asked to wait: the activation of \(deviceID, privacy: .public) is left to it")
+            return false
+        }
+        switch await polar.deactivate(key: key, activationID: activationID) {
+        case .done:
+            return true
+        case .rateLimited(let wait):
+            slowDown(wait)
+        case .refused, .unreachable:
+            break
+        }
+        log.notice("Polar did not deactivate the activation of \(deviceID, privacy: .public); it is left to it")
+        return false
+    }
+
+    /// Remove Device: with `revoking` ("Also revoke its license"), first
+    /// revokes the license there. For a device licensed with this
+    /// computer's key Polar is asked once to deactivate its activation, as
+    /// for Revoke License, and the service is told whether it did; one
+    /// activating the key or waiting for it has it taken back. The device
+    /// is unpaired once the service answered, whatever it answered. The
+    /// notice to show after, if the license could not be revoked: decided
+    /// by the service's answer too.
+    func removeDevice(_ deviceID: String, revoking: Bool) async -> LicenseText.RemoveNotice? {
+        var notice: LicenseText.RemoveNotice?
+        if revoking, let device = agent.license.devices.first(where: { $0.id == deviceID }),
+            [.licensed, .activating, .waiting].contains(device.use) {
+            var activationID = ""
+            var deactivated = false
+            if device.use == .licensed {
+                activationID = device.activationID
+                deactivated = await deactivateOnce(key: agent.license.key, activationID: activationID, of: deviceID)
+            }
+            var revoked = true
+            do {
+                try await agent.revokeLicense(deviceID: deviceID, activationID: activationID, deactivated: deactivated)
+            } catch {
+                revoked = false
+                log.notice("Revoking the license on \(deviceID, privacy: .public) failed: \(String(describing: error), privacy: .public)")
+            }
+            // As the service's answer shows it, before it stops trusting it.
+            let connected = agent.isConnected(deviceID)
+            notice = LicenseText.removeNotice(device, deactivated: deactivated, revoked: revoked, connected: connected)
+        }
+        do {
+            try await agent.unpair(deviceID)
+        } catch {
+            log.notice("Removing \(deviceID, privacy: .public) failed: \(String(describing: error), privacy: .public)")
+        }
+        return notice
+    }
+
     /// For the tests: waits until the outbox is read and written and both
     /// lanes and any confirmation are idle.
     func settle() async {
@@ -596,8 +819,48 @@ final class LicenseController {
     private func queueActivation(_ license: LicenseRecord) {
         guard license.state == .pendingActivation, !license.key.isEmpty,
             outbox.stalled[license.key] != signature(license),
-            !outbox.ops.contains(where: { $0.key == license.key && $0.kind != .free }) else { return }
+            !outbox.ops.contains(where: { $0.key == license.key && !$0.revoked && $0.kind != .free && $0.kind != .revoke })
+        else { return }
         change { $0.ops.append(.init(kind: .activate, key: license.key)) }
+    }
+
+    /// Another device revoked the license here without freeing this
+    /// computer's activation: Polar frees it, then the license is removed,
+    /// without a word. Once, while nothing removes it already, and not
+    /// again for a record the service refused to remove.
+    private func queueRevokedRemoval(_ license: LicenseRecord) {
+        guard license.state == .revoked, outbox.stalled[license.key] != signature(license),
+            !outbox.ops.contains(where: { $0.kind == .remove }) else { return }
+        firstNotFound = nil
+        change { $0.quietRemoval(key: license.key, activationID: license.activationID) }
+    }
+
+    /// The record still says the license was revoked here, with `op`'s key
+    /// and activation.
+    private func stillRevoked(_ op: LicenseOutbox.Op) -> Bool {
+        let license = agent.license
+        return license.state == .revoked && license.key == op.key && license.activationID == op.activationID
+    }
+
+    /// A license revoked here is removed only once its activation is
+    /// freed; meanwhile the service's other operations go on.
+    private func waitsForItsFree(_ op: LicenseOutbox.Op) -> Bool {
+        op.kind == .remove && op.revoked
+            && outbox.ops.contains { $0.kind == .free && $0.revoked && $0.activationID == op.activationID }
+    }
+
+    /// Polar asked for no request now (`Retry-After`).
+    private var polarWaiting: Bool {
+        outbox.polarNotBefore.map { now() < $0 } ?? false
+    }
+
+    /// Polar said to wait `wait`: no request to it before then, whoever
+    /// asks.
+    private func slowDown(_ wait: Duration) {
+        let until = now().addingTimeInterval(TimeInterval(wait.components.seconds))
+        change { outbox in
+            if outbox.polarNotBefore.map({ $0 < until }) ?? true { outbox.polarNotBefore = until }
+        }
     }
 
     // MARK: - Reading and writing the outbox
@@ -622,8 +885,11 @@ final class LicenseController {
             for op in outbox.ops {
                 switch op.kind {
                 case .setKey: merged.enter(op)
-                case .remove: merged.removal(key: op.key, activationID: op.activationID)
-                case .activate, .report, .refuse, .free: break
+                case .remove where !op.revoked: merged.removal(key: op.key, activationID: op.activationID)
+                case .revoke:
+                    merged.revocation(
+                        key: op.key, deviceID: op.deviceID, activationID: op.activationID, deactivated: op.deactivated)
+                case .activate, .report, .refuse, .free, .remove, .freed: break
                 }
             }
             loading = .loaded
@@ -752,14 +1018,15 @@ final class LicenseController {
         func due(_ op: LicenseOutbox.Op) -> Bool { op.notBefore.map { $0 <= time } ?? true }
         switch lane {
         case .service:
-            guard agent.licenseLinked, let op = outbox.ops.first(where: \.isService), due(op),
-                !op.needsKeeping || isSaved(op) else { return nil }
+            guard agent.licenseLinked, let op = outbox.ops.first(where: { $0.isService && !waitsForItsFree($0) }),
+                due(op), !op.needsKeeping || isSaved(op) else { return nil }
             return op
         case .polar:
+            guard !polarWaiting else { return nil }
             return outbox.ops.first { op in
                 guard !op.isService, due(op) else { return false }
-                return op.kind != .free || op.activationID.isEmpty
-                    || !outbox.ops.contains { $0.kind == .remove && $0.activationID == op.activationID }
+                return op.kind != .free || op.revoked || op.activationID.isEmpty
+                    || !outbox.ops.contains { $0.kind == .remove && !$0.revoked && $0.activationID == op.activationID }
             }
         }
     }
@@ -774,10 +1041,13 @@ final class LicenseController {
         var next: Date?
         for op in outbox.ops {
             if op.isService {
-                guard serviceTurn else { continue }
+                guard serviceTurn, !waitsForItsFree(op) else { continue }
                 serviceTurn = false
             }
             if let notBefore = op.notBefore, notBefore > time { next = min(next ?? notBefore, notBefore) }
+        }
+        if let until = outbox.polarNotBefore, until > time, outbox.ops.contains(where: { !$0.isService }) {
+            next = min(next ?? until, until)
         }
         guard next != wakeAt || wake == nil else { return }
         wake?.cancel()
@@ -841,6 +1111,8 @@ final class LicenseController {
         case .refuse: await refuse(op)
         case .free: await free(op)
         case .remove: await removeFromService(op)
+        case .revoke: await revokeOnService(op)
+        case .freed: await tellFreed(op)
         }
     }
 
@@ -929,6 +1201,7 @@ final class LicenseController {
                 replace(op, with: .init(
                     kind: .refuse, key: op.key, refusal: Inputweave_App_V1_LicenseRefusal.invalid.rawValue, noLongerValid: true))
             case .rateLimited(let wait):
+                slowDown(wait)
                 retry(op, wait)
                 if forSheet(op) { finish(.polarUnreachable) }
             case .unreachable:
@@ -944,6 +1217,7 @@ final class LicenseController {
             retry(op)
             if forSheet(op) { finish(.failed) }
         case .rateLimited(let wait):
+            slowDown(wait)
             retry(op, wait)
             if forSheet(op) { finish(.polarUnreachable) }
         case .unreachable:
@@ -1013,40 +1287,154 @@ final class LicenseController {
         }
     }
 
-    /// Runs whether or not the service can be reached.
+    /// Runs whether or not the service can be reached. An activation
+    /// revoked here is freed whatever the record says now: it is never
+    /// licensed again. One the service lists to be freed is told of once
+    /// done: Polar freed it or will never take it.
     private func free(_ op: LicenseOutbox.Op) async {
-        switch await polar.deactivate(key: op.key, activationID: op.activationID) {
+        let answer = await polar.deactivate(key: op.key, activationID: op.activationID)
+        guard isQueued(op) else { return }
+        switch answer {
         case .done:
-            done(op)
+            freedDone(op)
         case .refused:
             log.notice("Polar refused to free activation \(op.activationID, privacy: .public); dropped")
-            done(op)
+            freedDone(op)
         case .rateLimited(let wait):
+            slowDown(wait)
             retry(op, wait)
         case .unreachable:
             retry(op)
         }
     }
 
-    private func removeFromService(_ op: LicenseOutbox.Op) async {
+    private func freedDone(_ op: LicenseOutbox.Op) {
+        if op.toFree || listedToFree(op.activationID) {
+            replace(op, with: .init(kind: .freed, key: op.key, activationID: op.activationID))
+        } else {
+            done(op)
+        }
+    }
+
+    /// The service lists `activationID` to be freed (`License.to_free`).
+    private func listedToFree(_ activationID: String) -> Bool {
+        !activationID.isEmpty && agent.license.toFree.contains { $0.activationID == activationID }
+    }
+
+    /// The service forgets an activation it listed to be freed; one it no
+    /// longer lists changes nothing. A refusal that is not only for now
+    /// leaves it to list it again.
+    private func tellFreed(_ op: LicenseOutbox.Op) async {
         do {
-            try await agent.removeLicense()
+            try await agent.licenseActivationFreed(op.activationID)
             done(op)
         } catch let refusal as AgentRefusal where !Self.temporaryRefusals.contains(refusal.code) {
-            // For good: the license stays here, and so does its seat.
-            log.error("The background service refused to remove the license: \(refusal.code, privacy: .public)")
-            change { outbox in
-                outbox.remove(op)
-                if !op.activationID.isEmpty {
-                    outbox.ops.removeAll { $0.kind == .free && $0.activationID == op.activationID }
-                }
+            log.error("The background service refused that activation \(op.activationID, privacy: .public) was freed: \(refusal.code, privacy: .public)")
+            done(op)
+        } catch {
+            retry(op)
+        }
+    }
+
+    /// Removes the license as it was when it was asked for (`op`'s key and
+    /// activation); the service refuses that as stale once it is another,
+    /// which is done too. After its free, a license revoked here is
+    /// removed only while the record still says so; one the service
+    /// meanwhile lists to be freed (the key came here again) is said to be
+    /// freed instead, and otherwise nothing more is done.
+    private func removeFromService(_ op: LicenseOutbox.Op) async {
+        if op.revoked, !stillRevoked(op) {
+            afterQuietRemoval(op)
+            return
+        }
+        do {
+            try await agent.removeLicense(key: op.key, activationID: op.activationID)
+            done(op)
+        } catch let refusal as AgentRefusal where refusal.code == "license_stale" {
+            if op.revoked {
+                log.notice("The license revoked here changed before it was removed; it stays")
+                afterQuietRemoval(op)
+            } else {
+                removeAgain(op)
             }
-            removalRefused = true
+        } catch let refusal as AgentRefusal where !Self.temporaryRefusals.contains(refusal.code) {
+            log.error("The background service refused to remove the license: \(refusal.code, privacy: .public)")
+            removalRefusedForGood(op)
         } catch {
             retry(op)
             // A key the user entered waits behind the removal; the sheet
             // says it did not go through yet, and keeps following.
             if outbox.ops.contains(where: { $0.kind == .setKey && forSheet($0) }) { finish(.failed) }
+        }
+    }
+
+    /// The user's Remove License met a newer license than the one it named:
+    /// the user still wants it gone, so it is asked for again with the
+    /// license as the record has it now, `removeAttempts` times in all,
+    /// and then counts as refused. The activation it named is no longer the
+    /// record's, so its free goes on; the current one's is freed once the
+    /// service removed it. With no license left, the removal is done.
+    private func removeAgain(_ op: LicenseOutbox.Op) {
+        let license = agent.license
+        guard !license.key.isEmpty else {
+            log.notice("The license was gone before it was removed")
+            done(op)
+            return
+        }
+        guard op.staleTries + 1 < Self.removeAttempts else {
+            log.error("The background service refused to remove the license: it kept changing")
+            removalRefusedForGood(op)
+            return
+        }
+        log.notice("The license changed before it was removed; the current one is removed")
+        var next = LicenseOutbox.Op(kind: .remove, key: license.key, activationID: license.activationID)
+        next.staleTries = op.staleTries + 1
+        change { outbox in
+            outbox.replace(op, with: next)
+            let id = next.activationID
+            if !id.isEmpty, !outbox.ops.contains(where: { $0.kind == .free && $0.activationID == id }) {
+                outbox.ops.append(.init(kind: .free, key: next.key, activationID: id, fromRemove: true))
+            }
+        }
+    }
+
+    /// For good: the license stays here, and so does its seat. One revoked
+    /// from another device is not removed again while the record says the
+    /// same, and nothing is said of it.
+    private func removalRefusedForGood(_ op: LicenseOutbox.Op) {
+        let record = signature(agent.license)
+        change { outbox in
+            outbox.remove(op)
+            if !op.activationID.isEmpty {
+                outbox.ops.removeAll { $0.kind == .free && $0.activationID == op.activationID }
+            }
+            if op.revoked { outbox.stalled[op.key] = record }
+        }
+        if !op.revoked { removalRefused = true }
+    }
+
+    /// The license revoked here is no longer to be removed: its freed
+    /// activation is said to be freed when the service lists it so.
+    private func afterQuietRemoval(_ op: LicenseOutbox.Op) {
+        if listedToFree(op.activationID) {
+            replace(op, with: .init(kind: .freed, key: op.key, activationID: op.activationID))
+        } else {
+            done(op)
+        }
+    }
+
+    /// Revoking is safe to repeat: a device with nothing to revoke changes
+    /// nothing. A refusal that is not only for now is dropped; the device
+    /// stays as the service shows it.
+    private func revokeOnService(_ op: LicenseOutbox.Op) async {
+        do {
+            try await agent.revokeLicense(deviceID: op.deviceID, activationID: op.activationID, deactivated: op.deactivated)
+            done(op)
+        } catch let refusal as AgentRefusal where !Self.temporaryRefusals.contains(refusal.code) {
+            log.error("The background service refused to revoke the license on \(op.deviceID, privacy: .public): \(refusal.code, privacy: .public)")
+            done(op)
+        } catch {
+            retry(op)
         }
     }
 
@@ -1098,7 +1486,7 @@ final class LicenseController {
 
     private func confirmIfDue() {
         let license = agent.license
-        guard agent.licenseLinked, isLicensed, !license.activationID.isEmpty, validation == nil else { return }
+        guard agent.licenseLinked, isLicensed, !license.activationID.isEmpty, validation == nil, !polarWaiting else { return }
         let time = now()
         if let last = lastValidationAttempt, time.timeIntervalSince(last) < Self.attemptEvery { return }
         let confirmed = Date(timeIntervalSince1970: TimeInterval(license.validatedAt))
@@ -1148,7 +1536,11 @@ final class LicenseController {
                     self?.confirmNotFound(id)
                 }
             }
-        case .rateLimited, .unreachable:
+        case .rateLimited(let wait):
+            // Nothing changes; no request to Polar until it said, and the
+            // next appearance an hour on asks again.
+            slowDown(wait)
+        case .unreachable:
             // Nothing changes; the next appearance an hour on asks again.
             break
         }
@@ -1198,29 +1590,3 @@ extension LicenseController {
     }
 }
 #endif
-
-/// What the license views say, apart from the views.
-enum LicenseText {
-    /// The buyer's email with all but its first character hidden:
-    /// "t•••@gmail.com".
-    static func maskedEmail(_ email: String) -> String {
-        guard let at = email.firstIndex(of: "@"), at != email.startIndex else { return "" }
-        return "\(email[email.startIndex])•••\(email[at...])"
-    }
-
-    struct Computer: Equatable, Identifiable {
-        var id: String
-        var name: String
-        var thisComputer: Bool
-    }
-
-    /// The computers on this license that this one knows of: itself, then
-    /// the paired ones licensed with the same key.
-    static func computers(_ license: LicenseRecord, thisName: String) -> [Computer] {
-        guard license.state == .licensed else { return [] }
-        return [Computer(id: "", name: thisName, thisComputer: true)]
-            + license.devices.filter(\.licensed).map { Computer(id: $0.id, name: $0.name, thisComputer: false) }
-    }
-
-    static let seats = 5
-}

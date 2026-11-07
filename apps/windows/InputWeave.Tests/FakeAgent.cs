@@ -524,6 +524,45 @@ internal sealed class FakeAgent
         }
     }
 
+    /// <summary>
+    /// Applies this computer's license to a trusted computer, which then
+    /// activates it as it is connected, or revokes it there, which then
+    /// leaves the list, as the service does.
+    /// </summary>
+    private Response SetLicenseUse(string id, bool apply)
+    {
+        if (Status.License is not { } license)
+        {
+            return Refuse("unsupported", "this agent keeps no license");
+        }
+        if (Status.Devices.All(d => d.Id != id))
+        {
+            return Refuse("unknown_device", "no such trusted device");
+        }
+        if (apply && license.State != LicenseState.Licensed)
+        {
+            return Refuse("not_licensed", "this device is not licensed");
+        }
+        Status = Status.Clone();
+        var devices = Status.License.Devices;
+        var listed = devices.FirstOrDefault(d => d.Id == id);
+        if (listed is not null)
+        {
+            devices.Remove(listed);
+        }
+        if (apply)
+        {
+            bool connected = Status.Devices.First(d => d.Id == id).State == ConnectionState.Connected;
+            devices.Add(new LicensedDevice
+            {
+                Id = id,
+                Name = Status.Devices.First(d => d.Id == id).Name,
+                Use = connected ? LicenseUse.Activating : LicenseUse.Waiting,
+            });
+        }
+        return new Response { Status = Status };
+    }
+
     private Response Answer(ClientMessage request)
     {
         if (AnswerProfiles(request) is { } answered)
@@ -845,6 +884,22 @@ internal sealed class FakeAgent
                     : Refuse("not_found", "no such promise of clipboard files");
             case ClientMessage.CommandOneofCase.GetDiagnostics:
                 return new Response { Diagnostics = new Diagnostics { Report = "InputWeave diagnostics" } };
+            case ClientMessage.CommandOneofCase.ApplyLicense:
+                return SetLicenseUse(request.ApplyLicense.DeviceId, apply: true);
+            case ClientMessage.CommandOneofCase.RevokeLicense:
+                return SetLicenseUse(request.RevokeLicense.DeviceId, apply: false);
+            case ClientMessage.CommandOneofCase.LicenseActivationFreed:
+                if (Status.License is null)
+                {
+                    return Refuse("unsupported", "this agent keeps no license");
+                }
+                // One not listed changes nothing.
+                Status = Status.Clone();
+                foreach (var listed in Status.License.ToFree.Where(a => a.ActivationId == request.LicenseActivationFreed.ActivationId).ToList())
+                {
+                    Status.License.ToFree.Remove(listed);
+                }
+                return new Response { Status = Status };
             default:
                 return Refuse("unknown_command", "not in the fake");
         }

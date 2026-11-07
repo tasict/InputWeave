@@ -29,6 +29,20 @@ public enum LicenseOpKind
 
     /// <summary>Remove the license from the service (RemoveLicense).</summary>
     Remove,
+
+    /// <summary>
+    /// Tell the service the license is revoked on another computer
+    /// (RevokeLicense), with whether Polar deactivated its activation, which
+    /// was asked once before this was kept. Last, as the kinds are kept as
+    /// numbers.
+    /// </summary>
+    Revoke,
+
+    /// <summary>
+    /// Tell the service an activation it lists to be freed (License.to_free)
+    /// is freed with Polar (LicenseActivationFreed).
+    /// </summary>
+    Freed,
 }
 
 /// <summary>Why the last attempt at a piece of work did not finish it.</summary>
@@ -72,6 +86,34 @@ public sealed record LicenseOp
 
     /// <summary>Free: this computer's own seat, given up by Remove License; the License page says so while it waits.</summary>
     public bool Removed { get; init; }
+
+    /// <summary>
+    /// Remove, and the Free that goes with it: another computer revoked the
+    /// license here (LICENSE_STATE_REVOKED), and the app gives it up by
+    /// itself, the activation (the Remove's ActivationId) freed first; the
+    /// License page says nothing of it. The activation is freed whatever the
+    /// license is by then (a revoked activation is never licensed again);
+    /// once it is, the license is removed if it is still revoked, or the
+    /// service told it is freed if it lists it to be freed by then (a key
+    /// entered or applied here meanwhile started the license over).
+    /// </summary>
+    public bool Silent { get; init; }
+
+    /// <summary>Remove: how many times the user's Remove License found the license replaced (license_stale) and went for the one there then.</summary>
+    public int StaleAnswers { get; init; }
+
+    /// <summary>Revoke: the computer the license is revoked on.</summary>
+    public string DeviceId { get; init; } = "";
+
+    /// <summary>Revoke: Polar deactivated its activation, or said it was gone; otherwise the computer deactivates it itself.</summary>
+    public bool Deactivated { get; init; }
+
+    /// <summary>
+    /// Free: an activation of a key this computer had before, which the
+    /// service lists to be freed (License.to_free); the service is told once
+    /// it is (<see cref="LicenseOpKind.Freed"/>), whatever the license is by then.
+    /// </summary>
+    public bool ToFree { get; init; }
 
     /// <summary>Confirm: when Polar first answered 404; a second 404 at least a minute later makes the license invalid.</summary>
     public DateTimeOffset? NotFoundAt { get; init; }

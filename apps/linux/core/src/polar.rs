@@ -132,10 +132,20 @@ pub enum Validation {
 /// What `deactivate` answered.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Deactivation {
-    /// 204; 404 because it was already gone; or an answer asking again
-    /// would not change (Polar's own 403, a 422).
+    /// 2xx, or 404 because it was already gone: the activation takes no
+    /// place.
     Done,
+    /// Polar's own 403 or a 422: the activation was not freed, and asking
+    /// again would not change that.
+    Refused,
     Trouble(Trouble),
+}
+
+impl Deactivation {
+    /// Whether the activation takes no place now.
+    pub fn freed(&self) -> bool {
+        *self == Deactivation::Done
+    }
 }
 
 /// An answer and when Polar gave it (the `Date` header, when there is one).
@@ -217,8 +227,9 @@ pub fn deactivate(
     });
     match post(transport, base, "deactivate", body) {
         Ok(r) => match r.status {
-            200..=299 | 404 | 422 => Deactivation::Done,
-            403 if parse(&r.body).is_some_and(|b| is_not_permitted(&b)) => Deactivation::Done,
+            200..=299 | 404 => Deactivation::Done,
+            422 => Deactivation::Refused,
+            403 if parse(&r.body).is_some_and(|b| is_not_permitted(&b)) => Deactivation::Refused,
             _ => Deactivation::Trouble(trouble(&r)),
         },
         Err(t) => Deactivation::Trouble(t),
@@ -565,19 +576,21 @@ mod tests {
 
     #[test]
     fn deactivate_is_done_unless_asking_again_could_change_it() {
-        for (status, body) in [
-            (204, ""),
-            (200, ""),
-            (404, fixture!("404-not-found.json")),
-            (422, fixture!("422-validation.json")),
-            (403, fixture!("activate-403-revoked.json")),
+        for (status, body, answer) in [
+            (204, "", Deactivation::Done),
+            (200, "", Deactivation::Done),
+            (404, fixture!("404-not-found.json"), Deactivation::Done),
+            (422, fixture!("422-validation.json"), Deactivation::Refused),
+            (
+                403,
+                fixture!("activate-403-revoked.json"),
+                Deactivation::Refused,
+            ),
         ] {
             let t = Canned::status(status, body);
-            assert_eq!(
-                deactivate(&t, API, KEY, "a"),
-                Deactivation::Done,
-                "{status}"
-            );
+            let got = deactivate(&t, API, KEY, "a");
+            assert_eq!(got, answer, "{status}");
+            assert_eq!(got.freed(), status != 422 && status != 403, "{status}");
             let body = t.asked().1;
             assert_eq!(body["activation_id"], "a");
             assert_eq!(body["organization_id"], ORGANIZATION_ID);

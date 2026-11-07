@@ -84,8 +84,10 @@ pub use files::{
 };
 pub use folder_access::{Access, FolderAccess, UserFolder, UserFolders};
 pub use license::{
-    LicenseError, LicenseFile, LicenseResult, LicenseState, LicenseStatus, LicensedDevice,
-    Licenses, Refusal, masked as masked_license_key, valid_key as valid_license_key,
+    LicenseError, LicenseFile, LicenseResult, LicenseState, LicenseStatus, LicenseUse,
+    LicensedDevice, Licenses, Refusal, key_match as license_key_match,
+    masked as masked_license_key, revoke_proof as license_revoke_proof,
+    valid_key as valid_license_key,
 };
 pub use listing::{MAX_BYTES, MAX_FILES, MAX_ITEMS};
 pub use pairing::{Failure, NotWaiting, PairingPeer, PairingStatus};
@@ -242,6 +244,28 @@ pub struct Options {
     /// How often a license file that is there but cannot be read is read
     /// again; for tests. `None` is two minutes.
     pub license_reread: Option<Duration>,
+    /// How long the agent waits, as it starts, for an app to connect before
+    /// it opens one for license work no one started here (a key another
+    /// device applied, an activation it revoked): an app still running
+    /// reconnects in that time, as after the agent restarted, and opening
+    /// it then would bring its window forward. For tests; `None` is ten
+    /// seconds.
+    pub license_app_wait: Option<Duration>,
+    /// While that work is still there and no app is connected, the waits
+    /// before the app is opened again, the last over and over; for tests.
+    /// `None` is a minute, then ten minutes.
+    pub license_app_retries: Option<Vec<Duration>>,
+    /// How soon an apply or revoke sent to a device in a session is sent
+    /// again, what the device says still not showing it; for tests. `None`
+    /// is thirty seconds.
+    pub license_resend: Option<Duration>,
+    /// How long a device on InputWeave 1.0 told the key for an apply has
+    /// to say it holds it before it counts as not taking it; for tests.
+    /// `None` is a minute.
+    pub legacy_take_wait: Option<Duration>,
+    /// The shortest time between two attempts to open the app; for tests.
+    /// `None` is ten seconds (`app::INTERVAL`).
+    pub app_open_interval: Option<Duration>,
     /// How long a device being woken has to connect before it counts as not
     /// woken; for tests. `None` is two minutes.
     pub wake_wait: Option<Duration>,
@@ -391,7 +415,7 @@ pub async fn start(
         Licenses::Memory => (Some(LicenseFile::default()), None, None),
         Licenses::File(path) => {
             let (file, unavailable) = match LicenseFile::load_or_set_aside(path) {
-                license::Loaded::File(file) => (Some(file), None),
+                license::Loaded::File(file) => (Some(*file), None),
                 license::Loaded::SetAside => (Some(LicenseFile::default()), None),
                 license::Loaded::Unreadable => (None, Some(path.clone())),
             };
@@ -443,9 +467,12 @@ pub async fn start(
     let peers_now = directory.peers();
     // The engine starts from the license shown here.
     let initial = Status {
-        license: license::shown(license.as_ref(), license_unavailable.is_some(), |id| {
-            directory::name_of(&peers_now, id)
-        }),
+        license: license::shown(
+            license.as_ref(),
+            license_unavailable.is_some(),
+            |id| directory::name_of(&peers_now, id),
+            |_| false,
+        ),
         ..Status::initial(
             &config,
             &peers_now,
@@ -466,10 +493,14 @@ pub async fn start(
     let (drag_events, _) = broadcast::channel(DRAG_EVENTS);
 
     let ui_clients = Arc::new(AtomicUsize::new(0));
-    let opener = Arc::new(app::AppOpener::new(
-        options.open_app.then(|| app_opener(&broker)),
-        ui_clients.clone(),
-    ));
+    let ui_connects = Arc::new(AtomicUsize::new(0));
+    let opener = Arc::new(
+        app::AppOpener::new(
+            options.open_app.then(|| app_opener(&broker)),
+            ui_clients.clone(),
+        )
+        .with_interval(options.app_open_interval.unwrap_or(app::INTERVAL)),
+    );
     // Where the broker owns the clipboard, the app holds promises that have
     // files, which File Explorer pastes from a data object of its own.
     #[cfg(any(unix, windows))]
@@ -507,7 +538,7 @@ pub async fn start(
         ),
         &mut tasks,
     );
-    tasks.spawn(app::show_pairing_codes(pairing.watch(), opener));
+    tasks.spawn(app::show_pairing_codes(pairing.watch(), opener.clone()));
 
     let folders = (!user_folders.is_empty()).then(|| {
         folder_access::FolderAsker::new(
@@ -548,6 +579,7 @@ pub async fn start(
                 session: session.clone(),
                 login_window: options.login_window,
                 ui_clients: ui_clients.clone(),
+                ui_connects: ui_connects.clone(),
                 app_clipboard: app_clipboard.clone(),
                 diagnostics: diagnostics.clone(),
                 local_addr,
@@ -589,6 +621,15 @@ pub async fn start(
         license_saver,
         license_unavailable,
         license_reread: options.license_reread.unwrap_or(engine::LICENSE_REREAD),
+        license_app_wait: options.license_app_wait.unwrap_or(engine::LICENSE_APP_WAIT),
+        license_app_retries: options
+            .license_app_retries
+            .clone()
+            .filter(|r| !r.is_empty())
+            .unwrap_or_else(|| engine::LICENSE_APP_RETRIES.to_vec()),
+        license_resend: options.license_resend.unwrap_or(engine::LICENSE_RESEND),
+        legacy_take_wait: options.legacy_take_wait.unwrap_or(engine::LEGACY_TAKE_WAIT),
+        app: opener,
         status: status_tx,
         peers_applied: peers_applied_tx,
         arrangement: arrangement_tx,
@@ -605,6 +646,7 @@ pub async fn start(
         files: files.clone(),
         drag_events: drag_events.clone(),
         ui_clients: ui_clients.clone(),
+        ui_connects: ui_connects.clone(),
         events: engine_tx.downgrade(),
         pulls: pulls.clone(),
         clipboard_staging: options
@@ -1758,7 +1800,62 @@ impl AgentHandle {
 
     /// Removes the license from this computer (`RemoveLicense`).
     pub async fn remove_license(&self) -> Result<(), LicenseError> {
-        license(&self.engine_tx, engine::LicenseChange::Remove).await
+        let change = engine::LicenseChange::Remove {
+            key: String::new(),
+            activation_id: String::new(),
+        };
+        license(&self.engine_tx, change).await
+    }
+
+    /// Removes the license only while it is still `key` with activation
+    /// `activation_id` (`RemoveLicense` with them).
+    pub async fn remove_license_if(
+        &self,
+        key: &str,
+        activation_id: &str,
+    ) -> Result<(), LicenseError> {
+        let change = engine::LicenseChange::Remove {
+            key: key.to_owned(),
+            activation_id: activation_id.to_owned(),
+        };
+        license(&self.engine_tx, change).await
+    }
+
+    /// Applies this computer's license to device `device` (`ApplyLicense`).
+    pub async fn apply_license(&self, device: &str) -> Result<(), LicenseError> {
+        license(
+            &self.engine_tx,
+            engine::LicenseChange::Apply(device.to_owned()),
+        )
+        .await
+    }
+
+    /// Revokes this computer's license on device `device`, naming its
+    /// activation `activation_id`, which the app deactivated at Polar or not
+    /// (`deactivated`), or, with none, takes back what was applied there
+    /// (`RevokeLicense`).
+    pub async fn revoke_license(
+        &self,
+        device: &str,
+        activation_id: &str,
+        deactivated: bool,
+    ) -> Result<(), LicenseError> {
+        let change = engine::LicenseChange::Revoke {
+            device: device.to_owned(),
+            activation_id: activation_id.to_owned(),
+            deactivated,
+        };
+        license(&self.engine_tx, change).await
+    }
+
+    /// The app freed `activation_id`, of an earlier key, with Polar
+    /// (`LicenseActivationFreed`).
+    pub async fn license_activation_freed(&self, activation_id: &str) -> Result<(), LicenseError> {
+        license(
+            &self.engine_tx,
+            engine::LicenseChange::Freed(activation_id.to_owned()),
+        )
+        .await
     }
 
     /// Sets how long the cursor must push against an edge before it

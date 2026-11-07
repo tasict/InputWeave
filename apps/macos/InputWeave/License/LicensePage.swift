@@ -28,13 +28,12 @@ struct LicenseSidebarRow: View {
 /// Settings › License.
 struct LicensePage: View {
     @Environment(LicenseController.self) private var license
-    @State private var confirmingRemoval = false
 
     var body: some View {
         @Bindable var license = license
         Form {
             if license.isLicensed {
-                LicensedSections(confirmingRemoval: $confirmingRemoval)
+                LicensedSections()
             } else {
                 TrialSections()
             }
@@ -42,13 +41,6 @@ struct LicensePage: View {
         .formStyle(.grouped)
         .sheet(isPresented: $license.entering) {
             EnterLicenseKeySheet()
-        }
-        .confirmationDialog("Remove the license from this computer?", isPresented: $confirmingRemoval) {
-            Button("Remove License", role: .destructive) {
-                license.remove()
-            }
-        } message: {
-            Text("This frees one of your 5 computers. Your other computers keep their license, and this one won’t pick it up from them again until you enter the key.")
         }
         .onAppear { license.surfaceAppeared() }
         .onDisappear { license.surfaceDisappeared() }
@@ -78,9 +70,12 @@ private struct LinkButton: View {
 
 private struct TrialSections: View {
     @Environment(LicenseController.self) private var license
+    @Environment(AgentModel.self) private var model
 
     var body: some View {
-        let state = license.license.state
+        let record = license.license
+        let state = record.state
+        let seatsFullHere = LicenseText.seatsFullHere(record)
         Section {
             VStack(alignment: .leading, spacing: 10) {
                 Text("Trial")
@@ -88,7 +83,7 @@ private struct TrialSections: View {
                 Text("Every feature works without a license, for as long as you like. A license replaces “Trial” with “Licensed” here and in About InputWeave.")
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
-                if state == .seatsFull {
+                if seatsFullHere {
                     Notice(symbol: "exclamationmark.triangle.fill", color: .orange,
                            text: Text("Your license is already used on 5 computers, so this computer stays in trial. Every feature still works. To license this one, free a computer you no longer use in Polar’s customer portal."))
                 } else if state == .invalid {
@@ -117,8 +112,11 @@ private struct TrialSections: View {
                            text: Text("Polar couldn’t be reached, so this computer’s place on the license isn’t free yet. InputWeave frees it once Polar can be reached, or you can free it in Polar’s customer portal."))
                 }
                 Text("US$10, paid once, for up to 5 of your computers.")
+                if let name = LicenseText.licensedElsewhere(record) {
+                    Notice(symbol: "info.circle.fill", color: .blue, text: Text(verbatim: LicenseText.licensedElsewhereNote(name)))
+                }
                 HStack(spacing: 8) {
-                    if state == .seatsFull && !license.removalPending {
+                    if seatsFullHere && !license.removalPending {
                         LinkButton(title: "Manage Computers…", url: license.links.customerPortal, prominent: true)
                         Button("Try Again") { license.tryAgain() }
                     } else if state != .unavailable {
@@ -133,10 +131,14 @@ private struct TrialSections: View {
             }
             .padding(.vertical, 6)
         }
+        let waiting = LicenseText.waitingToApply(model.status)
+        if !waiting.isEmpty {
+            WaitingToApplySection(rows: waiting)
+        }
         Section {
             Step(number: 1, text: Text("Buy a license from Polar and get a license key."))
             Step(number: 2, text: Text("Enter the key on one of your computers."))
-            Step(number: 3, text: Text("Your paired computers pick up the license by themselves, up to 5 in all."))
+            Step(number: 3, text: Text("On that computer’s License page, choose the other computers that use it, up to 5 in all."))
         } header: {
             Text("How the license works")
         } footer: {
@@ -150,12 +152,10 @@ private struct TrialSections: View {
 private struct LicensedSections: View {
     @Environment(LicenseController.self) private var license
     @Environment(AgentModel.self) private var model
-    @Binding var confirmingRemoval: Bool
 
     var body: some View {
         let record = license.license
         let email = LicenseText.maskedEmail(record.customerEmail)
-        let computers = LicenseText.computers(record, thisName: model.thisComputerName)
         Section {
             HStack(spacing: 18) {
                 WovenLabel(size: .large, sews: license.justActivated, onSewn: { license.labelSewn() })
@@ -175,6 +175,34 @@ private struct LicensedSections: View {
             }
             .padding(.vertical, 6)
         }
+        if record.applySupported {
+            ComputersOnLicense()
+        } else {
+            EarlierComputersSection()
+        }
+        Section {
+            if license.removalRefused {
+                Notice(symbol: "exclamationmark.triangle.fill", color: .orange,
+                       text: Text("InputWeave couldn’t remove the license on this computer."))
+            }
+            HStack(spacing: 8) {
+                LinkButton(title: "Manage Computers…", url: license.links.customerPortal)
+                Button("Remove License…") {
+                    ConfirmationAlert.ask(LicenseAlerts.removal()) { license.remove() }
+                }
+            }
+        }
+    }
+}
+
+/// The computers on this license as a background service that does not
+/// apply licenses lists them: this one and the paired ones licensed.
+private struct EarlierComputersSection: View {
+    @Environment(LicenseController.self) private var license
+    @Environment(AgentModel.self) private var model
+
+    var body: some View {
+        let computers = LicenseText.computers(license.license, thisName: model.thisComputerName)
         Section {
             ForEach(computers) { computer in
                 HStack(spacing: 10) {
@@ -199,15 +227,179 @@ private struct LicensedSections: View {
                 .foregroundStyle(.secondary)
                 .font(.callout)
         }
+    }
+}
+
+/// "Computers on this license": this computer and every computer it
+/// trusts, each with how it stands on the license and what can be done:
+/// apply the license there, revoke it, or take back applying it.
+private struct ComputersOnLicense: View {
+    @Environment(LicenseController.self) private var license
+    @Environment(AgentModel.self) private var model
+
+    var body: some View {
+        let rows = LicenseText.rows(model.status, thisName: model.thisComputerName)
+        let full = LicenseText.allPlacesUsed(rows)
         Section {
-            if license.removalRefused {
-                Notice(symbol: "exclamationmark.triangle.fill", color: .orange,
-                       text: Text("InputWeave couldn’t remove the license on this computer."))
+            ForEach(rows) { row in
+                LicenseComputerRow(row: row, full: full) {
+                    ConfirmationAlert.ask(LicenseAlerts.revoke(name: row.name)) {
+                        Task { await license.revoke(row.id, activationID: row.activationID) }
+                    }
+                }
             }
-            HStack(spacing: 8) {
-                LinkButton(title: "Manage Computers…", url: license.links.customerPortal)
-                Button("Remove License…") { confirmingRemoval = true }
+        } header: {
+            HStack {
+                Text("Computers on this license")
+                Spacer()
+                Text("\(LicenseText.licensedCount(rows)) of \(LicenseText.seats)").monospacedDigit()
             }
+        } footer: {
+            VStack(alignment: .leading, spacing: 6) {
+                if full {
+                    Text("All 5 are in use. To apply the license to another computer, revoke it on one first.")
+                }
+                Text("Only computers you apply the license to here use it; newly paired computers don’t get it by themselves. Polar’s customer portal lists all of them.")
+            }
+            .foregroundStyle(.secondary)
+            .font(.callout)
+            .fixedSize(horizontal: false, vertical: true)
+        }
+        if LicenseText.noPlaces(rows) {
+            Section {
+                VStack(alignment: .leading, spacing: 10) {
+                    Notice(symbol: "exclamationmark.triangle.fill", color: .orange,
+                           text: Text("Polar says this license is already on 5 computers, maybe including some not paired with this one. Free one you no longer use in Polar’s customer portal, then apply again."))
+                    LinkButton(title: "Manage Computers…", url: license.links.customerPortal)
+                }
+                .padding(.vertical, 4)
+            }
+        }
+    }
+}
+
+/// A computer's icon and name on the License page, with what is said of it
+/// under the name.
+private struct ComputerName: View {
+    let row: LicenseText.Row
+
+    var body: some View {
+        Image(systemName: OSLabel(os: row.os).symbol)
+            .foregroundStyle(.secondary)
+            .frame(width: 20)
+            .accessibilityHidden(true)
+        VStack(alignment: .leading, spacing: 2) {
+            Text(verbatim: row.name)
+            Group {
+                switch row.reach {
+                case .thisComputer: Text("This computer")
+                case .offline: Text("Offline")
+                case .offlineForNow: Text(OfflineText.status())
+                case .connected: EmptyView()
+                }
+                if row.showsLegacyNote {
+                    Text("InputWeave 1.0: you can revoke it here once it’s updated to 1.1. To free its place now, use Polar’s customer portal.")
+                }
+                if row.showsLegacyRefused {
+                    Text("InputWeave 1.0 didn’t take the license. Update it to 1.1, then apply it again.")
+                }
+                if row.standing == .otherLicense {
+                    Text("This computer uses a different license.")
+                }
+            }
+            .font(.subheadline)
+            .foregroundStyle(.secondary)
+            .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+}
+
+/// While this computer is not licensed, the computers its license waits
+/// to be applied to once it is licensed again; each can be taken back.
+private struct WaitingToApplySection: View {
+    @Environment(LicenseController.self) private var license
+    let rows: [LicenseText.Row]
+
+    var body: some View {
+        Section("Waiting to Apply") {
+            ForEach(rows) { row in
+                HStack(spacing: 10) {
+                    ComputerName(row: row)
+                    Spacer(minLength: 12)
+                    Text("Applies once this computer is licensed again")
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                        .fixedSize()
+                    if row.action == .dontApply {
+                        Button("Don’t Apply") { Task { await license.dontApply(row.id) } }
+                            .disabled(license.applying.contains(row.id))
+                            .fixedSize()
+                    }
+                }
+                .padding(.vertical, 2)
+            }
+        }
+    }
+}
+
+/// One computer on "Computers on this license".
+private struct LicenseComputerRow: View {
+    @Environment(LicenseController.self) private var license
+    let row: LicenseText.Row
+    /// Every place is taken or promised: Apply License is off.
+    let full: Bool
+    let revoke: () -> Void
+
+    var body: some View {
+        HStack(spacing: 10) {
+            ComputerName(row: row)
+            Spacer(minLength: 12)
+            standing
+                .font(.callout)
+                .fixedSize()
+            action
+                .fixedSize()
+        }
+        .padding(.vertical, 2)
+    }
+
+    @ViewBuilder private var standing: some View {
+        switch row.standing {
+        case .thisComputer, .licensed:
+            Label("Licensed", systemImage: "checkmark")
+                .labelStyle(.titleAndIcon)
+                .foregroundStyle(.green)
+        case .trial:
+            Text("Trial").foregroundStyle(.secondary)
+        case .activating:
+            HStack(spacing: 6) {
+                ProgressView().controlSize(.small)
+                Text("Activating…").foregroundStyle(.secondary)
+            }
+        case .waiting:
+            Text("Offline. Applies when it connects").foregroundStyle(.secondary)
+        case .noPlaces:
+            Label("No places left", systemImage: "exclamationmark.triangle.fill")
+                .labelStyle(.titleAndIcon)
+                .foregroundStyle(.orange)
+        case .otherLicense:
+            Text("Another license").foregroundStyle(.secondary)
+        }
+    }
+
+    @ViewBuilder private var action: some View {
+        switch row.action {
+        case .none:
+            EmptyView()
+        case .apply:
+            Button("Apply License") { Task { await license.apply(row.id) } }
+                .disabled(full || license.applying.contains(row.id))
+        case .revoke:
+            Button("Revoke License…", action: revoke)
+                .disabled(license.revoking(row.id) || license.applying.contains(row.id))
+        case .dontApply:
+            Button("Don’t Apply") { Task { await license.dontApply(row.id) } }
+                .disabled(license.applying.contains(row.id))
         }
     }
 }

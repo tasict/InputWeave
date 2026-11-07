@@ -14,7 +14,7 @@ use super::directory::{Origin, Peer};
 use super::drag::Dragging;
 use super::files::{BatchInfo, Direction, FileSettings, TransferState, TransferStatus};
 use super::folder_access::FolderAccess;
-use super::license::{LicenseState, LicenseStatus};
+use super::license::{LicenseState, LicenseStatus, LicenseUse};
 use super::pairing::{PairingPeer, PairingStatus};
 use super::previews::{MAX_ARRANGEMENT_PICTURES, Pictures};
 use super::wake::WakeState;
@@ -635,16 +635,43 @@ pub fn license_to_proto(license: &LicenseStatus) -> app::License {
         validated_at: license.validated_at,
         source_device_id: license.source_device_id.clone(),
         source_device_name: license.source_device_name.clone(),
-        opted_out: license.opted_out,
+        opted_out: false,
         devices: license
             .devices
             .iter()
             .map(|d| app::LicensedDevice {
                 id: d.id.clone(),
                 name: d.name.clone(),
-                licensed: d.licensed,
+                licensed: d.licensed_use == LicenseUse::Licensed,
+                r#use: license_use_to_proto(d.licensed_use).into(),
+                activation_id: d.activation_id.clone(),
+                legacy: d.legacy,
+                can_take_back: d.can_take_back,
+                key_out_of_reach: d.key_out_of_reach,
+                legacy_refused: d.legacy_refused,
+                waiting_to_apply: d.waiting_to_apply,
             })
             .collect(),
+        apply_supported: true,
+        to_free: license
+            .to_free
+            .iter()
+            .map(|t| app::LicenseActivation {
+                key: t.key.clone(),
+                activation_id: t.activation_id.clone(),
+            })
+            .collect(),
+    }
+}
+
+pub fn license_use_to_proto(used: LicenseUse) -> app::LicenseUse {
+    match used {
+        LicenseUse::None => app::LicenseUse::None,
+        LicenseUse::Licensed => app::LicenseUse::Licensed,
+        LicenseUse::Activating => app::LicenseUse::Activating,
+        LicenseUse::Waiting => app::LicenseUse::Waiting,
+        LicenseUse::NoPlaces => app::LicenseUse::NoPlaces,
+        LicenseUse::OtherLicense => app::LicenseUse::OtherLicense,
     }
 }
 
@@ -656,6 +683,7 @@ pub fn license_state_to_proto(state: LicenseState) -> app::LicenseState {
         LicenseState::SeatsFull => app::LicenseState::SeatsFull,
         LicenseState::Invalid => app::LicenseState::Invalid,
         LicenseState::Unavailable => app::LicenseState::Unavailable,
+        LicenseState::Revoked => app::LicenseState::Revoked,
     }
 }
 

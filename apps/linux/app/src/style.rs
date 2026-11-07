@@ -93,6 +93,9 @@ button.iw-remove { color: @destructive_color; }
 .iw-capsule { font-size: 0.85em; padding: 1px 8px; border-radius: 999px; background: alpha(currentColor, 0.08); }
 .iw-step { min-width: 24px; min-height: 24px; border-radius: 12px; background: alpha(currentColor, 0.07); font-weight: 700; }
 label.iw-license-notice { padding: 10px 14px; background: alpha(@warning_color, 0.16); border-radius: 10px; box-shadow: none; }
+.iw-license-box { padding: 10px 14px; border-radius: 10px; }
+.iw-license-info { background: alpha(@accent_bg_color, 0.12); }
+.iw-license-warning { background: alpha(@warning_color, 0.16); }
 ";
 
 pub fn install() {

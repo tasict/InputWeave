@@ -306,6 +306,68 @@ fn license_in(
     }
 }
 
+/// The sample licensed (`licensed`) with an agent that applies the license,
+/// and a computer in every standing on it: the Mac mini licensed, the
+/// Studio PC with no place left, the ThinkPad on trial (offline), or waiting
+/// for it with `all_in_use` (the fifth place), a MacBook Air on
+/// InputWeave 1.0, an office PC with another license and an iMac activating.
+fn applying_sample(
+    base: &Snapshot,
+    licensed: &inputweave_app_core::proto::License,
+    all_in_use: bool,
+) -> Snapshot {
+    use inputweave_app_core::proto::{
+        ConnectionState, DeviceStatus, License, LicenseUse, LicensedDevice,
+    };
+    let mut model = base.clone();
+    let extra = |id: &str, name: &str, os: &str| DeviceStatus {
+        id: id.into(),
+        name: name.into(),
+        os: os.into(),
+        state: ConnectionState::Connected as i32,
+        paired: true,
+        ..Default::default()
+    };
+    model.status.devices.extend([
+        extra("air", "MacBook Air", "macos"),
+        extra("office", "OFFICE-PC", "windows"),
+        extra("imac", "iMac", "macos"),
+    ]);
+    let uses = |id: &str, used: LicenseUse, activation_id: &str, legacy: bool| LicensedDevice {
+        id: id.into(),
+        name: String::new(),
+        licensed: used == LicenseUse::Licensed,
+        r#use: used as i32,
+        activation_id: activation_id.into(),
+        legacy,
+        can_take_back: matches!(used, LicenseUse::Waiting | LicenseUse::Activating),
+        key_out_of_reach: false,
+        legacy_refused: false,
+        waiting_to_apply: false,
+    };
+    let mut devices = vec![
+        uses(
+            "mac",
+            LicenseUse::Licensed,
+            "8c2d4e6f-1a3b-4c5d-8e7f-9a0b1c2d3e4f",
+            false,
+        ),
+        uses("pc", LicenseUse::NoPlaces, "", false),
+        uses("air", LicenseUse::Licensed, "", true),
+        uses("office", LicenseUse::OtherLicense, "", false),
+        uses("imac", LicenseUse::Activating, "", false),
+    ];
+    if all_in_use {
+        devices.push(uses("laptop", LicenseUse::Waiting, "", false));
+    }
+    model.status.license = Some(License {
+        apply_supported: true,
+        devices,
+        ..licensed.clone()
+    });
+    model
+}
+
 /// The sample, as the Wayland part of the run had it.
 fn wayland_again(sample: &Snapshot) -> Snapshot {
     let mut wayland = sample::wayland(SystemTime::now());
@@ -345,11 +407,13 @@ async fn license_shots(
                 id: "mac".into(),
                 name: "MacBook Pro".into(),
                 licensed: true,
+                ..Default::default()
             },
             LicensedDevice {
                 id: "pc".into(),
                 name: "Windows Desktop".into(),
                 licensed: true,
+                ..Default::default()
             },
         ],
         ..license_in(LicenseState::Licensed)
@@ -365,6 +429,84 @@ async fn license_shots(
     gtk::glib::timeout_future(SETTLE).await;
     shot("about-licensed", &window.widget());
     about.close();
+
+    // Applying and revoking (agents from 1.1): a computer in every
+    // standing, then every place in use; the questions about it.
+    let scroll_end = || {
+        let adjustment = window.license().widget().vadjustment();
+        adjustment.set_value(adjustment.upper());
+    };
+    let scroll_top = || window.license().widget().vadjustment().set_value(0.0);
+    for (name, all_in_use) in [("license-applying", false), ("license-all-in-use", true)] {
+        show(applying_sample(&base, &licensed, all_in_use));
+        gtk::glib::timeout_future(SETTLE).await;
+        shot(name, &window.widget());
+        scroll_end();
+        gtk::glib::timeout_future(SETTLE).await;
+        shot(&format!("{name}-end"), &window.widget());
+        scroll_top();
+    }
+    show(applying_sample(&base, &licensed, false));
+    let question =
+        crate::pages::license::revoke_question_for_screenshot("Mac mini", &window.widget());
+    gtk::glib::timeout_future(SETTLE).await;
+    shot("license-revoke", &window.widget());
+    question.close();
+    window.show_page(Page::Devices);
+    for (name, id) in [
+        ("remove-device-revoke", "mac"),
+        ("remove-device-legacy", "air"),
+    ] {
+        let question = crate::pages::inspector::RemoveQuestion::new(ui, id);
+        question.dialog.present(Some(&window.widget()));
+        gtk::glib::timeout_future(SETTLE).await;
+        shot(name, &window.widget());
+        question.dialog.close();
+    }
+    let notice = crate::pages::inspector::not_revoked_notice(
+        ui,
+        "Mac mini",
+        inputweave_app_core::license_text::NotRevoked::NotFreed,
+    );
+    gtk::glib::timeout_future(SETTLE).await;
+    shot("remove-device-not-revoked", &window.widget());
+    notice.close();
+    window.show_page(Page::License);
+    // On trial, with a paired computer that has a license to apply here.
+    let mut elsewhere = applying_sample(&base, &licensed, false);
+    if let Some(l) = elsewhere.status.license.as_mut() {
+        *l = inputweave_app_core::proto::License {
+            apply_supported: true,
+            devices: l.devices.clone(),
+            ..Default::default()
+        };
+    }
+    show(elsewhere);
+    gtk::glib::timeout_future(SETTLE).await;
+    shot("license-trial-elsewhere", &window.widget());
+    // Every place taken while two computers wait for the license, one of
+    // them offline.
+    let mut owed = applying_sample(&base, &licensed, false);
+    if let Some(l) = owed.status.license.as_mut() {
+        use inputweave_app_core::proto::{LicenseState, LicenseUse};
+        l.state = LicenseState::SeatsFull as i32;
+        l.source_device_id.clear();
+        l.source_device_name.clear();
+        l.devices.retain(|d| d.id == "mac");
+        if let Some(mac) = l.devices.first_mut() {
+            mac.r#use = LicenseUse::Waiting as i32;
+            mac.licensed = false;
+            mac.activation_id.clear();
+            mac.can_take_back = true;
+            mac.waiting_to_apply = true;
+        }
+        let mut laptop = l.devices[0].clone();
+        laptop.id = "laptop".into();
+        l.devices.push(laptop);
+    }
+    show(owed);
+    gtk::glib::timeout_future(SETTLE).await;
+    shot("license-trial-waiting", &window.widget());
 
     // Remove License: its first try, after the agent did not take it, and
     // the seat waiting for Polar once it is done.

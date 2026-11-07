@@ -1,9 +1,10 @@
 //! Opening the app when the user has to see or decide something
 //! (docs/architecture.md §3: the app is the only thing that talks to the
 //! user): the pairing code, when another device asks to pair with this one,
-//! and a file offer, when the user asked to be asked before receiving. On
-//! Windows also files copied on another device, which only the app can put
-//! on the clipboard (`app_clipboard`).
+//! and a file offer, when the user asked to be asked before receiving; the
+//! license, when another device applied it here or revoked it, which only
+//! the app takes to Polar. On Windows also files copied on another device,
+//! which only the app can put on the clipboard (`app_clipboard`).
 //!
 //! If no app is connected over IPC then (`ctl` does not count: it cannot
 //! ask anything), the agent opens it, at most once every [`INTERVAL`]:
@@ -39,6 +40,10 @@ pub(crate) enum Need {
     /// Files copied on another device, for the app to put on the
     /// clipboard.
     ClipboardFiles,
+    /// The license: another device applied its key here, for the app to
+    /// activate, or revoked it here, for the app to free its activation.
+    /// The app does it in the background; nothing is shown.
+    License,
 }
 
 /// Opens the app for a need, or asks for it to be opened; false if that
@@ -52,6 +57,8 @@ pub(crate) struct AppOpener {
     ui_clients: Arc<AtomicUsize>,
     /// When the app was last opened, and whether that could be done.
     last: Mutex<Option<(Instant, bool)>>,
+    /// The shortest time between two attempts ([`INTERVAL`]).
+    interval: Duration,
 }
 
 impl AppOpener {
@@ -60,7 +67,14 @@ impl AppOpener {
             open,
             ui_clients,
             last: Mutex::new(None),
+            interval: INTERVAL,
         }
+    }
+
+    /// With another shortest time between two attempts, for tests.
+    pub(crate) fn with_interval(mut self, interval: Duration) -> Self {
+        self.interval = interval;
+        self
     }
 
     /// Opens the app for `need`, unless one is connected already or it was
@@ -93,7 +107,7 @@ impl AppOpener {
         {
             let mut last = self.last.lock().unwrap_or_else(|e| e.into_inner());
             if let Some((at, opened)) = *last
-                && now.saturating_duration_since(at) < INTERVAL
+                && now.saturating_duration_since(at) < self.interval
             {
                 debug!(?need, "the app was opened moments ago");
                 return Some((at, opened));
@@ -103,6 +117,7 @@ impl AppOpener {
         let opened = open(need);
         let why = match need {
             Need::ClipboardFiles => "to put files on the clipboard",
+            Need::License => "to activate or free the license",
             Need::PairingCode | Need::FileOffer => "to ask the user",
         };
         if opened {

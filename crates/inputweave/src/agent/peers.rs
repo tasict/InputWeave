@@ -43,6 +43,7 @@ use super::wake::{self, WakeData};
 pub(crate) const HEARTBEAT: Duration = Duration::from_millis(250);
 /// A peer not heard from for this long is considered gone.
 pub(crate) const PEER_TIMEOUT: Duration = Duration::from_secs(1);
+
 /// How often a session tells the engine its round-trip time, which clients
 /// only show.
 const RTT_REPORT: Duration = Duration::from_secs(5);
@@ -587,6 +588,7 @@ async fn run_session(
             let mut input_tx = None;
             let mut rtt_reported: Option<Instant> = None;
             let mut heard_since = HeardSince::new(started);
+
             loop {
                 tokio::select! {
                     _ = ticks.tick() => {
@@ -626,6 +628,10 @@ async fn run_session(
                     }
                     out = rx.recv() => {
                         let sent = match out {
+                            // The engine ended the session: it closes at once.
+                            // (A device unpaired right after its license was
+                            // revoked keeps its session in the engine until
+                            // it says it took the revoke.)
                             None => break,
                             Some(Outbound::Control(msg)) => control_tx.send(&msg).await.is_ok(),
                             Some(Outbound::Input(msg)) => {

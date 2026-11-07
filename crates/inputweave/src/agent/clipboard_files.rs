@@ -83,10 +83,7 @@ impl Staging {
     /// hex, so no id another device picks names anything else, and no two
     /// devices' offers share one.
     pub(crate) fn folder(&self, origin: &DeviceId, offer_id: u64) -> PathBuf {
-        let mut name = String::with_capacity(origin.as_str().len() * 2 + 17);
-        for b in origin.as_str().bytes() {
-            let _ = write!(name, "{b:02x}");
-        }
+        let mut name = crate::hex::hex(origin.as_str().as_bytes());
         let _ = write!(name, "-{offer_id:016x}");
         self.dir.join(name)
     }

@@ -3,10 +3,12 @@
 //! runs its requests, one at a time to Polar (over HTTPS, on a thread of its
 //! own) and one at a time to the agent (over IPC), and hands each answer
 //! back. What the outbox must not lose when the app quits (an activation the
-//! agent has not taken, activations to free, a Remove License on its way) is
-//! written to `app-license.json` beside the app's settings, readable only by
-//! the user, before the request that follows is sent. Also the links to
-//! Polar's checkout and customer portal.
+//! agent has not taken, activations to free, a Remove License on its way,
+//! revokes the agent has not taken) is written to `app-license.json` beside
+//! the app's settings, readable only by the user, before the request that
+//! follows is sent. Also applying the license to other computers, revoking
+//! it there (also as one is removed), and the links to Polar's checkout and
+//! customer portal.
 
 use std::cell::{Cell, OnceCell, Ref, RefCell};
 use std::io::{ErrorKind, Write};
@@ -19,9 +21,12 @@ use std::time::{Duration, SystemTime};
 use gtk::{gio, glib};
 use inputweave_app_core::agent::{AgentError, Answer, NO_RESULT};
 use inputweave_app_core::license::{Done, Keeper, Task};
-use inputweave_app_core::polar::{self, Response, Transport};
+use inputweave_app_core::license_text::{self, NotRevoked, RevokeFirst};
+use inputweave_app_core::polar::{self, Deactivation, Response, Transport};
 use inputweave_app_core::proto::client_message::Command;
-use inputweave_app_core::proto::{RemoveLicense, SetLicenseKey};
+use inputweave_app_core::proto::{
+    ApplyLicense, LicenseActivationFreed, RemoveLicense, RevokeLicense, SetLicenseKey, Unpair,
+};
 use inputweave_app_core::snapshot::Snapshot;
 use inputweave_app_core::text::keys;
 use inputweave_app_core::{log, paths};
@@ -138,10 +143,13 @@ fn saved_path() -> Option<PathBuf> {
     paths::config_dir().map(|d| d.join("app-license.json"))
 }
 
+/// Polar's transport, shared with the threads that ask it.
+type SharedTransport = Arc<dyn Transport + Send + Sync>;
+
 #[derive(Default)]
 pub struct Control {
     keeper: RefCell<Keeper>,
-    https: OnceCell<Arc<Https>>,
+    https: OnceCell<SharedTransport>,
     /// The key the Enter License Key dialog sent, once the agent took it:
     /// the dialog follows the record from then on.
     entered: RefCell<Option<String>>,
@@ -156,6 +164,9 @@ pub struct Control {
     next_write: Cell<Option<SystemTime>>,
     /// The last trouble with the file, said once.
     said: RefCell<String>,
+    /// The agent's record held license work nobody started here (what the
+    /// agent opens the app for in the background).
+    unasked: Cell<bool>,
 }
 
 impl Control {
@@ -209,8 +220,17 @@ impl Control {
         self.unreadable.set(None);
     }
 
-    fn https(&self) -> Arc<Https> {
+    fn https(&self) -> SharedTransport {
         self.https.get_or_init(|| Arc::new(Https::new())).clone()
+    }
+
+    /// Asks `transport` instead of Polar (tests).
+    #[cfg(test)]
+    pub fn use_transport(&self, transport: SharedTransport) {
+        assert!(
+            self.https.set(transport).is_ok(),
+            "Polar was asked before the transport was set"
+        );
     }
 
     pub fn keeper(&self) -> Ref<'_, Keeper> {
@@ -221,6 +241,12 @@ impl Control {
     /// (the License page, the sidebar's foot, About).
     pub fn licensed(&self, model: &Snapshot) -> bool {
         self.keeper.borrow().licensed(model.status.license.as_ref())
+    }
+
+    /// Whether the agent's record held license work nobody started here
+    /// since the app started.
+    pub fn saw_unasked_work(&self) -> bool {
+        self.unasked.get()
     }
 
     /// The pending work can't be kept on disk: the file can't be read, or
@@ -322,6 +348,11 @@ pub fn pump(ui: &Rc<Ui>) {
     }
     let model = ui.snapshot();
     let visible = ui.license_shown();
+    if model.connected()
+        && inputweave_app_core::license::unasked_work(model.status.license.as_ref())
+    {
+        ui.license.unasked.set(true);
+    }
     // A write that failed before is tried again first.
     ui.license.save();
     loop {
@@ -375,8 +406,63 @@ fn run(ui: &Rc<Ui>, task: Task) {
                 ui.refresh();
             });
         }
-        Task::Remove => {
-            let request = ui.agent.request(Command::RemoveLicense(RemoveLicense {}));
+        Task::Revoke {
+            device_id,
+            activation_id,
+            deactivated,
+        } => {
+            let request = ui.agent.request(Command::RevokeLicense(RevokeLicense {
+                device_id: device_id.clone(),
+                activation_id,
+                deactivated,
+            }));
+            let ui = ui.clone();
+            glib::spawn_future_local(async move {
+                let answer = request.await;
+                if let Err(e) = &answer {
+                    log::info(&format!("cannot revoke the license on {device_id}: {e}"));
+                }
+                if ui
+                    .license
+                    .keeper
+                    .borrow_mut()
+                    .revoked(refusal(&answer), SystemTime::now())
+                {
+                    log::info(&format!(
+                        "the background service refused to revoke the license on {device_id}; \
+                         not asked again"
+                    ));
+                }
+                ui.license.save();
+                ui.refresh();
+            });
+        }
+        Task::Freed { activation_id } => {
+            let request =
+                ui.agent
+                    .request(Command::LicenseActivationFreed(LicenseActivationFreed {
+                        activation_id: activation_id.clone(),
+                    }));
+            let ui = ui.clone();
+            glib::spawn_future_local(async move {
+                let answer = request.await;
+                if let Err(e) = &answer {
+                    log::info(&format!(
+                        "cannot tell the background service activation {activation_id} was freed: {e}"
+                    ));
+                }
+                ui.license
+                    .keeper
+                    .borrow_mut()
+                    .freed(refusal(&answer), SystemTime::now());
+                ui.license.save();
+                ui.refresh();
+            });
+        }
+        Task::Remove { key, activation_id } => {
+            let request = ui
+                .agent
+                .request(Command::RemoveLicense(RemoveLicense { key, activation_id }));
             let ui = ui.clone();
             glib::spawn_future_local(async move {
                 let answer = request.await;
@@ -414,7 +500,12 @@ fn run(ui: &Rc<Ui>, task: Task) {
                         Task::Free { key, activation_id } => {
                             Done::Deactivated(polar::deactivate(t, &base, &key, &activation_id))
                         }
-                        Task::Report(_) | Task::Remove => unreachable!("these go to the agent"),
+                        Task::Report(_)
+                        | Task::Remove { .. }
+                        | Task::Revoke { .. }
+                        | Task::Freed { .. } => {
+                            unreachable!("these go to the agent")
+                        }
                     };
                     let _ = send.send_blocking(done);
                 });
@@ -503,6 +594,156 @@ pub fn remove(ui: &Rc<Ui>) {
     ui.license.save();
     ui.refresh();
     pump(ui);
+}
+
+/// Apply License on another computer: the agent sends it the key, now or
+/// as it connects, and the row follows what the agent says. A refusal is
+/// only logged (the row stays as the agent says).
+pub fn apply(ui: &Rc<Ui>, device_id: &str) {
+    let id = device_id.to_owned();
+    ui.command_then(
+        Command::ApplyLicense(ApplyLicense {
+            device_id: id.clone(),
+        }),
+        move |result| {
+            if let Err(e) = result {
+                log::info(&format!("cannot apply the license to {id}: {e}"));
+            }
+            true
+        },
+    );
+}
+
+/// Don't Apply: takes back what was applied to the computer while it waits
+/// for it or has not activated it yet. Nothing to free with Polar, nothing
+/// asked; a refusal is only logged.
+pub fn dont_apply(ui: &Rc<Ui>, device_id: &str) {
+    let id = device_id.to_owned();
+    ui.command_then(
+        Command::RevokeLicense(RevokeLicense {
+            device_id: id.clone(),
+            activation_id: String::new(),
+            deactivated: false,
+        }),
+        move |result| {
+            if let Err(e) = result {
+                log::info(&format!("cannot take back the license from {id}: {e}"));
+            }
+            true
+        },
+    );
+}
+
+/// Revoke License on another computer, once confirmed: the outbox asks
+/// Polar once to free its activation (not while Polar asks to wait), then
+/// tells the agent whether it did, kept until the agent took it; the row
+/// turns to trial as the agent says.
+pub fn revoke(ui: &Rc<Ui>, device_id: &str, activation_id: &str) {
+    let model = ui.snapshot();
+    ui.license
+        .keeper
+        .borrow_mut()
+        .revoke(model.status.license.as_ref(), device_id, activation_id);
+    ui.license.save();
+    ui.refresh();
+    pump(ui);
+}
+
+/// Frees `activation_id` with Polar once, on a thread of its own.
+async fn deactivate_once(ui: &Rc<Ui>, key: String, activation_id: String) -> Deactivation {
+    let https = ui.license.https();
+    let base = polar::api();
+    let (send, receive) = async_channel::bounded::<Deactivation>(1);
+    let spawned = std::thread::Builder::new()
+        .name("polar".into())
+        .spawn(move || {
+            let t: &dyn Transport = https.as_ref();
+            let _ = send.send_blocking(polar::deactivate(t, &base, &key, &activation_id));
+        });
+    if let Err(e) = spawned {
+        return Deactivation::Trouble(polar::Trouble::Unreachable(e.to_string()));
+    }
+    receive
+        .recv()
+        .await
+        .unwrap_or_else(|_| Deactivation::Trouble(polar::Trouble::Unreachable("no answer".into())))
+}
+
+/// Remove Device, once confirmed: with `revoke` (the box "Also revoke its
+/// license" checked), the license is revoked there first, Polar asked once
+/// to free its activation if it has one (not while Polar asks to wait);
+/// then the computer is unpaired, as without, even when revoking failed.
+/// `not_revoked` is called once it is removed if its license may still
+/// take a place, with why: Polar did not free it, it was offline with the
+/// key, or the background service did not take the revoke.
+pub fn remove_device(
+    ui: &Rc<Ui>,
+    device_id: &str,
+    revoke: Option<RevokeFirst>,
+    not_revoked: impl FnOnce(NotRevoked) + 'static,
+) {
+    let ui = ui.clone();
+    let device_id = device_id.to_owned();
+    glib::spawn_future_local(async move {
+        let mut failed = None;
+        if let Some(first) = revoke {
+            let revoke = match &first {
+                RevokeFirst::TakeBack | RevokeFirst::OutOfReach | RevokeFirst::Unknown => {
+                    license_text::revoke_after(&device_id, "", None)
+                }
+                RevokeFirst::Deactivate { key, activation_id } => {
+                    let (key, activation_id) = (key.clone(), activation_id.clone());
+                    let answer = if ui.license.keeper().polar_waits(SystemTime::now()) {
+                        None
+                    } else {
+                        let answer = deactivate_once(&ui, key, activation_id.clone()).await;
+                        ui.license
+                            .keeper
+                            .borrow_mut()
+                            .polar_answered(&answer, SystemTime::now());
+                        ui.license.save();
+                        Some(answer)
+                    };
+                    let revoke =
+                        license_text::revoke_after(&device_id, &activation_id, answer.as_ref());
+                    if !revoke.deactivated {
+                        log::info(&format!(
+                            "cannot free the license's place on {device_id}: {answer:?}"
+                        ));
+                    }
+                    revoke
+                }
+            };
+            // Told before it is unpaired: the agent forgets what it owes a
+            // computer it no longer trusts.
+            let answer = ui
+                .agent
+                .request(Command::RevokeLicense(revoke.clone()))
+                .await;
+            if let Err(e) = &answer {
+                log::info(&format!(
+                    "cannot revoke the license on {device_id} as it is removed: {e}"
+                ));
+            }
+            // Decided from the agent's answer (its Status is in the
+            // snapshot by now): a revoke it did not take never reaches the
+            // computer.
+            let model = ui.snapshot();
+            failed =
+                license_text::not_revoked(&first, &revoke, answer.is_ok().then_some(&model.status));
+        }
+        ui.command_then(
+            Command::Unpair(Unpair {
+                device_id: device_id.clone(),
+            }),
+            move |result| {
+                if let (Ok(_), Some(why)) = (result, failed) {
+                    not_revoked(why);
+                }
+                result.is_ok()
+            },
+        );
+    });
 }
 
 /// Opens Polar's checkout or customer portal in the browser.

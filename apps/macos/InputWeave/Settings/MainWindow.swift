@@ -124,8 +124,9 @@ struct ArrangementPage: View {
 /// What the arrangement page shows about one computer, and its options.
 struct DeviceInspector: View {
     @Environment(AgentModel.self) private var model
+    /// Removing a computer can revoke this computer's license there.
+    @Environment(LicenseController.self) private var license: LicenseController?
     let deviceID: String
-    @State private var confirmingRemoval = false
 
     var body: some View {
         let arranged = model.arrangement.devices.first { $0.id == deviceID }
@@ -177,15 +178,29 @@ struct DeviceInspector: View {
             }
         }
         .formStyle(.grouped)
-        .confirmationDialog("Remove \(model.name(of: deviceID))?", isPresented: $confirmingRemoval) {
-            Button("Remove", role: .destructive) { Task { try? await model.unpair(deviceID) } }
-        } message: {
-            Text("This computer stops trusting it. To use it again, pair it again.")
-        }
     }
 
     private var removeButton: some View {
-        Button("Remove Device…", role: .destructive) { confirmingRemoval = true }
+        Button("Remove Device…", role: .destructive, action: confirmRemoval)
+    }
+
+    /// Asks first; with this computer licensed, also whether to revoke the
+    /// license there, and says so when its place could not be freed.
+    private func confirmRemoval() {
+        let id = deviceID
+        let name = model.name(of: id)
+        let offer = license.map { LicenseText.removeOffer(id, license: $0.license, licensedHere: $0.isLicensed) } ?? .none
+        RemoveDeviceAlert.present(name: name, offer: offer) { [model, license] revoke in
+            Task {
+                guard let license else {
+                    try? await model.unpair(id)
+                    return
+                }
+                if let notice = await license.removeDevice(id, revoking: revoke) {
+                    RemoveDeviceAlert.presentNotRevoked(name: name, notice: notice, portal: license.links.customerPortal)
+                }
+            }
+        }
     }
 }
 

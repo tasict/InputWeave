@@ -29,6 +29,40 @@ final class Snapshots: XCTestCase {
         try png.write(to: Self.output.appending(path: "\(name).png"))
     }
 
+    /// An alert as it shows on a window: its content, laid out, on the
+    /// window's background (the alert's own is see-through).
+    func renderAlert(_ name: String, dark: Bool = false, _ alert: NSAlert) throws {
+        let appearance = try XCTUnwrap(NSAppearance(named: dark ? .darkAqua : .aqua))
+        alert.window.appearance = appearance
+        alert.layout()
+        let view = try XCTUnwrap(alert.window.contentView)
+        view.layoutSubtreeIfNeeded()
+        RunLoop.main.run(until: Date().addingTimeInterval(0.3))
+        let size = view.bounds.size
+        let content = try XCTUnwrap(view.bitmapImageRepForCachingDisplay(in: view.bounds))
+        appearance.performAsCurrentDrawingAppearance {
+            view.cacheDisplay(in: view.bounds, to: content)
+        }
+        let rep = try XCTUnwrap(NSBitmapImageRep(
+            bitmapDataPlanes: nil, pixelsWide: content.pixelsWide, pixelsHigh: content.pixelsHigh, bitsPerSample: 8,
+            samplesPerPixel: 4, hasAlpha: true, isPlanar: false, colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0))
+        rep.size = size
+        var background = NSColor.white
+        appearance.performAsCurrentDrawingAppearance {
+            background = NSColor.windowBackgroundColor.usingColorSpace(.sRGB) ?? .white
+        }
+        NSGraphicsContext.saveGraphicsState()
+        NSGraphicsContext.current = NSGraphicsContext(bitmapImageRep: rep)
+        background.setFill()
+        NSRect(origin: .zero, size: size).fill()
+        content.draw(
+            in: NSRect(origin: .zero, size: size), from: .zero, operation: .sourceOver, fraction: 1,
+            respectFlipped: false, hints: [.interpolation: NSImageInterpolation.high])
+        NSGraphicsContext.restoreGraphicsState()
+        let png = try XCTUnwrap(rep.representation(using: .png, properties: [:]))
+        try png.write(to: Self.output.appending(path: "\(name).png"))
+    }
+
     static func screen(_ id: String, _ w: Double, _ h: Double, x: Double = 0, y: Double = 0, primary: Bool = true, scale: Double = 2) -> Inputweave_App_V1_Screen {
         var s = Inputweave_App_V1_Screen()
         s.id = id; s.x = x; s.y = y; s.width = w; s.height = h; s.scale = scale; s.primary = primary
@@ -855,6 +889,143 @@ final class Snapshots: XCTestCase {
         return license
     }
 
+    /// On trial, with the Windows computer licensed, the Mac mini on
+    /// InputWeave 1.0 licensed too (never named).
+    static func trialWithLicensedPC() -> LicenseRecord {
+        var license = LicenseRecord()
+        license.applySupported = true
+        var mini = Inputweave_App_V1_LicensedDevice()
+        mini.id = "mini"; mini.name = "Mac mini"; mini.use = .otherLicense; mini.legacy = true
+        var pc = Inputweave_App_V1_LicensedDevice()
+        pc.id = "pc"; pc.name = "Windows Desktop"; pc.use = .otherLicense
+        license.devices = [mini, pc]
+        return license
+    }
+
+    /// A licensed Mac whose list shows every standing: the Windows computer
+    /// licensed, the Mac mini on trial and offline, a Linux laptop
+    /// activating, a studio PC waiting offline, an iMac that found the
+    /// places full, a Linux desktop on another license, an old MacBook on
+    /// 1.0, and a PC taken offline for now, on trial. With `full`, the five
+    /// places are taken; without, only the first three computers are
+    /// paired, the laptop activating a key entered there.
+    static func licenseComputersModel(full: Bool) -> AgentModel {
+        let sample = sampleModel(license: sampleLicense(.licensed))
+        var status = sample.status
+        status.offlineSupported = true
+        status.license.applySupported = true
+        func device(_ id: String, _ name: String, _ os: String, connected: Bool = true) -> DeviceStatus {
+            var device = DeviceStatus()
+            device.id = id; device.name = name; device.os = os; device.paired = true
+            device.state = connected ? .connected : .offline
+            device.rttMs = 3
+            return device
+        }
+        func entry(
+            _ id: String, _ name: String, _ use: LicenseUse, activation: String = "", legacy: Bool = false,
+            canTakeBack: Bool = false
+        ) -> LicensedDevice {
+            var entry = LicensedDevice()
+            entry.id = id; entry.name = name; entry.use = use; entry.licensed = use == .licensed
+            entry.activationID = activation; entry.legacy = legacy; entry.canTakeBack = canTakeBack
+            return entry
+        }
+        var lounge = device("lounge", "Living Room PC", "windows", connected: false)
+        lounge.offlineForNow = true
+        let devices = [
+            status.devices[0], status.devices[1], device("laptop", "Linux Laptop", "linux"),
+            device("studio", "Studio PC", "windows", connected: false), device("imac", "Office iMac", "macos"),
+            device("desk", "Linux Desktop", "linux"), device("old", "Old MacBook", "macos"), lounge,
+        ]
+        let entries = [
+            entry("pc", "Windows Desktop", .licensed, activation: "act-pc"),
+            // Applied from here, so it can be taken back until it is
+            // activated; with places left, a key its own user entered.
+            entry("laptop", "Linux Laptop", .activating, canTakeBack: full),
+            entry("studio", "Studio PC", .waiting, canTakeBack: true),
+            entry("imac", "Office iMac", .noPlaces), entry("desk", "Linux Desktop", .otherLicense),
+            entry("old", "Old MacBook", .licensed, legacy: true),
+        ]
+        // With places left, the Mac mini, on InputWeave 1.0, did not take the
+        // license applied to it.
+        var refused = entry("mini", "Mac mini", .none, legacy: true)
+        refused.legacyRefused = true
+        status.devices = full ? devices : Array(devices.prefix(3))
+        status.license.devices = full ? entries : Array(entries.prefix(2)) + [refused]
+        return AgentModel.sample(status: status, arrangement: sample.arrangement)
+    }
+
+    /// Remove Device's confirmation: with the checkbox that revokes the
+    /// license, for a computer on InputWeave 1.0, and without the license;
+    /// and the notices when the license could not be revoked; and the
+    /// License page's two confirmations. Return and Escape keep things as
+    /// they are; the destructive button only looks it.
+    func testRemoveDeviceAlert() throws {
+        @MainActor final class Clicks: NSObject {
+            var titles: [String] = []
+            @objc func click(_ sender: NSButton) { titles.append(sender.title) }
+        }
+        // Every confirmation of something that can't simply be undone:
+        // Remove Device in its three forms, and the License page's Remove
+        // License and Revoke License.
+        let confirmations = [LicenseText.RemoveOffer.revoke, .legacy, .none].map {
+            RemoveDeviceAlert.confirmation(name: "Windows Desktop", offer: $0).alert
+        } + [LicenseAlerts.removal(), LicenseAlerts.revoke(name: "Windows Desktop")]
+        for alert in confirmations {
+            alert.layout()
+            let (destructive, keep) = (alert.buttons[0], alert.buttons[1])
+            XCTAssertTrue(destructive.hasDestructiveAction, alert.messageText)
+            XCTAssertEqual(destructive.keyEquivalent, "", "Return never chooses it: \(alert.messageText)")
+            XCTAssertEqual(keep.keyEquivalent, "\r", alert.messageText)
+            let clicks = Clicks()
+            for button in alert.buttons {
+                button.target = clicks
+                button.action = #selector(Clicks.click(_:))
+            }
+            func key(_ characters: String, _ code: UInt16, _ modifiers: NSEvent.ModifierFlags = []) throws -> NSEvent {
+                try XCTUnwrap(NSEvent.keyEvent(
+                    with: .keyDown, location: .zero, modifierFlags: modifiers, timestamp: 0,
+                    windowNumber: alert.window.windowNumber, context: nil, characters: characters,
+                    charactersIgnoringModifiers: characters, isARepeat: false, keyCode: code))
+            }
+            XCTAssertTrue(alert.window.performKeyEquivalent(with: try key("\r", 36)))
+            XCTAssertEqual(clicks.titles, [keep.title], "Return chose \(keep.title)")
+            // Escape is the alert's while it shows (`ConfirmationAlert`), as
+            // the keeping button's key is Return: it takes Escape alone.
+            XCTAssertTrue(ConfirmationAlert.isEscape(try key("\u{1b}", 53)))
+            XCTAssertFalse(ConfirmationAlert.isEscape(try key("\r", 36)))
+            XCTAssertFalse(ConfirmationAlert.isEscape(try key("\u{1b}", 53, [.option])))
+        }
+        XCTAssertEqual(confirmations[3].buttons.map(\.title), ["Remove License", "Cancel"])
+        XCTAssertEqual(confirmations[4].buttons.map(\.title), ["Revoke License", "Keep"])
+        XCTAssertEqual(confirmations[4].messageText, "Revoke the license on Windows Desktop?")
+        let portal = URL(string: "https://polar.sh/portal")
+        XCTAssertEqual(RemoveDeviceAlert.notRevoked(name: "PC", notice: .notTold, portal: portal).buttons.map(\.title), ["OK"],
+                       "its place is free: nothing to manage")
+        XCTAssertEqual(RemoveDeviceAlert.notRevoked(name: "PC", notice: .notDeactivated, portal: portal).buttons.map(\.title),
+                       ["OK", "Manage Computers…"])
+        for dark in [false, true] {
+            let suffix = dark ? "-dark" : ""
+            try renderAlert("remove-device-revoke\(suffix)", dark: dark,
+                            RemoveDeviceAlert.confirmation(name: "Windows Desktop", offer: .revoke).alert)
+            try renderAlert("remove-device-legacy\(suffix)", dark: dark,
+                            RemoveDeviceAlert.confirmation(name: "Old MacBook", offer: .legacy).alert)
+            try renderAlert("remove-device\(suffix)", dark: dark,
+                            RemoveDeviceAlert.confirmation(name: "Windows Desktop", offer: .none).alert)
+            try renderAlert("remove-device-not-revoked\(suffix)", dark: dark,
+                            RemoveDeviceAlert.notRevoked(
+                                name: "Windows Desktop", notice: .notDeactivated, portal: URL(string: "https://polar.sh/portal")))
+            try renderAlert("remove-device-out-of-reach\(suffix)", dark: dark,
+                            RemoveDeviceAlert.notRevoked(
+                                name: "Studio PC", notice: .outOfReach, portal: URL(string: "https://polar.sh/portal")))
+            try renderAlert("remove-device-not-told\(suffix)", dark: dark,
+                            RemoveDeviceAlert.notRevoked(
+                                name: "Windows Desktop", notice: .notTold, portal: URL(string: "https://polar.sh/portal")))
+            try renderAlert("license-remove-confirm\(suffix)", dark: dark, LicenseAlerts.removal())
+            try renderAlert("license-revoke-confirm\(suffix)", dark: dark, LicenseAlerts.revoke(name: "Windows Desktop"))
+        }
+    }
+
     /// Never reaches Polar: the snapshots show fixed states.
     struct NoPolar: PolarTransport {
         func send(_: URLRequest) async throws -> PolarAnswer { throw URLError(.notConnectedToInternet) }
@@ -907,6 +1078,40 @@ final class Snapshots: XCTestCase {
         try page("license-licensed", Self.sampleLicense(.licensed), height: 520)
         try page("license-licensed-synced", Self.sampleLicense(.licensed, synced: true), height: 520)
         try page("license-removal-refused", Self.sampleLicense(.licensed), height: 580) { $0.preview(removalRefused: true) }
+        // On trial, with a paired computer to apply the license from; and
+        // a key applied from another computer that found every place
+        // taken, plainly on trial.
+        try page("license-trial-licensed-elsewhere", Self.trialWithLicensedPC())
+        var applied = Self.sampleLicense(.seatsFull)
+        applied.sourceDeviceID = "pc"
+        applied.sourceDeviceName = "Windows Desktop"
+        try page("license-seats-full-applied", applied)
+        // Every place was taken when the key was entered here, and the
+        // license waits to be applied to the Windows computer and the Mac
+        // mini, offline, once this computer is licensed again.
+        var waiting = Self.sampleLicense(.seatsFull)
+        waiting.applySupported = true
+        waiting.devices = [("pc", "Windows Desktop"), ("mini", "Mac mini")].map { id, name in
+            var entry = LicensedDevice()
+            entry.id = id; entry.name = name; entry.use = .waiting; entry.canTakeBack = true
+            entry.waitingToApply = true
+            return entry
+        }
+        try page("license-waiting-to-apply", waiting, height: 840)
+        // This computer removes its own license, which still waits to be
+        // applied to the two.
+        var removing = Self.sampleLicense(.licensed)
+        removing.applySupported = true
+        removing.devices = waiting.devices
+        try page("license-removing-waiting", removing, height: 840, removal([.init(kind: .remove, key: key)]))
+        // A license revoked here from another computer: plainly on trial,
+        // while its removal runs unseen.
+        var revoked = Self.sampleLicense(.licensed)
+        revoked.state = .revoked
+        try page("license-revoked", revoked, removal([
+            .init(kind: .free, key: key, activationID: "a1", fromRemove: true, revoked: true, tries: 1),
+            .init(kind: .remove, key: key, activationID: "a1", revoked: true, tries: 1),
+        ]))
 
         let sheets: [(String, String, Bool, LicenseController.KeyError?)] = [
             ("enter", "", false, nil), ("activating", key, true, nil),
@@ -937,6 +1142,18 @@ final class Snapshots: XCTestCase {
                 .padding(20)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .background(Color.canvas)
+            }
+        }
+
+        // Computers on this license, in every standing, every place taken;
+        // and with places left.
+        for (name, full, height) in [("license-computers", true, CGFloat(900)), ("license-computers-room", false, 560)] {
+            let model = Self.licenseComputersModel(full: full)
+            let controller = Self.licenseController(model)
+            for dark in [false, true] {
+                try render(name + (dark ? "-dark" : ""), size: CGSize(width: 730, height: height), dark: dark) {
+                    LicensePage().environment(model).environment(controller)
+                }
             }
         }
 

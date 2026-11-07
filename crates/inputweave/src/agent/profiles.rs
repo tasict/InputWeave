@@ -35,7 +35,8 @@ use std::time::{Duration, Instant};
 
 use iw_platform::network::{LinkKind, NetworkSighting};
 
-use crate::profiles_file::{Network, NetworkKind, OTHER, Profile, ProfilesFile, hex, network_id};
+use crate::hex::hex;
+use crate::profiles_file::{Network, NetworkKind, OTHER, Profile, ProfilesFile, network_id};
 
 /// How long the router's hardware address may be unknown before the
 /// network is taken by the router's address alone.

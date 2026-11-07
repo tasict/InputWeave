@@ -12,7 +12,7 @@
 //! trusted devices, and `Engine::on_peers` takes the copy anew then too. So
 //! the copy is only ever what the directory has.
 
-use std::collections::{BTreeSet, HashMap, HashSet};
+use std::collections::{BTreeSet, HashMap, HashSet, VecDeque};
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -36,12 +36,14 @@ use iw_platform::{
 use iw_proto::peer::v1::{
     self as peer, ClipboardFilesPull, ClipboardFilesSending, ClipboardOffer, ClipboardPart,
     ClipboardPull, ClipboardRequest, ClipboardSkip, ClipboardSkipped, Control, Datagram, Displays,
-    DragItem, Identify, Input, LicenseInfo, LocalActivity, Locate, Placement, PointerAt,
-    PointerCaptured, SessionState, WakeInfo, control, datagram, input,
+    DragItem, Identify, Input, LicenseAssign, LicenseInfo, LicenseRevoke, LicenseStanding,
+    LocalActivity, Locate, Placement, PointerAt, PointerCaptured, SessionState, WakeInfo, control,
+    datagram, input,
 };
 use tokio::sync::{broadcast, mpsc, oneshot, watch};
 use tracing::{debug, info, warn};
 
+use super::app::{AppOpener, Need};
 use super::clipboard_files::{self, Patience, Staging};
 use super::directory::{
     Directory, LayoutDoc, OfflineTaken, Peer, TrustedDevices, Unsaved, name_of,
@@ -56,6 +58,7 @@ use super::lazy_clipboard::{
 };
 use super::license::{
     self, LicenseError, LicenseFile, LicenseResult, LicenseSaver, LicenseStatus, Loaded,
+    PeerLicense, Standing,
 };
 use super::listing::{MAX_ITEMS, Manifest};
 use super::local_clipboard::{
@@ -626,6 +629,41 @@ pub(crate) const LICENSE_SINCE: u32 = 6;
 /// paused (`SessionState.sharing_paused`) while either end is offline.
 pub(crate) const OFFLINE_SINCE: u32 = 7;
 
+/// The peer protocol version that applies and revokes licenses
+/// (`LicenseAssign`, `LicenseRevoke`, `LicenseInfo.key_match`); a device
+/// before it (InputWeave 1.0) takes the key of any licensed device that
+/// tells it, so it is told the key only while it counts on the license.
+pub(crate) const LICENSE_APPLY_SINCE: u32 = 7;
+
+/// At most this many applies and revokes heard while the license file
+/// cannot be read are kept for when it can be.
+const LICENSE_HELD: usize = 32;
+
+/// How long the agent waits, as it starts, before opening the app for
+/// license work it found then (`Options::license_app_wait`).
+pub(crate) const LICENSE_APP_WAIT: Duration = Duration::from_secs(10);
+/// While that work is still there with no app connected, the app is opened
+/// again after these waits, the last one over and over
+/// (`Options::license_app_retries`).
+pub(crate) const LICENSE_APP_RETRIES: [Duration; 2] =
+    [Duration::from_secs(60), Duration::from_secs(600)];
+/// An apply or revoke sent to a device in this session, which what it says
+/// still does not show, is sent again this often while it does not (and as
+/// it next speaks, once this long passed): it may have been dropped there
+/// (its license file unreadable).
+pub(crate) const LICENSE_RESEND: Duration = Duration::from_secs(30);
+/// A device unpaired right after its license was revoked keeps its session
+/// this long at most, until it says it dropped the license, so that the
+/// revoke reaches it.
+pub(crate) const REVOKE_GRACE: Duration = Duration::from_secs(3);
+/// Meanwhile the revoke goes again this often (or as often as
+/// `license_resend`, if that is sooner).
+const DEPARTING_RESEND: Duration = Duration::from_secs(1);
+/// A device on InputWeave 1.0 told the key for an apply that does not say
+/// it holds it this long after, in the same session, did not take it
+/// (`Options::legacy_take_wait`).
+pub(crate) const LEGACY_TAKE_WAIT: Duration = Duration::from_secs(60);
+
 /// A change to the profiles, from the app or `ctl` (`EngineEvent::Profiles`).
 #[derive(Clone, Debug)]
 pub enum ProfileChange {
@@ -645,8 +683,31 @@ pub enum ProfileChange {
 #[derive(Debug)]
 pub(crate) enum LicenseChange {
     SetKey(String),
-    Record { key: String, result: LicenseResult },
-    Remove,
+    Record {
+        key: String,
+        result: LicenseResult,
+    },
+    /// Only while the license is still `key` with `activation_id` (an
+    /// empty key: whatever it is).
+    Remove {
+        key: String,
+        activation_id: String,
+    },
+    Apply(String),
+    Revoke {
+        device: String,
+        activation_id: String,
+        deactivated: bool,
+    },
+    Freed(String),
+}
+
+/// An apply or a revoke a paired device sent while the license file could
+/// not be read, taken in once it can.
+#[derive(Debug)]
+enum HeldLicense {
+    Assign(DeviceId, LicenseAssign),
+    Revoke(DeviceId, LicenseRevoke),
 }
 
 /// A round-trip time that moved by no more than this many milliseconds is
@@ -765,6 +826,16 @@ pub(crate) enum Outbound {
     Clipboard(ClipboardTransfer),
 }
 
+/// The session of a device unpaired right after its license was revoked
+/// there, kept so that the revoke reaches it (`Engine::departing`).
+struct Departing {
+    link: Link,
+    /// The revoke it is to hear, done once what it says no longer shows
+    /// what the revoke names.
+    revoke: license::Owed,
+    until: Instant,
+}
+
 struct Link {
     session: u64,
     /// The certificate the session was authenticated with. If the device is
@@ -802,6 +873,18 @@ struct Link {
     /// its first, as the session starts, needs no answer, this device's
     /// having gone to it then.
     offline_heard: bool,
+    /// What it was last told of this computer's license in this session,
+    /// and the applies and revokes sent to it that are still owed.
+    license_told: Option<LicenseInfo>,
+    /// When each was sent, to send it again if what the device says still
+    /// does not show it ([`LICENSE_RESEND`]).
+    license_delivered: Vec<(license::Delivery, Instant)>,
+    /// On InputWeave 1.0: when it was told the key in this session, as
+    /// what it was told came to hold it. Applied and not holding it yet,
+    /// it did not take it if it does not say so within `legacy_take_wait`
+    /// ([`LEGACY_TAKE_WAIT`]): 1.0 tells its license at once as it takes a
+    /// key.
+    license_keyed_at: Option<Instant>,
     /// When it was last heard from, by the wall clock, as the session keeps
     /// it.
     heard: Arc<LastHeard>,
@@ -849,6 +932,20 @@ pub(crate) struct EngineParts {
     /// every `license_reread`, succeeds.
     pub(crate) license_unavailable: Option<PathBuf>,
     pub(crate) license_reread: Duration,
+    /// Opens the app when it has license work to do that no one started
+    /// here (`LicenseFile::needs_app`), once `license_app_wait` passed
+    /// since the start for work found then.
+    pub(crate) app: Arc<AppOpener>,
+    pub(crate) license_app_wait: Duration,
+    /// Then again after these, the last one over and over, while the work
+    /// is there and no app is connected.
+    pub(crate) license_app_retries: Vec<Duration>,
+    /// How soon a license change sent in a session is sent again
+    /// ([`LICENSE_RESEND`]).
+    pub(crate) license_resend: Duration,
+    /// How long a device on InputWeave 1.0 has to take the key
+    /// ([`LEGACY_TAKE_WAIT`]).
+    pub(crate) legacy_take_wait: Duration,
     pub(crate) status: watch::Sender<Status>,
     /// The generation of the trusted devices (`Directory::peers_now`) the
     /// status shows, sent after the status: apart from it, so a change to
@@ -878,6 +975,8 @@ pub(crate) struct EngineParts {
     pub(crate) drag_events: broadcast::Sender<DragEvent>,
     /// Apps connected; with none, drags offered here are declined.
     pub(crate) ui_clients: Arc<AtomicUsize>,
+    /// How many times an app connected since the agent started.
+    pub(crate) ui_connects: Arc<AtomicUsize>,
     /// The engine's own events, for the clipboard's promises to pull
     /// through and its thread to report on; weak, so they never keep it
     /// running.
@@ -1061,14 +1160,36 @@ pub(crate) struct Engine {
     license_reread: Duration,
     license_reading: bool,
     /// What paired devices said of their license while it was
-    /// unavailable, the latest from each, taken in once it is read.
-    license_heard: HashMap<DeviceId, LicenseInfo>,
-    /// The license as the status shows it, rebuilt when it or the trusted
-    /// devices change (`refresh_license_status`).
+    /// unavailable, the latest from each, and the applies and revokes they
+    /// sent meanwhile, taken in once it is read.
+    license_heard: HashMap<DeviceId, PeerLicense>,
+    license_held: VecDeque<HeldLicense>,
+    /// The license as the status shows it, rebuilt when it, the trusted
+    /// devices or their sessions change (`refresh_license_status`).
     license_status: Option<LicenseStatus>,
-    /// What paired devices were last told of the license
-    /// (`LicenseFile::outgoing`).
-    license_sent: (String, bool),
+    /// The work the app has to do for the license, as it was last looked
+    /// at (`LicenseFile::app_work`); the app is opened as new work begins.
+    license_app_work: Option<license::AppWork>,
+    /// How many times an app had connected as that work began, and whether
+    /// one was connected then: once an app connected while the work waits,
+    /// it is not opened again for it (it may be stuck), until the work
+    /// changes or the agent starts again.
+    license_app_connects: usize,
+    license_app_present: bool,
+    /// Opens the app when it has license work to do and none is connected.
+    app: Arc<AppOpener>,
+    license_app_wait: Duration,
+    license_app_retries: Vec<Duration>,
+    license_resend: Duration,
+    legacy_take_wait: Duration,
+    /// When the app is opened again for license work no one started here,
+    /// and how many times it was so far.
+    license_app_next: Option<Instant>,
+    license_app_tries: usize,
+    /// Sessions of devices unpaired right after their license was revoked
+    /// there, kept until they say they dropped it, at most
+    /// [`REVOKE_GRACE`], so that the revoke reaches them.
+    departing: HashMap<DeviceId, Departing>,
     /// Devices in the current layout.
     arranged: HashSet<DeviceId>,
     /// The devices the jump hotkeys go to, the first by digit 1.
@@ -1097,6 +1218,7 @@ pub(crate) struct Engine {
     files: Arc<Files>,
     drag_events: broadcast::Sender<DragEvent>,
     ui_clients: Arc<AtomicUsize>,
+    ui_connects: Arc<AtomicUsize>,
     events: mpsc::WeakUnboundedSender<EngineEvent>,
     /// An app here holds the pointer; other devices are told.
     pointer_captured: bool,
@@ -1184,6 +1306,11 @@ impl Engine {
             license_saver,
             license_unavailable,
             license_reread,
+            app,
+            license_app_wait,
+            license_app_retries,
+            license_resend,
+            legacy_take_wait,
             status,
             peers_applied,
             arrangement,
@@ -1200,6 +1327,7 @@ impl Engine {
             files,
             drag_events,
             ui_clients,
+            ui_connects,
             events,
             pulls,
             clipboard_staging,
@@ -1297,16 +1425,24 @@ impl Engine {
             peer_displays,
             peer_pictures,
             preview_files,
-            license_sent: license
-                .as_ref()
-                .map(LicenseFile::outgoing)
-                .unwrap_or_default(),
             license_queued: license.clone(),
             license_status,
             license_unavailable,
             license_reread,
             license_reading: false,
             license_heard: HashMap::new(),
+            license_held: VecDeque::new(),
+            license_app_work: None,
+            license_app_connects: 0,
+            license_app_present: false,
+            app,
+            license_app_wait,
+            license_app_retries,
+            license_resend,
+            legacy_take_wait,
+            license_app_next: None,
+            license_app_tries: 0,
+            departing: HashMap::new(),
             license,
             license_saver,
             arranged: HashSet::new(),
@@ -1352,6 +1488,7 @@ impl Engine {
             files,
             drag_events,
             ui_clients,
+            ui_connects,
             events,
             pointer_captured: false,
             relative_auto,
@@ -1393,6 +1530,13 @@ impl Engine {
         // The profile as the agent starts, which is no switch.
         engine.reselect(Pick::Start);
         engine.take_last_seen();
+        // A key applied here, or an activation revoked here, that the app
+        // has not seen to yet: the app is opened for it a little later,
+        // unless one connected by then, and again while the work is there.
+        engine.license_app_work = engine.license.as_ref().and_then(LicenseFile::app_work);
+        if engine.license_app_work.is_some() {
+            engine.license_app_next = Some(Instant::now() + engine.license_app_wait);
+        }
         engine.start_capture();
         engine.rebuild_layout();
         engine.publish();
@@ -1615,20 +1759,28 @@ impl Engine {
         }
     }
 
-    /// What this device tells paired devices of its license: its key, or
-    /// none, and whether it is licensed with it.
-    fn license_message(&self) -> Control {
-        let (key, licensed) = self.license_sent.clone();
-        Control {
-            msg: Some(control::Msg::LicenseInfo(LicenseInfo { key, licensed })),
-        }
-    }
-
     /// The user or the app changed the license here.
     fn change_license(&mut self, change: LicenseChange) -> Result<(), LicenseError> {
         if self.license_unavailable.is_some() {
             return Err(LicenseError::Unavailable);
         }
+        if self.license.is_none() {
+            return Err(LicenseError::Unsupported);
+        }
+        if matches!(
+            change,
+            LicenseChange::Apply(_) | LicenseChange::Revoke { .. }
+        ) {
+            // A device paired moments ago, which the engine may not have
+            // seen yet.
+            let (current, generation) = self.directory.peers_now();
+            if generation != self.peers_generation {
+                self.on_peers(current, generation);
+            }
+        }
+        let trusted = |id: &str| id != self.local.as_str() && name_of(&self.peers, id).is_some();
+        let connected = |id: &str| self.links.contains_key(&DeviceId::new(id));
+        let ids: Vec<&str> = self.peers.iter().map(|p| p.id.as_str()).collect();
         let Some(license) = self.license.as_mut() else {
             return Err(LicenseError::Unsupported);
         };
@@ -1641,12 +1793,48 @@ impl Engine {
                 license.record(&key, result)?;
                 info!(state = ?license.state, "the app said what Polar answered about the license");
             }
-            LicenseChange::Remove => {
-                license.remove();
-                info!("the license was removed here; keys from paired devices are not taken");
+            LicenseChange::Remove { key, activation_id } => {
+                license.remove_if(&key, &activation_id)?;
+                info!("the license was removed here");
+            }
+            LicenseChange::Apply(device) => {
+                if !trusted(&device) {
+                    return Err(LicenseError::UnknownDevice);
+                }
+                // What this computer and that device refuse first, then
+                // whether there is a place.
+                if let Some(refusal) = license.refuses_apply(&device) {
+                    return Err(refusal);
+                }
+                // A device that takes a place already is no new one.
+                if !license.use_of(&device, connected(&device)).takes_a_place()
+                    && license.places_taken(ids, connected) >= license::PLACES
+                {
+                    return Err(LicenseError::Full);
+                }
+                license.apply(&device)?;
+                info!(%device, "the license is applied to a paired device");
+            }
+            LicenseChange::Revoke {
+                device,
+                activation_id,
+                deactivated,
+            } => {
+                if !trusted(&device) {
+                    return Err(LicenseError::UnknownDevice);
+                }
+                license.revoke(&device, &activation_id, deactivated)?;
+                info!(
+                    %device, activation = !activation_id.is_empty(), deactivated,
+                    "the license is revoked on a paired device"
+                );
+            }
+            LicenseChange::Freed(activation_id) => {
+                if license.freed(&activation_id) {
+                    info!("the app freed an activation of an earlier key");
+                }
             }
         }
-        self.adopt_license();
         self.license_changed();
         Ok(())
     }
@@ -1674,7 +1862,7 @@ impl Engine {
 
     /// The license file was read again. Once it could be, the license is
     /// available: what it holds is shown and told to paired devices, and
-    /// what they said meanwhile is taken in.
+    /// what they said and sent meanwhile is taken in.
     fn on_license_read(&mut self, loaded: Loaded) {
         self.license_reading = false;
         if self.license_unavailable.is_none() {
@@ -1682,54 +1870,58 @@ impl Engine {
         }
         let file = match loaded {
             Loaded::Unreadable => return,
-            Loaded::File(file) => file,
+            Loaded::File(file) => *file,
             // Damaged after all, and moved aside: no license.
             Loaded::SetAside => LicenseFile::default(),
         };
         info!("the license file can be read now");
         self.license_unavailable = None;
         self.license_queued = Some(file.clone());
-        self.license_sent = file.outgoing();
         self.license = Some(file);
-        // Paired devices heard nothing of it in this session.
-        let msg = self.license_message();
-        for link in self.links.values().filter(|l| l.version >= LICENSE_SINCE) {
-            let _ = link.tx.send(Outbound::Control(msg.clone()));
+        // Devices unpaired while it could not be read leave it now.
+        let peers = &self.peers;
+        if let Some(license) = self.license.as_mut() {
+            license.forget_peers(|id| peers.iter().any(|p| p.id == id));
         }
-        for (from, info) in std::mem::take(&mut self.license_heard) {
-            self.on_license_info(from, info);
+        // Only what devices still trusted said: one unpaired meanwhile is
+        // not written into the file.
+        for (from, said) in std::mem::take(&mut self.license_heard) {
+            if name_of(&self.peers, from.as_str()).is_some()
+                && let Some(license) = self.license.as_mut()
+            {
+                license.peer_said(said);
+            }
         }
-        self.adopt_license();
+        for held in std::mem::take(&mut self.license_held) {
+            match held {
+                HeldLicense::Assign(from, assign) => self.on_license_assign(from, assign),
+                HeldLicense::Revoke(from, revoke) => self.on_license_revoke(from, revoke),
+            }
+        }
         self.license_changed();
     }
 
-    /// Takes a paired device's license key, if the rules say so.
-    fn adopt_license(&mut self) {
-        if let Some(license) = self.license.as_mut()
-            && license.adopt(|id| name_of(&self.peers, id))
-        {
-            info!(
-                device = license.source_device_id,
-                "took the license key of a paired device"
-            );
-        }
-    }
-
-    /// Builds the license as the status shows it again, after it or the
-    /// trusted devices changed, rather than for every status published.
+    /// Builds the license as the status shows it again, after it, the
+    /// trusted devices or their sessions changed, rather than for every
+    /// status published. A device taken offline for now is connected for
+    /// this: its session stays up.
     fn refresh_license_status(&mut self) {
         self.license_status = license::shown(
             self.license.as_ref(),
             self.license_unavailable.is_some(),
             |id| name_of(&self.peers, id),
+            |id| self.links.contains_key(&DeviceId::new(id)),
         );
     }
 
-    /// The license may have changed: it is given to the saver, which writes
-    /// it off this task and tries again until it can, if anything kept in
-    /// its file changed, and paired devices are told if what they know of
-    /// it changed. Unavailable, there is no license to save or tell.
+    /// The license may have changed: paired devices are told what they do
+    /// not know of it yet, and sent what is owed them; it is given to the
+    /// saver, which writes it off this task and tries again until it can,
+    /// if anything kept in its file changed; and the app is opened when
+    /// it has work to do that no one started here. Unavailable, there is
+    /// no license to tell, send or save.
     fn license_changed(&mut self) {
+        self.tell_license();
         self.refresh_license_status();
         let Some(license) = &self.license else {
             return;
@@ -1740,39 +1932,373 @@ impl Engine {
             }
             self.license_queued = Some(license.clone());
         }
-        let outgoing = license.outgoing();
-        if outgoing == self.license_sent {
-            return;
-        }
-        self.license_sent = outgoing;
-        let msg = self.license_message();
-        for link in self.links.values().filter(|l| l.version >= LICENSE_SINCE) {
-            let _ = link.tx.send(Outbound::Control(msg.clone()));
+        let work = license.app_work();
+        if work != self.license_app_work {
+            self.license_app_work = work;
+            self.license_app_tries = 0;
+            self.license_app_next = None;
+            if self.license_app_work.is_some() {
+                self.license_app_connects = self.ui_connects.load(Ordering::SeqCst);
+                self.license_app_present = self.ui_clients.load(Ordering::SeqCst) > 0;
+                self.open_license_app();
+            }
         }
     }
 
-    /// A paired device told its license.
-    fn on_license_info(&mut self, from: DeviceId, info: LicenseInfo) {
-        if !info.key.is_empty() && !license::valid_key(&info.key) {
-            debug!(device = %from, "ignored a license key that cannot be one");
+    /// Opens the app for the license work, unless one is connected or it
+    /// was opened moments ago, and sets when to try again.
+    fn open_license_app(&mut self) {
+        self.app.needed(Need::License);
+        self.license_app_next = Some(Instant::now() + self.license_app_retry());
+        self.license_app_tries += 1;
+    }
+
+    /// The wait before the app is opened again for license work, after it
+    /// was `license_app_tries` times: the retries in turn, the last over
+    /// and over.
+    fn license_app_retry(&self) -> Duration {
+        let retries = &self.license_app_retries;
+        let at = self.license_app_tries.min(retries.len().saturating_sub(1));
+        retries.get(at).copied().unwrap_or(LICENSE_APP_RETRIES[1])
+    }
+
+    /// Opens the app again for license work no one started here, while it
+    /// is there and no app connected since it began: the app may have quit,
+    /// or crashed, before it could start. One that connected and left the
+    /// work undone is not opened again for it, which would only start it
+    /// over and over.
+    fn retry_license_app(&mut self) {
+        self.license_app_next = None;
+        if self.license_app_work.is_none() {
             return;
         }
+        if self.license_app_present
+            || self.ui_clients.load(Ordering::SeqCst) > 0
+            || self.ui_connects.load(Ordering::SeqCst) != self.license_app_connects
+        {
+            debug!("an app connected while the license work waited; not opening it again for it");
+            return;
+        }
+        self.open_license_app();
+    }
+
+    /// Tells each connected device what it does not know yet of this
+    /// computer's license, and sends one that applies and revokes licenses
+    /// what is owed it and not sent in this session yet. A device on
+    /// InputWeave 1.0 is told the key only while it counts on the license
+    /// (`LicenseFile::keyed`), which is how 1.0 is applied one.
+    fn tell_license(&mut self) {
+        let Some(license) = self.license.as_mut() else {
+            return;
+        };
+        let told = license.told();
+        for (device, link) in &mut self.links {
+            if link.version < LICENSE_SINCE {
+                continue;
+            }
+            let legacy = link.version < LICENSE_APPLY_SINCE;
+            let keyed = legacy && license.keyed(device.as_str());
+            let info = LicenseInfo {
+                key: if keyed {
+                    license.key.clone()
+                } else {
+                    String::new()
+                },
+                licensed: told.standing == Standing::Licensed,
+                key_match: told.key_match.map(|m| m.to_vec()).unwrap_or_default(),
+                standing: standing_to_proto(told.standing).into(),
+                activation_id: told.activation_id.clone(),
+                apply_id: told.apply_id.clone(),
+                refused_apply_id: told.refused_apply.clone(),
+            };
+            if link.license_told.as_ref() != Some(&info) {
+                let _ = link.tx.send(Outbound::Control(Control {
+                    msg: Some(control::Msg::LicenseInfo(info.clone())),
+                }));
+                let was_keyed = link
+                    .license_told
+                    .as_ref()
+                    .is_some_and(|told| !told.key.is_empty());
+                if info.key.is_empty() {
+                    link.license_keyed_at = None;
+                } else if !was_keyed {
+                    link.license_keyed_at = Some(Instant::now());
+                }
+                link.license_told = Some(info);
+            }
+            if keyed {
+                license.mark_sent(device.as_str());
+            }
+            // Nothing owed it, and nothing sent it still owed: no deliveries
+            // to work out.
+            if legacy
+                || (link.license_delivered.is_empty()
+                    && !license.owed.iter().any(|o| o.id == device.as_str()))
+            {
+                continue;
+            }
+            let owed = license.deliveries(device.as_str());
+            link.license_delivered.retain(|(d, _)| owed.contains(d));
+            for delivery in owed {
+                if link.license_delivered.iter().any(|(d, _)| *d == delivery) {
+                    continue;
+                }
+                if matches!(delivery, license::Delivery::Assign { .. }) {
+                    license.mark_sent(device.as_str());
+                }
+                let msg = delivery_message(&delivery);
+                debug!(%device, "sending a license change owed to a paired device");
+                let _ = link.tx.send(Outbound::Control(Control { msg: Some(msg) }));
+                link.license_delivered.push((delivery, Instant::now()));
+            }
+        }
+    }
+
+    /// A paired device told how its license stands. A device on a protocol
+    /// before applying and revoking (InputWeave 1.0) tells its key, which
+    /// is never taken: only its match form is kept. No key is taken from a
+    /// newer one either.
+    fn on_license_info(&mut self, from: DeviceId, info: LicenseInfo) {
+        let Some(link) = self.links.get_mut(&from) else {
+            return;
+        };
+        let legacy = link.version < LICENSE_APPLY_SINCE;
+        let said = if legacy {
+            PeerLicense::legacy(from.as_str(), &info.key, info.licensed)
+        } else {
+            peer_license(from.as_str(), &info)
+        };
+        let Some(said) = said else {
+            debug!(device = %from, "ignored a license that cannot be one");
+            return;
+        };
         if name_of(&self.peers, from.as_str()).is_none() {
             return;
         }
         if self.license_unavailable.is_some() {
-            self.license_heard.insert(from, info);
+            self.license_heard.insert(from, said);
             return;
         }
         let Some(license) = self.license.as_mut() else {
             return;
         };
-        let licensed = info.licensed && !info.key.is_empty();
-        if !license.peer_said(from.as_str(), &info.key, licensed) {
+        let standing = said.standing;
+        if license.peer_said(said) {
+            debug!(device = %from, ?standing, "a paired device told its license");
+            self.license_changed();
+        }
+        if !legacy && let Some(link) = self.links.get_mut(&from) {
+            resend_delivered(&from, link, self.license_resend, Instant::now());
+        }
+    }
+
+    /// When the next license change sent in a session and still owed is
+    /// due to go again: every `license_resend` on a session that applies
+    /// and revokes licenses, and every [`DEPARTING_RESEND`] to a device
+    /// kept for a revoke ([`REVOKE_GRACE`]).
+    fn license_resend_deadline(&self) -> Option<Instant> {
+        let live = self
+            .links
+            .values()
+            .filter(|l| l.version >= LICENSE_APPLY_SINCE)
+            .flat_map(|l| {
+                l.license_delivered
+                    .iter()
+                    .map(|(_, at)| *at + self.license_resend)
+            });
+        let departing = self.departing.values().flat_map(|d| {
+            d.link
+                .license_delivered
+                .iter()
+                .map(|(_, at)| *at + self.departing_resend())
+        });
+        live.chain(departing).min()
+    }
+
+    fn departing_resend(&self) -> Duration {
+        self.license_resend.min(DEPARTING_RESEND)
+    }
+
+    /// When the first device on InputWeave 1.0 told the key in this session
+    /// for an apply, and not saying it holds it, has had its time
+    /// ([`LEGACY_TAKE_WAIT`]).
+    fn legacy_take_deadline(&self) -> Option<Instant> {
+        let license = self.license.as_ref()?;
+        self.links
+            .iter()
+            .filter(|(device, link)| {
+                link.version >= LICENSE_SINCE
+                    && link.version < LICENSE_APPLY_SINCE
+                    && license.awaits_legacy_take(device.as_str())
+            })
+            .filter_map(|(_, link)| link.license_keyed_at)
+            .map(|at| at + self.legacy_take_wait)
+            .min()
+    }
+
+    /// Devices on InputWeave 1.0 that did not say they hold the key in
+    /// their time did not take it ([`LicenseFile::refuse_legacy_apply`]);
+    /// one whose session ended meanwhile is given its time again in the
+    /// next.
+    fn expire_legacy_takes(&mut self) {
+        let now = Instant::now();
+        let Some(license) = self.license.as_mut() else {
+            return;
+        };
+        let mut changed = false;
+        for (device, link) in &self.links {
+            if link.version < LICENSE_SINCE
+                || link.version >= LICENSE_APPLY_SINCE
+                || link
+                    .license_keyed_at
+                    .is_none_or(|at| at + self.legacy_take_wait > now)
+            {
+                continue;
+            }
+            if license.refuse_legacy_apply(device.as_str()) {
+                info!(%device, "a device on InputWeave 1.0 did not take the license applied to it");
+                changed = true;
+            }
+        }
+        if changed {
+            self.license_changed();
+        }
+    }
+
+    /// Sends again what is due ([`Self::license_resend_deadline`]): what
+    /// the device says may never show it otherwise, its license file being
+    /// unreadable, or too much held, as it came.
+    fn resend_license(&mut self) {
+        let now = Instant::now();
+        for (device, link) in &mut self.links {
+            if link.version >= LICENSE_APPLY_SINCE {
+                resend_delivered(device, link, self.license_resend, now);
+            }
+        }
+        let every = self.departing_resend();
+        for (device, departing) in &mut self.departing {
+            resend_delivered(device, &mut departing.link, every, now);
+        }
+    }
+
+    /// The revoke sent device `device` in this session that it has not
+    /// shown it took yet, if any.
+    fn outstanding_revoke(&self, device: &DeviceId) -> Option<license::Owed> {
+        let link = self.links.get(device)?;
+        let license = self.license.as_ref()?;
+        let sent = link
+            .license_delivered
+            .iter()
+            .filter(|(d, _)| matches!(d, license::Delivery::Revoke { .. }))
+            .count();
+        if sent == 0 {
+            return None;
+        }
+        license
+            .owed
+            .iter()
+            .find(|o| o.id == device.as_str() && matches!(o.action, license::Action::Revoke { .. }))
+            .cloned()
+    }
+
+    /// What a device kept for a revoke said: once it no longer shows what
+    /// the revoke names, its session ends.
+    fn on_departing_license(&mut self, device: &DeviceId, info: &LicenseInfo) {
+        let Some(departing) = self.departing.get(device) else {
+            return;
+        };
+        // Revokes go to devices that apply and revoke licenses only.
+        if peer_license(device.as_str(), info)
+            .is_some_and(|said| departing.revoke.shown_done(&said))
+        {
+            debug!(%device, "the revoke reached the device removed; ending its session");
+            self.departing.remove(device);
+        }
+    }
+
+    /// When the first session kept for a revoke is ended all the same.
+    fn departing_deadline(&self) -> Option<Instant> {
+        self.departing.values().map(|d| d.until).min()
+    }
+
+    fn expire_departing(&mut self) {
+        let now = Instant::now();
+        self.departing.retain(|device, d| {
+            let keep = d.until > now;
+            if !keep {
+                debug!(%device, "the device removed never said it dropped the license; ending its session");
+            }
+            keep
+        });
+    }
+
+    /// Keeps an apply or revoke heard while the license file cannot be
+    /// read, the newest [`LICENSE_HELD`]: a device sends what it owes again
+    /// anyway, so the oldest matter least.
+    fn hold_license(&mut self, held: HeldLicense) {
+        hold_newest(&mut self.license_held, held, LICENSE_HELD);
+    }
+
+    /// A paired device applied its license here: taken for the app to
+    /// activate, as the rules say (`LicenseFile::assigned`).
+    fn on_license_assign(&mut self, from: DeviceId, assign: LicenseAssign) {
+        let Some(name) = name_of(&self.peers, from.as_str()) else {
+            return;
+        };
+        if self.license_unavailable.is_some() {
+            self.hold_license(HeldLicense::Assign(from, assign));
             return;
         }
-        debug!(device = %from, licensed, "a paired device told its license");
-        self.adopt_license();
+        let Some(license) = self.license.as_mut() else {
+            return;
+        };
+        if !license.assigned(from.as_str(), &name, &assign.key, &assign.apply_id) {
+            debug!(device = %from, "a license applied here changes nothing");
+            return;
+        }
+        info!(device = %from, "a paired device applied its license here");
+        self.license_changed();
+    }
+
+    /// A paired device revoked the license here (`LicenseFile::revoked`):
+    /// only one that proves it holds this computer's key and means this
+    /// computer.
+    fn on_license_revoke(&mut self, from: DeviceId, revoke: LicenseRevoke) {
+        if name_of(&self.peers, from.as_str()).is_none() {
+            return;
+        }
+        let Some(Some(proof)) = license::hash_of(&revoke.proof) else {
+            debug!(device = %from, "ignored a revoke that cannot be one");
+            return;
+        };
+        if !license::valid_activation_id(&revoke.activation_id)
+            || (revoke.activation_id.is_empty() && !license::valid_apply_id(&revoke.apply_id))
+        {
+            debug!(device = %from, "ignored a revoke that cannot be one");
+            return;
+        }
+        if self.license_unavailable.is_some() {
+            self.hold_license(HeldLicense::Revoke(from, revoke));
+            return;
+        }
+        let local = self.local.to_string();
+        let Some(license) = self.license.as_mut() else {
+            return;
+        };
+        if !license.revoked(
+            &local,
+            &proof,
+            &revoke.activation_id,
+            &revoke.apply_id,
+            revoke.free_it,
+        ) {
+            debug!(device = %from, "a revoke here changes nothing");
+            return;
+        }
+        info!(
+            device = %from, state = ?license.state,
+            "a paired device revoked the license here"
+        );
         self.license_changed();
     }
 
@@ -1899,6 +2425,8 @@ impl Engine {
         loop {
             let wake_deadline = self.wakes.next_deadline();
             let hold_until = self.hold_until;
+            let license_resend = self.license_resend_deadline();
+            let legacy_take = self.legacy_take_deadline();
             tokio::select! {
                 event = events.recv() => match event {
                     None | Some(EngineEvent::Shutdown) => break,
@@ -1924,6 +2452,23 @@ impl Engine {
                 }
                 _ = license_rereads.tick(), if self.license_unavailable.is_some() => {
                     self.reread_license();
+                }
+                // License work found as the agent started waits a little for
+                // an app still running to reconnect, as after the agent
+                // restarted (opening it then would only bring its window
+                // forward); then the app is opened, and again with backoff
+                // while the work is there and no app connected.
+                () = sleep_until(self.license_app_next), if self.license_app_next.is_some() => {
+                    self.retry_license_app();
+                }
+                () = sleep_until(self.departing_deadline()), if !self.departing.is_empty() => {
+                    self.expire_departing();
+                }
+                () = sleep_until(license_resend), if license_resend.is_some() => {
+                    self.resend_license();
+                }
+                () = sleep_until(legacy_take), if legacy_take.is_some() => {
+                    self.expire_legacy_takes();
                 }
                 _ = stamps.tick() => {
                     if let Some(unsaved) = self.stamp_connected() {
@@ -2183,6 +2728,12 @@ impl Engine {
             EngineEvent::PeerDown { device, session } => {
                 if self.is_current(&device, session) {
                     self.on_peer_down(device, Gone::Offline);
+                } else if self
+                    .departing
+                    .get(&device)
+                    .is_some_and(|d| d.link.session == session)
+                {
+                    self.departing.remove(&device);
                 }
             }
             EngineEvent::FromPeer {
@@ -2192,6 +2743,15 @@ impl Engine {
             } => {
                 if self.is_current(&device, session) {
                     self.on_peer_msg(device, msg);
+                } else if self
+                    .departing
+                    .get(&device)
+                    .is_some_and(|d| d.link.session == session)
+                    && let PeerMsg::Control(Control {
+                        msg: Some(control::Msg::LicenseInfo(info)),
+                    }) = &msg
+                {
+                    self.on_departing_license(&device, info);
                 }
             }
             EngineEvent::Rtt {
@@ -2623,11 +3183,6 @@ impl Engine {
         if version >= RELATIVE_SINCE {
             let _ = tx.send(Outbound::Control(self.pointer_message()));
         }
-        // Even without a key: the device may still list this one from
-        // before it was removed here.
-        if version >= LICENSE_SINCE && self.license.is_some() {
-            let _ = tx.send(Outbound::Control(self.license_message()));
-        }
         self.links.insert(
             device.clone(),
             Link {
@@ -2648,9 +3203,16 @@ impl Engine {
                 pointer_captured: false,
                 wake_info_at: None,
                 offline_heard: false,
+                license_told: None,
+                license_delivered: Vec::new(),
+                license_keyed_at: None,
                 heard,
             },
         );
+        // Told the license even without a key: the device may still list
+        // this one from before it was removed here. What is owed it goes
+        // now, and it is no longer waited for.
+        self.license_changed();
         if let Some(router) = self.router.as_mut() {
             router.set_relative_capable(device.clone(), version >= RELATIVE_SINCE);
         }
@@ -2721,6 +3283,27 @@ impl Engine {
             .collect();
         for device in untrusted {
             info!(%device, "no longer trusted; ending its session");
+            // A revoke sent it as it was removed ("Also revoke its
+            // license") is still on its way: the session stays, apart from
+            // the trusted links, until the device says it dropped the
+            // license, or for REVOKE_GRACE at most. Every other session
+            // ends at once.
+            if let Some(revoke) = self.outstanding_revoke(&device)
+                && let Some(mut link) = self.links.remove(&device)
+            {
+                debug!(%device, "keeping the session until the revoke reaches it");
+                // Only the revoke goes again meanwhile.
+                link.license_delivered
+                    .retain(|(d, _)| matches!(d, license::Delivery::Revoke { .. }));
+                self.departing.insert(
+                    device.clone(),
+                    Departing {
+                        link,
+                        revoke,
+                        until: Instant::now() + REVOKE_GRACE,
+                    },
+                );
+            }
             // Removing the link drops its sender, which ends the session.
             self.on_peer_down(device, Gone::Untrusted);
         }
@@ -2767,6 +3350,8 @@ impl Engine {
         // Controlled by it no more.
         self.refresh_exits();
         self.end_with(&device);
+        // Applying the license to it waits for it now.
+        self.refresh_license_status();
         self.publish_arrangement();
     }
 
@@ -3013,6 +3598,8 @@ impl Engine {
                     }
                     control::Msg::SessionState(state) => self.on_session_state(from, state),
                     control::Msg::LicenseInfo(info) => self.on_license_info(from, info),
+                    control::Msg::LicenseAssign(assign) => self.on_license_assign(from, assign),
+                    control::Msg::LicenseRevoke(revoke) => self.on_license_revoke(from, revoke),
                     control::Msg::PointerAt(at) => {
                         if at.x.is_finite() && at.y.is_finite() {
                             self.route(Event::PointerAt(from, Point::new(at.x, at.y)));
@@ -6258,6 +6845,110 @@ fn offline_message(doc: &OfflineDoc) -> Control {
     }
 }
 
+/// Adds `item` to `held`, dropping the oldest to keep at most `cap`.
+fn hold_newest<T>(held: &mut VecDeque<T>, item: T, cap: usize) {
+    while held.len() >= cap.max(1) {
+        held.pop_front();
+    }
+    held.push_back(item);
+}
+
+/// Sends device `device` again, on `link`, what it was sent in this
+/// session that is still owed and was last sent `every` ago or more.
+fn resend_delivered(device: &DeviceId, link: &mut Link, every: Duration, now: Instant) {
+    for (delivery, at) in &mut link.license_delivered {
+        if now.duration_since(*at) < every {
+            continue;
+        }
+        *at = now;
+        debug!(%device, "sending a license change again, as the device does not show it");
+        let _ = link.tx.send(Outbound::Control(Control {
+            msg: Some(delivery_message(delivery)),
+        }));
+    }
+}
+
+/// A license change owed a device, as sent (`LicenseAssign`,
+/// `LicenseRevoke`).
+fn delivery_message(delivery: &license::Delivery) -> control::Msg {
+    match delivery {
+        license::Delivery::Assign { key, apply_id } => control::Msg::LicenseAssign(LicenseAssign {
+            key: key.clone(),
+            apply_id: apply_id.clone(),
+        }),
+        license::Delivery::Revoke {
+            proof,
+            activation_id,
+            apply_id,
+            free_it,
+        } => control::Msg::LicenseRevoke(LicenseRevoke {
+            proof: proof.to_vec(),
+            activation_id: activation_id.clone(),
+            free_it: *free_it,
+            apply_id: apply_id.clone(),
+        }),
+    }
+}
+
+/// How a license stands, as peers tell it.
+fn standing_to_proto(standing: Standing) -> LicenseStanding {
+    match standing {
+        Standing::None => LicenseStanding::None,
+        Standing::Pending => LicenseStanding::Pending,
+        Standing::Licensed => LicenseStanding::Licensed,
+        Standing::SeatsFull => LicenseStanding::SeatsFull,
+        Standing::Invalid => LicenseStanding::Invalid,
+    }
+}
+
+/// What a device on a protocol that applies and revokes licenses said of
+/// its license; none when it cannot be one. A standing this build does not
+/// know is none.
+fn peer_license(id: &str, info: &LicenseInfo) -> Option<PeerLicense> {
+    if !license::valid_activation_id(&info.activation_id) {
+        return None;
+    }
+    // A key match that cannot be one is ignored alone (peer.proto): the
+    // sender has a key this computer cannot tell, and the rest stands.
+    let has_key = !info.key_match.is_empty();
+    let key_match = license::hash_of(&info.key_match).unwrap_or_else(|| {
+        debug!(device = id, "ignored a key match that cannot be one");
+        None
+    });
+    let standing = match LicenseStanding::try_from(info.standing) {
+        _ if !has_key => Standing::None,
+        Ok(LicenseStanding::Pending) => Standing::Pending,
+        Ok(LicenseStanding::Licensed) => Standing::Licensed,
+        Ok(LicenseStanding::SeatsFull) => Standing::SeatsFull,
+        Ok(LicenseStanding::Invalid) => Standing::Invalid,
+        Ok(LicenseStanding::None) | Err(_) => Standing::None,
+    };
+    let apply_id = if !has_key || !license::valid_apply_id(&info.apply_id) {
+        String::new()
+    } else {
+        info.apply_id.clone()
+    };
+    let refused_apply = if license::valid_apply_id(&info.refused_apply_id) {
+        info.refused_apply_id.clone()
+    } else {
+        String::new()
+    };
+    Some(PeerLicense {
+        id: id.to_owned(),
+        key_match,
+        standing,
+        activation_id: if standing == Standing::Licensed {
+            info.activation_id.clone()
+        } else {
+            String::new()
+        },
+        legacy: false,
+        apply_id,
+        refused_apply,
+        legacy_refused: false,
+    })
+}
+
 fn layout_message(doc: &LayoutDoc) -> Control {
     Control {
         msg: Some(control::Msg::Layout(peer::Layout {
@@ -6332,6 +7023,44 @@ impl InjectionFailures {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_key_match_that_cannot_be_one_is_ignored_alone() {
+        let info = LicenseInfo {
+            key_match: vec![7; 31],
+            standing: LicenseStanding::Licensed.into(),
+            activation_id: "act-win".to_owned(),
+            apply_id: "a1".to_owned(),
+            refused_apply_id: "a2".to_owned(),
+            ..LicenseInfo::default()
+        };
+        let said = peer_license("win", &info).unwrap();
+        assert_eq!(said.key_match, None);
+        assert_eq!(said.standing, Standing::Licensed);
+        assert_eq!(said.activation_id, "act-win");
+        assert_eq!(said.apply_id, "a1");
+        assert_eq!(said.refused_apply, "a2");
+        // No key at all: nothing stands.
+        let none = peer_license(
+            "win",
+            &LicenseInfo {
+                key_match: Vec::new(),
+                ..info
+            },
+        )
+        .unwrap();
+        assert_eq!(none.standing, Standing::None);
+        assert_eq!(none.refused_apply, "a2");
+    }
+
+    #[test]
+    fn what_is_held_past_the_cap_drops_the_oldest() {
+        let mut held = VecDeque::new();
+        for n in 0..5 {
+            hold_newest(&mut held, n, 3);
+        }
+        assert_eq!(held, [2, 3, 4]);
+    }
 
     #[test]
     fn a_change_to_speeds_or_how_to_wake_alone_is_told_apart() {

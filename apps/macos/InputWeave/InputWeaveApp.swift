@@ -271,14 +271,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
-    /// Opening the app, rather than logging in or a service request, brings
-    /// back a hidden menu bar icon, as reopening a running app does (see
+    /// Opening the app, rather than logging in, a service request or the
+    /// background service, brings back a hidden menu bar icon, as reopening
+    /// a running app does (see
     /// `applicationShouldHandleReopen`). The Apple event that opened the app
     /// is current only here, not in `applicationWillFinishLaunching`.
     private func revealHiddenIcon(isDefault: Bool) {
         let defaults = UserDefaults.standard
         let reveal = LaunchReveal.decide(
-            launch: LaunchReveal.launch(NSAppleEventManager.shared().currentAppleEvent, isDefault: isDefault),
+            launch: LaunchReveal.launch(
+                NSAppleEventManager.shared().currentAppleEvent, isDefault: isDefault, arguments: CommandLine.arguments),
             iconShown: defaults.object(forKey: Preferences.showsMenuBarIcon) as? Bool ?? true,
             finishedSetup: defaults.bool(forKey: Preferences.finishedSetup))
         if reveal.showsMainWindow {

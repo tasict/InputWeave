@@ -84,6 +84,8 @@ pub(crate) struct IpcContext {
     /// Apps that said Hello; with none, the app is opened when the user
     /// must see or decide something.
     pub(crate) ui_clients: Arc<AtomicUsize>,
+    /// How many times an app said Hello since the agent started.
+    pub(crate) ui_connects: Arc<AtomicUsize>,
     /// Where the broker owns the clipboard: the hold of the app that takes
     /// promises with files (`ClientHello.takes_clipboard_files`).
     pub(crate) app_clipboard: Option<Arc<AppClipboard>>,
@@ -152,6 +154,7 @@ async fn client(conn: IpcConnection, ctx: IpcContext) {
                             // ctl cannot ask the user anything.
                             if counted.is_none() && !hello.client.starts_with("ctl/") {
                                 counted = Some(ClientCount::new(&ctx.ui_clients));
+                                ctx.ui_connects.fetch_add(1, Ordering::SeqCst);
                                 if holder.is_none()
                                     && let Some(hub) = &ctx.app_clipboard
                                 {
@@ -931,8 +934,27 @@ async fn respond(
             };
             license_result(ctx, super::license(&ctx.engine, change).await)
         }
-        Command::RemoveLicense(_) => {
-            let change = super::engine::LicenseChange::Remove;
+        Command::RemoveLicense(remove) => {
+            let change = super::engine::LicenseChange::Remove {
+                key: remove.key,
+                activation_id: remove.activation_id,
+            };
+            license_result(ctx, super::license(&ctx.engine, change).await)
+        }
+        Command::ApplyLicense(apply) => {
+            let change = super::engine::LicenseChange::Apply(apply.device_id);
+            license_result(ctx, super::license(&ctx.engine, change).await)
+        }
+        Command::RevokeLicense(revoke) => {
+            let change = super::engine::LicenseChange::Revoke {
+                device: revoke.device_id,
+                activation_id: revoke.activation_id,
+                deactivated: revoke.deactivated,
+            };
+            license_result(ctx, super::license(&ctx.engine, change).await)
+        }
+        Command::LicenseActivationFreed(freed) => {
+            let change = super::engine::LicenseChange::Freed(freed.activation_id);
             license_result(ctx, super::license(&ctx.engine, change).await)
         }
         Command::JumpTo(jump) => match super::jump_to(&ctx.engine, &jump.device_id).await {

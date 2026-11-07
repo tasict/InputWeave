@@ -252,10 +252,11 @@ impl Client {
         self.status_request(set).await
     }
 
-    /// Removes the license from this computer; it takes no key from paired
-    /// devices until one is entered here.
+    /// Removes the license from this computer, whatever it is; it is
+    /// licensed again only by entering a key here, or by another computer
+    /// applying its license here.
     pub async fn remove_license(&mut self) -> Result<app::Status, CtlError> {
-        self.status_request(Command::RemoveLicense(RemoveLicense {}))
+        self.status_request(Command::RemoveLicense(RemoveLicense::default()))
             .await
     }
 
@@ -1041,6 +1042,7 @@ pub fn format_license(status: &app::Status) -> String {
         LicenseState::SeatsFull => "every seat is taken (trial)",
         LicenseState::Invalid => "refused by Polar (trial)",
         LicenseState::Unavailable => "the license file cannot be read right now (trial)",
+        LicenseState::Revoked => "revoked by a paired device; the app frees it (trial)",
     };
     out.push_str(&format!("license:        {state}\n"));
     if !license.key.is_empty() {
@@ -1065,17 +1067,22 @@ pub fn format_license(status: &app::Status) -> String {
     {
         out.push_str(&format!("confirmed:      {}\n", crate::agent::utc(at)));
     }
-    if license.opted_out {
-        out.push_str("removed here:   keys from paired devices are not taken\n");
-    }
     for device in &license.devices {
-        let state = if device.licensed {
-            "licensed"
+        let state = match device.r#use() {
+            app::LicenseUse::Licensed => "licensed",
+            app::LicenseUse::Activating => "activating",
+            app::LicenseUse::Waiting => "applied, offline: goes as it connects",
+            app::LicenseUse::NoPlaces => "no places left",
+            app::LicenseUse::OtherLicense => "another license",
+            app::LicenseUse::None => "trial",
+        };
+        let legacy = if device.legacy {
+            ", InputWeave 1.0"
         } else {
-            "not activated"
+            ""
         };
         out.push_str(&format!(
-            "also on:        {} ({}), {state}\n",
+            "also on:        {} ({}), {state}{legacy}\n",
             device.name, device.id
         ));
     }
@@ -2278,11 +2285,27 @@ mod tests {
                 state: LicenseState::Licensed.into(),
                 customer_email: "someone@example.com".to_owned(),
                 validated_at: 1_793_800_000,
-                devices: vec![app::LicensedDevice {
-                    id: "win".to_owned(),
-                    name: "Windows PC".to_owned(),
-                    licensed: true,
-                }],
+                devices: vec![
+                    app::LicensedDevice {
+                        id: "win".to_owned(),
+                        name: "Windows PC".to_owned(),
+                        licensed: true,
+                        r#use: app::LicenseUse::Licensed.into(),
+                        activation_id: "act-secret".to_owned(),
+                        legacy: false,
+                        can_take_back: false,
+                        key_out_of_reach: false,
+                        legacy_refused: false,
+                        waiting_to_apply: false,
+                    },
+                    app::LicensedDevice {
+                        id: "old".to_owned(),
+                        name: "Old PC".to_owned(),
+                        r#use: app::LicenseUse::Waiting.into(),
+                        legacy: true,
+                        ..app::LicensedDevice::default()
+                    },
+                ],
                 ..app::License::default()
             }),
             ..app::Status::default()
@@ -2299,6 +2322,13 @@ mod tests {
             out.contains("also on:        Windows PC (win), licensed\n"),
             "{out}"
         );
+        assert!(
+            out.contains(
+                "also on:        Old PC (old), applied, offline: goes as it connects, InputWeave 1.0\n"
+            ),
+            "{out}"
+        );
+        assert!(!out.contains("act-secret"), "{out}");
         assert_eq!(
             format_license(&app::Status::default()),
             "license:        not kept by this agent\n"

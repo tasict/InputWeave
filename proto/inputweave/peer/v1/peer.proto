@@ -381,19 +381,98 @@ message SessionState {
   bool sharing_paused = 4;
 }
 
-// The sender's license key and whether it is activated there, sent once a
-// session starts (version 6) and whenever either changes; never while
-// pairing. An empty key: the sender has none any more, or Polar refused its
-// key as invalid. A receiver lists the sender among the computers on the
-// license while their keys match, and takes the key itself (for its app to
-// activate) only when it has no key, or its own was refused, and the sender
-// is licensed with it, unless its user removed its license there. Keys are
-// 20 to 96 printable ASCII characters; a receiver ignores others. A
-// receiver never takes a key Polar refused there since its user last
-// entered a key.
+// The sender's license, sent once a session starts (version 6) and
+// whenever it changes; never while pairing (docs/architecture.md §11).
+//
+// From protocol 7 a receiver never takes a key from it, whatever the
+// sender's version: a key goes only to the devices it is applied to
+// (LicenseAssign), and the receiver lists the sender on its license while
+// key_match equals its own key's. So `key` is set only toward a device on
+// protocol 6 (InputWeave 1.0, which takes the key of any licensed sender
+// that has one) that the sender counts on its license: one it applied the
+// license to, or one that says it has the sender's key, unless the sender
+// revoked it; toward every other device it is empty. A receiver on
+// protocol 6 lists the sender while their keys match. Keys are 20 to 96
+// printable ASCII characters; a receiver ignores others.
 message LicenseInfo {
   string key = 1;
+  // Activated there, with whatever key it has.
   bool licensed = 2;
+  // Protocol 7 on. The SHA-256 of "InputWeave license key\n" followed by the
+  // sender's key, so that devices tell whether they share a key without
+  // telling it: Polar's keys hold a random UUID, so the digest gives none
+  // away. Empty when the sender has no key. A receiver ignores one that is
+  // not 32 bytes.
+  bytes key_match = 3;
+  LicenseStanding standing = 4;
+  // The sender's activation at Polar while it is licensed, so that a device
+  // holding the same key can deactivate it (Revoke License) and name it in
+  // a revoke; it is of no use without the key. At most 128 printable ASCII
+  // characters; a receiver ignores the message otherwise.
+  string activation_id = 5;
+  // While the sender's key came from a device that applied it there
+  // (LicenseAssign.apply_id) and it waits for activation, is licensed with
+  // it or was refused: that apply, which a revoke can name until the sender
+  // has an activation of its own to be named by. At most 64 printable ASCII
+  // characters, as activation_id.
+  string apply_id = 6;
+  // The last apply the sender did not take, as it said why in the rest of
+  // this message or could not (another activation of its own still to
+  // free): the device that sent it stops sending it. Empty when none.
+  string refused_apply_id = 7;
+}
+
+// Where the sender's license stands (LicenseInfo.standing).
+enum LicenseStanding {
+  LICENSE_STANDING_NONE = 0;
+  // The key waits for the sender's app to activate it.
+  LICENSE_STANDING_PENDING = 1;
+  LICENSE_STANDING_LICENSED = 2;
+  // Polar refused to activate it there: every place is taken.
+  LICENSE_STANDING_SEATS_FULL = 3;
+  // Polar no longer knows the key, or the sender's activation.
+  LICENSE_STANDING_INVALID = 4;
+}
+
+// The license applied to the receiver from a device that holds it (Apply
+// License; protocol 7). The receiver takes the key for its app to activate,
+// noting the sender as where it came from and `apply_id` as the apply,
+// unless it is licensed with another key or still has an activation of its
+// own to free (it then tells the apply in LicenseInfo.refused_apply_id);
+// the same key, licensed or waiting there, changes nothing. Sent as the
+// session starts and again on each later one until the receiver's
+// LicenseInfo shows the key waiting or licensed there, the apply refused,
+// or another key licensed. A receiver ignores a key that is not one (see
+// LicenseInfo), and an apply_id that is empty or not 64 printable ASCII
+// characters at most.
+message LicenseAssign {
+  string key = 1;
+  // Random, made by the sender for this apply.
+  string apply_id = 2;
+}
+
+// The license revoked on the receiver from a device that holds it (Revoke
+// License; protocol 7). It names what it revokes: the receiver's
+// activation, as the receiver last told it (LicenseInfo.activation_id), or,
+// for a key that was applied there and not activated yet, that apply
+// (LicenseInfo.apply_id). The receiver acts only while what is named is
+// still its own: so a revoke that waited for it to connect never undoes a
+// license applied there since. A revoke of the activation forgets the
+// license, unless `free_it`: the sender could not deactivate it at Polar,
+// so the receiver's app deactivates it first (the receiver keeps it until
+// then). A revoke of the apply forgets the key, and an activation made from
+// that apply meanwhile is deactivated by the receiver's app as with
+// `free_it`. `proof` shows the sender holds the receiver's key and means
+// the receiver: the SHA-256 of "InputWeave license revoke\n", the key, "\n"
+// and the receiver's device id, which a device without the key cannot
+// make; a receiver ignores a revoke whose proof is not its own. Sent as
+// the session starts and on each later one until the receiver's
+// LicenseInfo no longer shows what it names.
+message LicenseRevoke {
+  bytes proof = 1;
+  string activation_id = 2;
+  bool free_it = 3;
+  string apply_id = 4;
 }
 
 // How to wake the sender from sleep over the network (Wake-on-LAN): the
@@ -484,6 +563,8 @@ message Control {
     LicenseInfo license_info = 24;
     WakeInfo wake_info = 25;
     OfflineDevices offline_devices = 26;
+    LicenseAssign license_assign = 27;
+    LicenseRevoke license_revoke = 28;
   }
 }
 

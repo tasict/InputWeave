@@ -402,12 +402,16 @@ fn owned_error(what: impl std::fmt::Display, why: &str) -> std::io::Error {
 
 /// Opens the InputWeave app, which is where the user is asked things
 /// (docs/architecture.md §3: the UI is the only thing that talks to the
-/// user). Returns whether that was possible here.
+/// user), in the background: on macOS without bringing it forward, and
+/// started with `--background` (as the Windows broker and Linux's D-Bus
+/// activation start it), so it shows only what the agent's state calls
+/// for, such as a pairing code, and never its main window by itself.
+/// Returns whether that was possible here.
 pub fn open_app() -> bool {
     #[cfg(target_os = "macos")]
     {
         let child = std::process::Command::new("/usr/bin/open")
-            .args(["-g", "-b", "cc.ctsite.inputweave"])
+            .args(["-g", "-b", "cc.ctsite.inputweave", "--args", "--background"])
             .spawn();
         // Reap it once it exits.
         child

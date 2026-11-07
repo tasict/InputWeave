@@ -452,7 +452,7 @@ pub const LICENSE_TRY_AGAIN: &str = "LicenseTryAgain";
 pub const LICENSE_HOW_TITLE: &str = "LicenseHowTitle";
 pub const LICENSE_HOW_BUY: &str = "LicenseHowBuy";
 pub const LICENSE_HOW_ENTER: &str = "LicenseHowEnter";
-pub const LICENSE_HOW_PAIRED: &str = "LicenseHowPaired";
+pub const LICENSE_HOW_APPLY: &str = "LicenseHowApply";
 pub const LICENSE_POLAR_NOTE: &str = "LicensePolarNote";
 pub const LICENSE_LICENSED_TO: &str = "LicenseLicensedTo";
 pub const LICENSE_THANKS: &str = "LicenseThanks";
@@ -545,6 +545,33 @@ pub const PROFILE_ADD_THIS_NETWORK: &str = "ProfileAddThisNetwork";
 pub const CONNECTION_NOT_IN_PROFILE: &str = "ConnectionNotInProfile";
 pub const HUD_PROFILE_SWITCHED: &str = "HudProfileSwitched";
 pub const HUD_PROFILE_SWITCHED_PAUSED: &str = "HudProfileSwitchedPaused";
+pub const LICENSE_APPLY: &str = "LicenseApply";
+pub const LICENSE_REVOKE: &str = "LicenseRevoke";
+pub const LICENSE_DONT_APPLY: &str = "LicenseDontApply";
+pub const LICENSE_WAITING: &str = "LicenseWaiting";
+pub const LICENSE_NO_PLACES: &str = "LicenseNoPlaces";
+pub const LICENSE_NO_PLACES_BODY: &str = "LicenseNoPlacesBody";
+pub const LICENSE_OTHER: &str = "LicenseOther";
+pub const LICENSE_OTHER_NOTE: &str = "LicenseOtherNote";
+pub const LICENSE_LEGACY_NOTE: &str = "LicenseLegacyNote";
+pub const LICENSE_ALL_IN_USE: &str = "LicenseAllInUse";
+pub const LICENSE_APPLY_NOTE: &str = "LicenseApplyNote";
+pub const LICENSE_REVOKE_TITLE: &str = "LicenseRevokeTitle";
+pub const LICENSE_REVOKE_BODY: &str = "LicenseRevokeBody";
+pub const LICENSE_REVOKE_CONFIRM: &str = "LicenseRevokeConfirm";
+pub const LICENSE_KEEP: &str = "LicenseKeep";
+pub const LICENSE_ELSEWHERE: &str = "LicenseElsewhere";
+pub const REMOVE_DEVICE_REVOKE: &str = "RemoveDeviceRevoke";
+pub const REMOVE_DEVICE_REVOKE_NOTE: &str = "RemoveDeviceRevokeNote";
+pub const REMOVE_DEVICE_LEGACY: &str = "RemoveDeviceLegacy";
+pub const REMOVE_DEVICE_NOT_REVOKED: &str = "RemoveDeviceNotRevoked";
+pub const REMOVE_DEVICE_NOT_REVOKED_BODY: &str = "RemoveDeviceNotRevokedBody";
+pub const REMOVE_DEVICE_OFFLINE_BODY: &str = "RemoveDeviceOfflineBody";
+pub const REMOVE_DEVICE_FREED_NOT_TOLD: &str = "RemoveDeviceFreedNotTold";
+pub const REMOVE_DEVICE_FREED_NOT_TOLD_BODY: &str = "RemoveDeviceFreedNotToldBody";
+pub const LICENSE_LEGACY_REFUSED: &str = "LicenseLegacyRefused";
+pub const LICENSE_WAITING_TITLE: &str = "LicenseWaitingTitle";
+pub const LICENSE_WAITS_FOR_LICENSE: &str = "LicenseWaitsForLicense";
 
 pub const ALL: &[&str] = &[
     TITLE_UPDATING,
@@ -994,7 +1021,7 @@ pub const ALL: &[&str] = &[
     LICENSE_HOW_TITLE,
     LICENSE_HOW_BUY,
     LICENSE_HOW_ENTER,
-    LICENSE_HOW_PAIRED,
+    LICENSE_HOW_APPLY,
     LICENSE_POLAR_NOTE,
     LICENSE_LICENSED_TO,
     LICENSE_THANKS,
@@ -1087,4 +1114,31 @@ pub const ALL: &[&str] = &[
     CONNECTION_NOT_IN_PROFILE,
     HUD_PROFILE_SWITCHED,
     HUD_PROFILE_SWITCHED_PAUSED,
+    LICENSE_APPLY,
+    LICENSE_REVOKE,
+    LICENSE_DONT_APPLY,
+    LICENSE_WAITING,
+    LICENSE_NO_PLACES,
+    LICENSE_NO_PLACES_BODY,
+    LICENSE_OTHER,
+    LICENSE_OTHER_NOTE,
+    LICENSE_LEGACY_NOTE,
+    LICENSE_ALL_IN_USE,
+    LICENSE_APPLY_NOTE,
+    LICENSE_REVOKE_TITLE,
+    LICENSE_REVOKE_BODY,
+    LICENSE_REVOKE_CONFIRM,
+    LICENSE_KEEP,
+    LICENSE_ELSEWHERE,
+    REMOVE_DEVICE_REVOKE,
+    REMOVE_DEVICE_REVOKE_NOTE,
+    REMOVE_DEVICE_LEGACY,
+    REMOVE_DEVICE_NOT_REVOKED,
+    REMOVE_DEVICE_NOT_REVOKED_BODY,
+    REMOVE_DEVICE_OFFLINE_BODY,
+    REMOVE_DEVICE_FREED_NOT_TOLD,
+    REMOVE_DEVICE_FREED_NOT_TOLD_BODY,
+    LICENSE_LEGACY_REFUSED,
+    LICENSE_WAITING_TITLE,
+    LICENSE_WAITS_FOR_LICENSE,
 ];

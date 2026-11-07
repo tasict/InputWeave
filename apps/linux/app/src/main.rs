@@ -36,6 +36,9 @@ use inputweave_app_core::{APP_ID, log};
 pub struct Launch {
     /// Started by the desktop at login, or by the agent: only the tray icon.
     pub background: bool,
+    /// Started by the agent (D-Bus activation's `background` action), which
+    /// has something for the app to do or ask.
+    pub by_agent: bool,
     /// Draw the windows with sample data into this folder, then quit.
     pub screenshots: Option<PathBuf>,
     /// The page to open, for testing.
@@ -146,6 +149,7 @@ fn main() -> gtk::glib::ExitCode {
                     &app,
                     Launch {
                         background: true,
+                        by_agent: true,
                         ..Launch::default()
                     },
                     false,

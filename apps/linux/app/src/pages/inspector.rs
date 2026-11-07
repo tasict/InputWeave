@@ -15,9 +15,10 @@ use std::time::{Duration, SystemTime};
 use adw::prelude::*;
 use gtk::glib;
 use inputweave_app_core::cursor_speed::{self, Draft};
+use inputweave_app_core::license_text::{self, NotRevoked, RemoveOffer};
+use inputweave_app_core::polar;
 use inputweave_app_core::proto::{
-    RenameDevice, SetDeviceOptions, SetDeviceSharing, SetDeviceSpeed, Unpair,
-    client_message::Command,
+    RenameDevice, SetDeviceOptions, SetDeviceSharing, SetDeviceSpeed, client_message::Command,
 };
 use inputweave_app_core::snapshot::Snapshot;
 use inputweave_app_core::text::keys;
@@ -797,31 +798,145 @@ impl Inspector {
             .build();
         let (weak, device_id) = (self.ui.clone(), id.to_owned());
         remove.connect_clicked(move |button| {
-            let Some(ui) = weak.upgrade() else { return };
-            let name = ui.snapshot().name_of(&device_id);
-            let dialog = adw::AlertDialog::new(
-                Some(&tr(&ui!(keys::REMOVE_DEVICE_TITLE, name))),
-                Some(&t(keys::REMOVE_DEVICE_MESSAGE)),
-            );
-            dialog.add_response("cancel", &t(keys::CANCEL));
-            dialog.add_response("remove", &t(keys::REMOVE_DEVICE_CONFIRM));
-            dialog.set_response_appearance("remove", adw::ResponseAppearance::Destructive);
-            dialog.set_default_response(Some("cancel"));
-            dialog.set_close_response("cancel");
-            let device_id = device_id.clone();
-            dialog.connect_response(None, move |_, response| {
-                if response == "remove" {
-                    ui.command(Command::Unpair(Unpair {
-                        device_id: device_id.clone(),
-                    }));
-                }
-            });
-            dialog.present(Some(button));
+            if let Some(ui) = weak.upgrade() {
+                RemoveQuestion::new(&ui, &device_id)
+                    .dialog
+                    .present(Some(button));
+            }
         });
         removal.add(&remove);
         self.add(removal);
         rows
     }
+}
+
+/// The question that removes (unpairs) a computer. While this computer is
+/// licensed and the computer uses its license, it also offers to revoke
+/// it there ("Also revoke its license", checked), or, for one on
+/// InputWeave 1.0, which cannot be told, says its place stays taken.
+pub struct RemoveQuestion {
+    pub dialog: adw::AlertDialog,
+    /// "Also revoke its license" (the rest is for the GTK tests).
+    #[cfg_attr(not(test), allow(dead_code))]
+    pub revoke: Option<gtk::CheckButton>,
+    /// The line for a computer on InputWeave 1.0.
+    #[cfg_attr(not(test), allow(dead_code))]
+    pub line: Option<gtk::Label>,
+    /// The notice that its license could not be revoked, once shown.
+    #[cfg_attr(not(test), allow(dead_code))]
+    pub notice: Rc<RefCell<Option<adw::AlertDialog>>>,
+}
+
+impl RemoveQuestion {
+    pub fn new(ui: &Rc<Ui>, device_id: &str) -> RemoveQuestion {
+        let model = ui.snapshot();
+        let name = model.name_of(device_id);
+        let offer =
+            license_text::remove_offer(&model.status, ui.license.licensed(&model), device_id);
+        let dialog = adw::AlertDialog::new(
+            Some(&tr(&ui!(keys::REMOVE_DEVICE_TITLE, name.as_str()))),
+            Some(&t(keys::REMOVE_DEVICE_MESSAGE)),
+        );
+        dialog.add_response("cancel", &t(keys::CANCEL));
+        dialog.add_response("remove", &t(keys::REMOVE_DEVICE_CONFIRM));
+        dialog.set_response_appearance("remove", adw::ResponseAppearance::Destructive);
+        dialog.set_default_response(Some("cancel"));
+        dialog.set_close_response("cancel");
+        let (mut revoke, mut line) = (None, None);
+        match &offer {
+            RemoveOffer::Revoke(_) => {
+                let check = gtk::CheckButton::builder()
+                    .label(t(keys::REMOVE_DEVICE_REVOKE))
+                    .active(true)
+                    .build();
+                let note = gtk::Label::builder()
+                    .label(t(keys::REMOVE_DEVICE_REVOKE_NOTE))
+                    .wrap(true)
+                    .xalign(0.0)
+                    // Under the check box's label, not its box.
+                    .margin_start(28)
+                    .css_classes(["dim-label", "caption"])
+                    .build();
+                let extra = gtk::Box::builder()
+                    .orientation(gtk::Orientation::Vertical)
+                    .spacing(2)
+                    .build();
+                extra.append(&check);
+                extra.append(&note);
+                dialog.set_extra_child(Some(&extra));
+                revoke = Some(check);
+            }
+            RemoveOffer::Legacy { .. } => {
+                let label = gtk::Label::builder()
+                    .label(offer.line().map(|l| tr(&l)).unwrap_or_default())
+                    .wrap(true)
+                    .justify(gtk::Justification::Center)
+                    .css_classes(["dim-label"])
+                    .build();
+                dialog.set_extra_child(Some(&label));
+                line = Some(label);
+            }
+            RemoveOffer::Unpair => {}
+        }
+        let notice: Rc<RefCell<Option<adw::AlertDialog>>> = Rc::default();
+        let (weak, id, check, shown) = (
+            Rc::downgrade(ui),
+            device_id.to_owned(),
+            revoke.clone(),
+            notice.clone(),
+        );
+        dialog.connect_response(None, move |_, response| {
+            let Some(ui) = weak.upgrade() else { return };
+            if response != "remove" {
+                return;
+            }
+            // As the agent says now, the box checked.
+            let model = ui.snapshot();
+            let first =
+                match license_text::remove_offer(&model.status, ui.license.licensed(&model), &id) {
+                    RemoveOffer::Revoke(first) if check.as_ref().is_some_and(|c| c.is_active()) => {
+                        Some(first)
+                    }
+                    _ => None,
+                };
+            let name = model.name_of(&id);
+            let (weak, shown) = (Rc::downgrade(&ui), shown.clone());
+            crate::license::remove_device(&ui, &id, first, move |why| {
+                if let Some(ui) = weak.upgrade() {
+                    *shown.borrow_mut() = Some(not_revoked_notice(&ui, &name, why));
+                }
+            });
+        });
+        RemoveQuestion {
+            dialog,
+            revoke,
+            line,
+            notice,
+        }
+    }
+}
+
+/// Said once a computer was removed whose license could not be revoked:
+/// its place stays taken, or may be once it activates the key, until it is
+/// freed in Polar's customer portal; or its place is free, but it was not
+/// told (OK only).
+pub fn not_revoked_notice(ui: &Rc<Ui>, name: &str, why: NotRevoked) -> adw::AlertDialog {
+    let dialog = adw::AlertDialog::new(Some(&tr(&why.title(name))), Some(&tr(&why.body())));
+    if why.manage() {
+        dialog.add_response("manage", &t(keys::LICENSE_MANAGE));
+    }
+    dialog.add_response("ok", &t(keys::OK));
+    dialog.set_default_response(Some("ok"));
+    dialog.set_close_response("ok");
+    let weak = Rc::downgrade(ui);
+    dialog.connect_response(Some("manage"), move |_, _| {
+        if let Some(ui) = weak.upgrade() {
+            crate::license::open(&ui, polar::PORTAL_URL);
+        }
+    });
+    let parent = ui.shown_window();
+    dialog.present(parent.as_ref());
+    dialog
 }
 
 /// The status row's part in taking another computer offline for now: the

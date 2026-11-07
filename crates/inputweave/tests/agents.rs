@@ -11710,8 +11710,9 @@ async fn devices_from_before_relative_mode_are_not_put_in_it() {
     }
 }
 
-// Licenses: the agent keeps this computer's license and passes the key to
-// paired devices; the app (here, the test) reports what Polar answered.
+// Licenses: the agent keeps this computer's license and applies it to the
+// paired devices the user chooses; the app (here, the test) reports what
+// Polar answered.
 
 const KEY_A: &str = "INPUTWEAVE-7F3A2C1E-58D4-4B9A-A2E1-0C6D3F9B7E42";
 const KEY_B: &str = "INPUTWEAVE-0B1C2D3E-4F50-4162-8374-95A6B7C8D9E0";
@@ -11770,13 +11771,18 @@ fn refused(refusal: agent::Refusal) -> agent::LicenseResult {
     }
 }
 
-/// `node` has `key`, activated there.
-async fn license_with(node: &Node, key: &str) {
+/// `node` has `key`, activated there as `act`.
+async fn license_as(node: &Node, key: &str, act: &str) {
     node.agent.set_license_key(key).await.unwrap();
     node.agent
-        .record_license_result(key, activated("act"))
+        .record_license_result(key, activated(act))
         .await
         .unwrap();
+}
+
+/// `node` has `key`, activated there.
+async fn license_with(node: &Node, key: &str) {
+    license_as(node, key, "act").await;
 }
 
 async fn wait_license(
@@ -11789,45 +11795,14 @@ async fn wait_license(
         .unwrap()
 }
 
-/// What `node` lists of `peer` among the computers on its license.
-fn listed(license: &agent::LicenseStatus, peer: &str) -> Option<bool> {
+/// How `node` lists `peer` among the computers on its license; none when
+/// it is not listed (on trial there).
+fn listed(license: &agent::LicenseStatus, peer: &str) -> Option<agent::LicenseUse> {
     license
         .devices
         .iter()
         .find(|d| d.id == peer)
-        .map(|d| d.licensed)
-}
-
-#[tokio::test(flavor = "multi_thread")]
-async fn a_license_key_passes_to_a_device_paired_with_it() {
-    let win = keeper(&win()).await;
-    let mac = keeper(&mac()).await;
-    license_with(&mac, KEY_A).await;
-    assert_eq!(
-        mac.agent.status().license.unwrap().state,
-        agent::LicenseState::Licensed
-    );
-
-    pair(&mac, &win).await;
-    connected(&mac, "win").await;
-    // The PC takes the key, for its app to activate.
-    let theirs = wait_license(&win, |l| l.key == KEY_A).await;
-    assert_eq!(theirs.state, agent::LicenseState::PendingActivation);
-    assert_eq!(theirs.source_device_id, "mac");
-    assert_eq!(theirs.source_device_name, "MacBook Pro");
-    assert!(theirs.activation_id.is_empty());
-    assert_eq!(listed(&theirs, "mac"), Some(true));
-    // The Mac lists the PC as waiting, then as licensed.
-    wait_license(&mac, |l| listed(l, "win") == Some(false)).await;
-    win.agent
-        .record_license_result(KEY_A, activated("act-win"))
-        .await
-        .unwrap();
-    let mine = wait_license(&mac, |l| listed(l, "win") == Some(true)).await;
-    assert_eq!(mine.devices[0].name, "Windows PC");
-
-    mac.agent.shutdown().await;
-    win.agent.shutdown().await;
+        .map(|d| d.licensed_use)
 }
 
 /// Waits until everything `from` sent `to` before this has been handled
@@ -11837,111 +11812,561 @@ async fn heard(from: &Node, to: &Node) {
     from.agent.set_sharing(false);
     let id = from.agent.device_id().to_owned();
     wait_status(to, |s| s.device(&id).is_some_and(|d| d.sharing_paused)).await;
+    from.agent.set_sharing(true);
+    wait_status(to, |s| s.device(&id).is_some_and(|d| !d.sharing_paused)).await;
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn a_device_that_reconnects_hears_the_license_again() {
+async fn a_license_goes_only_to_the_devices_it_is_applied_to() {
+    let mac = keeper(&mac()).await;
+    let win = keeper(&win()).await;
+    let mini = keeper(&mini()).await;
+    license_with(&mac, KEY_A).await;
+    pair(&mac, &win).await;
+    pair(&mac, &mini).await;
+    connected(&mac, "win").await;
+    connected(&mac, "mini").await;
+    heard(&mac, &win).await;
+    heard(&mac, &mini).await;
+    // Paired, the key goes nowhere by itself; the others see the Mac
+    // licensed with a key they do not have.
+    for node in [&win, &mini] {
+        let theirs = node.agent.status().license.unwrap();
+        assert!(theirs.key.is_empty());
+        assert_eq!(theirs.state, agent::LicenseState::None);
+        assert_eq!(
+            listed(&theirs, "mac"),
+            Some(agent::LicenseUse::OtherLicense)
+        );
+    }
+    assert!(mac.agent.status().license.unwrap().devices.is_empty());
+
+    // Applied to the PC: it takes the key, from the Mac, for its app.
+    mac.agent.apply_license("win").await.unwrap();
+    let theirs = wait_license(&win, |l| l.key == KEY_A).await;
+    assert_eq!(theirs.state, agent::LicenseState::PendingActivation);
+    assert_eq!(theirs.source_device_id, "mac");
+    assert_eq!(theirs.source_device_name, "MacBook Pro");
+    assert_eq!(listed(&theirs, "mac"), Some(agent::LicenseUse::Licensed));
+    wait_license(&mac, |l| {
+        listed(l, "win") == Some(agent::LicenseUse::Activating)
+    })
+    .await;
+    win.agent
+        .record_license_result(KEY_A, activated("act-win"))
+        .await
+        .unwrap();
+    let mine = wait_license(&mac, |l| {
+        listed(l, "win") == Some(agent::LicenseUse::Licensed)
+    })
+    .await;
+    let row = mine.devices.iter().find(|d| d.id == "win").unwrap();
+    assert_eq!(row.name, "Windows PC");
+    assert_eq!(row.activation_id, "act-win");
+    assert!(!row.legacy);
+    // The mini still has nothing.
+    heard(&mac, &mini).await;
+    assert!(mini.agent.status().license.unwrap().key.is_empty());
+
+    // Any computer holding the key applies it, the PC included; the Mac
+    // lists the mini as the mini says, and could revoke it.
+    pair(&win, &mini).await;
+    connected(&win, "mini").await;
+    win.agent.apply_license("mini").await.unwrap();
+    let minis = wait_license(&mini, |l| l.key == KEY_A).await;
+    assert_eq!(minis.source_device_id, "win");
+    mini.agent
+        .record_license_result(KEY_A, activated("act-mini"))
+        .await
+        .unwrap();
+    let mine = wait_license(&mac, |l| {
+        listed(l, "mini") == Some(agent::LicenseUse::Licensed)
+    })
+    .await;
+    assert_eq!(
+        mine.devices
+            .iter()
+            .find(|d| d.id == "mini")
+            .unwrap()
+            .activation_id,
+        "act-mini"
+    );
+
+    mac.agent.shutdown().await;
+    win.agent.shutdown().await;
+    mini.agent.shutdown().await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn applying_the_license_is_refused_unless_it_can_be_done() {
+    // Four devices the Mac trusts from its configuration, none of them up.
+    let ids = ["k1", "k2", "k3", "k4", "k5"];
+    let known: Vec<Known> = ids
+        .iter()
+        .map(|id| Known {
+            id,
+            name: "Some PC",
+            fingerprint: Identity::generate().unwrap().fingerprint(),
+            address: None,
+        })
+        .collect();
+    let spec = mac();
+    let options = Options {
+        licenses: agent::Licenses::Memory,
+        ..Options::default()
+    };
+    let mac = start_with(
+        &spec,
+        Identity::generate().unwrap(),
+        &[&spec],
+        &known,
+        options,
+    )
+    .await;
+    assert_eq!(
+        mac.agent.apply_license("k1").await,
+        Err(agent::LicenseError::NotLicensed)
+    );
+    license_with(&mac, KEY_A).await;
+    assert_eq!(
+        mac.agent.apply_license("nobody").await,
+        Err(agent::LicenseError::UnknownDevice)
+    );
+    assert_eq!(
+        mac.agent.apply_license("mac").await,
+        Err(agent::LicenseError::UnknownDevice)
+    );
+    // Offline: each waits, and takes a place.
+    for id in &ids[..4] {
+        mac.agent.apply_license(id).await.unwrap();
+    }
+    let mine = mac.agent.status().license.unwrap();
+    assert!(
+        ids[..4]
+            .iter()
+            .all(|id| listed(&mine, id) == Some(agent::LicenseUse::Waiting))
+    );
+    // This computer and four: all five places.
+    assert_eq!(
+        mac.agent.apply_license("k5").await,
+        Err(agent::LicenseError::Full)
+    );
+    // Again to one that waits changes nothing; Don't Apply frees its place.
+    mac.agent.apply_license("k1").await.unwrap();
+    mac.agent.revoke_license("k1", "", false).await.unwrap();
+    assert_eq!(listed(&mac.agent.status().license.unwrap(), "k1"), None);
+    mac.agent.apply_license("k5").await.unwrap();
+    // Revoking needs an activation id that can be one.
+    assert_eq!(
+        mac.agent.revoke_license("k2", "two words", false).await,
+        Err(agent::LicenseError::InvalidResult)
+    );
+    mac.agent.shutdown().await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_license_applied_while_the_device_is_offline_goes_as_it_connects() {
     let dir = tempfile::tempdir().unwrap();
     let mac_file = dir.path().join("mac-devices.toml");
     let mac_key = dir.path().join("mac-identity");
     let mac_spec = mac();
     let win = keeper(&win()).await;
-    let mac = license_keeper(
-        &mac_spec,
-        Identity::load_or_generate(&mac_key).unwrap(),
-        Some(mac_file.clone()),
-        agent::Licenses::Memory,
-        None,
-    )
-    .await;
+    // The Mac dials the PC, so it is the one to come and go.
+    let start_mac = || {
+        license_keeper(
+            &mac_spec,
+            Identity::load_or_generate(&mac_key).unwrap(),
+            Some(mac_file.clone()),
+            agent::Licenses::Memory,
+            None,
+        )
+    };
+    let mac = start_mac().await;
+    license_with(&win, KEY_A).await;
     pair(&mac, &win).await;
     connected(&mac, "win").await;
     mac.agent.shutdown().await;
     wait_status(&win, |s| s.device("mac").is_some_and(|d| !d.connected)).await;
 
-    // Licensed while the Mac was away. The Mac's license was in memory
-    // only, so it comes back with none, dials the PC again and hears of
-    // the PC's as they connect.
-    license_with(&win, KEY_A).await;
-    let mac = license_keeper(
-        &mac_spec,
-        Identity::load_or_generate(&mac_key).unwrap(),
-        Some(mac_file),
-        agent::Licenses::Memory,
-        None,
-    )
-    .await;
+    // Applied while it is away: it waits, here, for the Mac to connect.
+    win.agent.apply_license("mac").await.unwrap();
+    let mine = win.agent.status().license.unwrap();
+    assert_eq!(listed(&mine, "mac"), Some(agent::LicenseUse::Waiting));
+    let mac = start_mac().await;
     connected(&mac, "win").await;
-    let mine = wait_license(&mac, |l| l.key == KEY_A).await;
-    assert_eq!(mine.source_device_id, "win");
-    assert_eq!(mine.source_device_name, "Windows PC");
+    let theirs = wait_license(&mac, |l| l.key == KEY_A).await;
+    assert_eq!(theirs.state, agent::LicenseState::PendingActivation);
+    assert_eq!(theirs.source_device_id, "win");
+    assert_eq!(theirs.source_device_name, "Windows PC");
+    wait_license(&win, |l| {
+        listed(l, "mac") == Some(agent::LicenseUse::Activating)
+    })
+    .await;
+
+    // Don't Apply, while it is away again: nothing reaches it.
+    mac.agent.remove_license().await.unwrap();
+    wait_license(&win, |l| listed(l, "mac").is_none()).await;
+    mac.agent.shutdown().await;
+    wait_status(&win, |s| s.device("mac").is_some_and(|d| !d.connected)).await;
+    win.agent.apply_license("mac").await.unwrap();
+    win.agent.revoke_license("mac", "", false).await.unwrap();
+    assert_eq!(listed(&win.agent.status().license.unwrap(), "mac"), None);
+    let mac = start_mac().await;
+    connected(&mac, "win").await;
+    heard(&win, &mac).await;
+    assert!(mac.agent.status().license.unwrap().key.is_empty());
 
     mac.agent.shutdown().await;
     win.agent.shutdown().await;
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn a_device_whose_license_was_removed_takes_no_key_until_one_is_entered() {
+async fn revoking_tells_the_device_now_or_as_it_connects() {
+    let dir = tempfile::tempdir().unwrap();
+    let mac_file = dir.path().join("mac-devices.toml");
+    let mac_key = dir.path().join("mac-identity");
+    let mac_license = dir.path().join("mac-license.toml");
+    let mac_spec = mac();
     let win = keeper(&win()).await;
+    // The Mac dials the PC, so it is the one to come and go.
+    let start_mac = || {
+        license_keeper(
+            &mac_spec,
+            Identity::load_or_generate(&mac_key).unwrap(),
+            Some(mac_file.clone()),
+            agent::Licenses::File(mac_license.clone()),
+            None,
+        )
+    };
+    let mac = start_mac().await;
+    license_with(&win, KEY_A).await;
+    pair(&mac, &win).await;
+    win.agent.apply_license("mac").await.unwrap();
+    wait_license(&mac, |l| l.key == KEY_A).await;
+    mac.agent
+        .record_license_result(KEY_A, activated("act-mac"))
+        .await
+        .unwrap();
+    wait_license(&win, |l| {
+        listed(l, "mac") == Some(agent::LicenseUse::Licensed)
+    })
+    .await;
+
+    // The PC's app deactivated its activation: the Mac forgets the
+    // license at once, and the PC shows it on trial.
+    win.agent
+        .revoke_license("mac", "act-mac", true)
+        .await
+        .unwrap();
+    assert_eq!(listed(&win.agent.status().license.unwrap(), "mac"), None);
+    let theirs = wait_license(&mac, |l| l.key.is_empty()).await;
+    assert_eq!(theirs.state, agent::LicenseState::None);
+    assert!(theirs.source_device_id.is_empty());
+
+    // Applied again, then revoked while it is away: it hears it as it
+    // connects, and the place was free all along.
+    win.agent.apply_license("mac").await.unwrap();
+    wait_license(&mac, |l| l.key == KEY_A).await;
+    mac.agent
+        .record_license_result(KEY_A, activated("act-mac-2"))
+        .await
+        .unwrap();
+    wait_license(&win, |l| {
+        listed(l, "mac") == Some(agent::LicenseUse::Licensed)
+    })
+    .await;
+    mac.agent.shutdown().await;
+    wait_status(&win, |s| s.device("mac").is_some_and(|d| !d.connected)).await;
+    win.agent
+        .revoke_license("mac", "act-mac-2", true)
+        .await
+        .unwrap();
+    assert_eq!(listed(&win.agent.status().license.unwrap(), "mac"), None);
+    let mac = start_mac().await;
+    assert_eq!(
+        mac.agent.status().license.unwrap().state,
+        agent::LicenseState::Licensed
+    );
+    connected(&mac, "win").await;
+    wait_license(&mac, |l| l.state == agent::LicenseState::None).await;
+
+    // Revoked where the PC could not deactivate it: the Mac keeps its
+    // activation for its app to free, shown on trial, then removes it.
+    win.agent.apply_license("mac").await.unwrap();
+    wait_license(&mac, |l| l.key == KEY_A).await;
+    mac.agent
+        .record_license_result(KEY_A, activated("act-mac-3"))
+        .await
+        .unwrap();
+    wait_license(&win, |l| {
+        listed(l, "mac") == Some(agent::LicenseUse::Licensed)
+    })
+    .await;
+    win.agent
+        .revoke_license("mac", "act-mac-3", false)
+        .await
+        .unwrap();
+    let theirs = wait_license(&mac, |l| l.state == agent::LicenseState::Revoked).await;
+    assert_eq!(theirs.key, KEY_A);
+    assert_eq!(theirs.activation_id, "act-mac-3");
+    // Not on the PC's list meanwhile, nor told as licensed.
+    heard(&mac, &win).await;
+    assert_eq!(listed(&win.agent.status().license.unwrap(), "mac"), None);
+    mac.agent.remove_license().await.unwrap();
+    assert_eq!(
+        mac.agent.status().license.unwrap().state,
+        agent::LicenseState::None
+    );
+
+    mac.agent.shutdown().await;
+    win.agent.shutdown().await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_key_applied_and_not_activated_yet_is_taken_back() {
     let mac = keeper(&mac()).await;
+    let win = keeper(&win()).await;
     license_with(&mac, KEY_A).await;
     pair(&mac, &win).await;
+    mac.agent.apply_license("win").await.unwrap();
+    let theirs = wait_license(&win, |l| l.key == KEY_A).await;
+    assert_eq!(theirs.state, agent::LicenseState::PendingActivation);
+    // Its app has not activated it yet: Don't Apply takes it back, by the
+    // apply, as the PC said it holds the key from it.
+    let mine = wait_license(&mac, |l| {
+        l.devices.iter().any(|d| {
+            d.id == "win" && d.licensed_use == agent::LicenseUse::Activating && d.can_take_back
+        })
+    })
+    .await;
+    assert_eq!(listed(&mine, "win"), Some(agent::LicenseUse::Activating));
+    mac.agent.revoke_license("win", "", false).await.unwrap();
+    wait_license(&win, |l| l.key.is_empty()).await;
+    wait_license(&mac, |l| listed(l, "win").is_none()).await;
+    // Applied again: it can be taken back again.
+    mac.agent.apply_license("win").await.unwrap();
+    wait_license(&win, |l| l.key == KEY_A).await;
+    wait_license(&mac, |l| {
+        l.devices.iter().any(|d| d.id == "win" && d.can_take_back)
+    })
+    .await;
+    // A key its own user entered there is not taken back.
+    win.agent.remove_license().await.unwrap();
+    win.agent.set_license_key(KEY_A).await.unwrap();
+    let mine = wait_license(&mac, |l| {
+        l.devices.iter().any(|d| d.id == "win" && !d.can_take_back)
+    })
+    .await;
+    assert_eq!(listed(&mine, "win"), Some(agent::LicenseUse::Activating));
+    mac.agent.revoke_license("win", "", false).await.unwrap();
+    heard(&mac, &win).await;
+    assert_eq!(win.agent.status().license.unwrap().key, KEY_A);
+
+    mac.agent.shutdown().await;
+    win.agent.shutdown().await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_device_offline_with_the_key_is_out_of_reach_of_a_revoke() {
+    let mac = keeper(&mac()).await;
+    let win = keeper(&win()).await;
+    license_with(&mac, KEY_A).await;
+    pair(&mac, &win).await;
+    mac.agent.apply_license("win").await.unwrap();
+    wait_license(&win, |l| l.key == KEY_A).await;
+    let row = |l: &agent::LicenseStatus| l.devices.iter().find(|d| d.id == "win").cloned();
+    let mine = wait_license(&mac, |l| {
+        row(l).is_some_and(|d| d.licensed_use == agent::LicenseUse::Activating)
+    })
+    .await;
+    assert!(!row(&mine).unwrap().key_out_of_reach);
+    // Gone before its app activated the key: it waits, as it activates only
+    // once back, and taking the key back cannot reach it now, so removing
+    // it with "Also revoke its license" cannot revoke it.
+    win.agent.shutdown().await;
+    let mine = wait_license(&mac, |l| {
+        row(l).is_some_and(|d| d.licensed_use == agent::LicenseUse::Waiting)
+    })
+    .await;
+    let waiting = row(&mine).unwrap();
+    assert!(waiting.key_out_of_reach);
+    assert!(waiting.can_take_back);
+    mac.agent.shutdown().await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn an_activation_revoked_here_is_still_to_free_after_another_key() {
+    let mac = keeper(&mac()).await;
+    let win = keeper(&win()).await;
+    license_with(&win, KEY_A).await;
+    pair(&mac, &win).await;
+    win.agent.apply_license("mac").await.unwrap();
+    wait_license(&mac, |l| l.key == KEY_A).await;
+    mac.agent
+        .record_license_result(KEY_A, activated("act-mac"))
+        .await
+        .unwrap();
+    wait_license(&win, |l| {
+        listed(l, "mac") == Some(agent::LicenseUse::Licensed)
+    })
+    .await;
+    win.agent
+        .revoke_license("mac", "act-mac", false)
+        .await
+        .unwrap();
+    wait_license(&mac, |l| l.state == agent::LicenseState::Revoked).await;
+    // Another key entered before the app freed it: it is kept to free.
+    mac.agent.set_license_key(KEY_B).await.unwrap();
+    let mine = mac.agent.status().license.unwrap();
+    assert_eq!(mine.key, KEY_B);
+    assert_eq!(mine.to_free.len(), 1);
+    assert_eq!(mine.to_free[0].key, KEY_A);
+    assert_eq!(mine.to_free[0].activation_id, "act-mac");
+    mac.agent.license_activation_freed("act-mac").await.unwrap();
+    assert!(mac.agent.status().license.unwrap().to_free.is_empty());
+
+    mac.agent.shutdown().await;
+    win.agent.shutdown().await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_revoked_activation_never_comes_back_and_a_stale_removal_is_refused() {
+    let mac = keeper(&mac()).await;
+    let win = keeper(&win()).await;
+    license_with(&win, KEY_A).await;
+    pair(&mac, &win).await;
+    win.agent.apply_license("mac").await.unwrap();
+    wait_license(&mac, |l| l.key == KEY_A).await;
+    mac.agent
+        .record_license_result(KEY_A, activated("act-mac"))
+        .await
+        .unwrap();
+    wait_license(&win, |l| {
+        listed(l, "mac") == Some(agent::LicenseUse::Licensed)
+    })
+    .await;
+    // Revoked, the PC unable to free it; then applied again while the
+    // Mac's app may be freeing it.
+    win.agent
+        .revoke_license("mac", "act-mac", false)
+        .await
+        .unwrap();
+    wait_license(&mac, |l| l.state == agent::LicenseState::Revoked).await;
+    win.agent.apply_license("mac").await.unwrap();
+    let mine = wait_license(&mac, |l| l.state == agent::LicenseState::PendingActivation).await;
+    assert!(mine.activation_id.is_empty());
+    assert_eq!(mine.to_free.len(), 1);
+    assert_eq!(mine.to_free[0].activation_id, "act-mac");
+    // The app's removal of the revoked activation, late: refused, the new
+    // license kept.
+    assert_eq!(
+        mac.agent.remove_license_if(KEY_A, "act-mac").await,
+        Err(agent::LicenseError::Stale)
+    );
+    assert_eq!(
+        mac.agent.status().license.unwrap().state,
+        agent::LicenseState::PendingActivation
+    );
+    mac.agent.shutdown().await;
+    win.agent.shutdown().await;
+}
+
+#[cfg(unix)]
+#[tokio::test(flavor = "multi_thread")]
+async fn the_app_is_opened_again_while_license_work_waits() {
+    let dir = tempfile::tempdir().unwrap();
+    let file = dir.path().join("license.toml");
+    std::fs::write(
+        &file,
+        format!(
+            "key = \"{KEY_A}\"\nstate = \"pending_activation\"\n\
+             source_device_id = \"mac\"\nsource_device_name = \"MacBook Pro\"\n"
+        ),
+    )
+    .unwrap();
+    let pipe = dir.path().join("broker.sock");
+    let options = Options {
+        broker_socket: Some(pipe.clone()),
+        ipc_socket: Some(dir.path().join("agent.sock")),
+        open_app: true,
+        licenses: agent::Licenses::File(file),
+        license_app_wait: Some(Duration::from_millis(50)),
+        license_app_retries: Some(vec![Duration::from_millis(100), Duration::from_millis(200)]),
+        app_open_interval: Some(Duration::from_millis(1)),
+        ..Options::default()
+    };
+    let win = start_showing(
+        &win(),
+        Identity::generate().unwrap(),
+        &[],
+        &[],
+        options,
+        MockDesktopPictures::default(),
+    )
+    .await;
+    let broker = SimBroker::connect(&pipe, &dir.path().join("Downloads")).await;
+    // Opened, then again while the app never connects and the key waits
+    // (it quit, or crashed, before activating it).
+    wait_launches_at_least(&broker, 3).await;
+    // Done: no more.
+    win.agent
+        .record_license_result(KEY_A, activated("act-win"))
+        .await
+        .unwrap();
+    let done = broker.desk.lock().unwrap().launches;
+    tokio::time::sleep(Duration::from_millis(600)).await;
+    assert!(broker.desk.lock().unwrap().launches <= done + 1);
+    broker.quit().await;
+    win.agent.shutdown().await;
+}
+
+#[cfg(unix)]
+async fn wait_launches_at_least(broker: &SimBroker, count: usize) {
+    let deadline = tokio::time::Instant::now() + TIMEOUT;
+    while broker.desk.lock().unwrap().launches < count {
+        assert!(
+            tokio::time::Instant::now() < deadline,
+            "the app was started {} times, not {count}",
+            broker.desk.lock().unwrap().launches
+        );
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn revoking_a_device_as_it_is_removed_reaches_it_first() {
+    let mac = keeper(&mac()).await;
+    let win = keeper(&win()).await;
+    license_with(&mac, KEY_A).await;
+    pair(&mac, &win).await;
+    mac.agent.apply_license("win").await.unwrap();
     wait_license(&win, |l| l.key == KEY_A).await;
     win.agent
         .record_license_result(KEY_A, activated("act-win"))
         .await
         .unwrap();
-
-    win.agent.remove_license().await.unwrap();
-    let removed = win.agent.status().license.unwrap();
-    assert!(removed.opted_out);
-    assert!(removed.key.is_empty());
-    assert_eq!(removed.state, agent::LicenseState::None);
-    // The Mac stops listing it.
-    wait_license(&mac, |l| listed(l, "win").is_none()).await;
-    // The Mac tells its license again, gone, waiting and then licensed;
-    // the PC takes none of it.
-    mac.agent.remove_license().await.unwrap();
-    mac.agent.set_license_key(KEY_A).await.unwrap();
+    wait_license(&mac, |l| {
+        listed(l, "win") == Some(agent::LicenseUse::Licensed)
+    })
+    .await;
+    // Remove with Also revoke its license, Polar not reached: the PC
+    // frees its activation itself.
     mac.agent
-        .record_license_result(KEY_A, activated("act-again"))
+        .revoke_license("win", "act-win", false)
         .await
         .unwrap();
-    heard(&mac, &win).await;
-    let still = win.agent.status().license.unwrap();
-    assert!(still.key.is_empty());
-    assert!(still.opted_out);
-
-    // A key entered there takes it in again.
-    win.agent.set_license_key(KEY_A).await.unwrap();
-    let entered = win.agent.status().license.unwrap();
-    assert!(!entered.opted_out);
-    assert_eq!(entered.state, agent::LicenseState::PendingActivation);
-    assert!(entered.source_device_id.is_empty());
+    mac.agent.unpair("win").unwrap();
+    wait_license(&win, |l| l.state == agent::LicenseState::Revoked).await;
+    let mine = wait_license(&mac, |l| l.devices.is_empty()).await;
+    assert_eq!(mine.state, agent::LicenseState::Licensed);
+    // Its session ended once it said it dropped the license, well before
+    // the bound.
+    let since = std::time::Instant::now();
+    wait_status(&win, |s| s.device("mac").is_some_and(|d| !d.connected)).await;
+    assert!(since.elapsed() < Duration::from_secs(3));
 
     mac.agent.shutdown().await;
     win.agent.shutdown().await;
-}
-
-#[tokio::test(flavor = "multi_thread")]
-async fn a_refused_key_gives_way_to_a_paired_devices_licensed_one() {
-    for refusal in [agent::Refusal::SeatsFull, agent::Refusal::Invalid] {
-        let win = keeper(&win()).await;
-        let mac = keeper(&mac()).await;
-        win.agent.set_license_key(KEY_B).await.unwrap();
-        win.agent
-            .record_license_result(KEY_B, refused(refusal))
-            .await
-            .unwrap();
-        license_with(&mac, KEY_A).await;
-        pair(&mac, &win).await;
-        let theirs = wait_license(&win, |l| l.key == KEY_A).await;
-        assert_eq!(theirs.state, agent::LicenseState::PendingActivation);
-        assert_eq!(theirs.source_device_id, "mac");
-
-        mac.agent.shutdown().await;
-        win.agent.shutdown().await;
-    }
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -11955,18 +12380,960 @@ async fn a_key_activated_here_is_kept_whatever_paired_devices_have() {
     connected(&win, "mac").await;
     heard(&mac, &win).await;
     heard(&win, &mac).await;
-    // Each kept its own key, and neither lists the other, whose key
-    // differs.
+    // Each kept its own key, and lists the other as on another license,
+    // which cannot be applied over.
     let mac_after = mac.agent.status().license.unwrap();
     let win_after = win.agent.status().license.unwrap();
     assert_eq!(mac_after.key, KEY_A);
     assert_eq!(win_after.key, KEY_B);
-    assert!(mac_after.devices.is_empty());
-    assert!(win_after.devices.is_empty());
+    assert_eq!(
+        listed(&mac_after, "win"),
+        Some(agent::LicenseUse::OtherLicense)
+    );
+    assert_eq!(
+        listed(&win_after, "mac"),
+        Some(agent::LicenseUse::OtherLicense)
+    );
+    assert_eq!(
+        mac.agent.apply_license("win").await,
+        Err(agent::LicenseError::LicensedElsewhere)
+    );
     assert!(win_after.source_device_id.is_empty());
 
     mac.agent.shutdown().await;
     win.agent.shutdown().await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_device_whose_places_were_full_tries_again_when_applied_again() {
+    let mac = keeper(&mac()).await;
+    let win = keeper(&win()).await;
+    license_with(&mac, KEY_A).await;
+    pair(&mac, &win).await;
+    mac.agent.apply_license("win").await.unwrap();
+    wait_license(&win, |l| l.key == KEY_A).await;
+    win.agent
+        .record_license_result(KEY_A, refused(agent::Refusal::SeatsFull))
+        .await
+        .unwrap();
+    wait_license(&mac, |l| {
+        listed(l, "win") == Some(agent::LicenseUse::NoPlaces)
+    })
+    .await;
+    mac.agent.apply_license("win").await.unwrap();
+    let theirs = wait_license(&win, |l| l.state == agent::LicenseState::PendingActivation).await;
+    assert_eq!(theirs.source_device_id, "mac");
+    wait_license(&mac, |l| {
+        listed(l, "win") == Some(agent::LicenseUse::Activating)
+    })
+    .await;
+
+    mac.agent.shutdown().await;
+    win.agent.shutdown().await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_device_taken_offline_for_now_keeps_its_license_and_hears_changes() {
+    let mac = keeper(&mac()).await;
+    let win = keeper(&win()).await;
+    license_with(&mac, KEY_A).await;
+    pair(&mac, &win).await;
+    mac.agent.apply_license("win").await.unwrap();
+    wait_license(&win, |l| l.key == KEY_A).await;
+    win.agent
+        .record_license_result(KEY_A, activated("act-win"))
+        .await
+        .unwrap();
+    wait_license(&mac, |l| {
+        listed(l, "win") == Some(agent::LicenseUse::Licensed)
+    })
+    .await;
+
+    mac.agent.set_offline_for_now("win", true).await.unwrap();
+    wait_status(&mac, |s| s.device("win").is_some_and(|d| d.offline_for_now)).await;
+    // Still licensed, holding its place; it shows offline, yet revoking
+    // and applying reach it over the session that stays up.
+    assert_eq!(
+        listed(&mac.agent.status().license.unwrap(), "win"),
+        Some(agent::LicenseUse::Licensed)
+    );
+    assert_eq!(
+        win.agent.status().license.unwrap().state,
+        agent::LicenseState::Licensed
+    );
+    mac.agent
+        .revoke_license("win", "act-win", true)
+        .await
+        .unwrap();
+    wait_license(&win, |l| l.key.is_empty()).await;
+    mac.agent.apply_license("win").await.unwrap();
+    assert_eq!(
+        listed(&mac.agent.status().license.unwrap(), "win"),
+        Some(agent::LicenseUse::Activating)
+    );
+    wait_license(&win, |l| l.key == KEY_A).await;
+
+    mac.agent.shutdown().await;
+    win.agent.shutdown().await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_license_synced_under_1_0_stays_after_the_update() {
+    let dir = tempfile::tempdir().unwrap();
+    let devices = |id: &str| dir.path().join(format!("{id}-devices.toml"));
+    let identity = |id: &str| dir.path().join(format!("{id}-identity"));
+    let license_file = |id: &str| dir.path().join(format!("{id}-license.toml"));
+    let options = |id: &str| Options {
+        devices_file: Some(devices(id)),
+        licenses: agent::Licenses::File(license_file(id)),
+        ..Options::default()
+    };
+    let (mac_spec, win_spec) = (mac(), win());
+    let start_mac = || {
+        start_with_listen(
+            &mac_spec,
+            Identity::load_or_generate(&identity("mac")).unwrap(),
+            options("mac"),
+            None,
+        )
+    };
+    // The Mac dials the PC, which comes back where it was.
+    let start_win = |at| {
+        start_with_listen(
+            &win_spec,
+            Identity::load_or_generate(&identity("win")).unwrap(),
+            options("win"),
+            at,
+        )
+    };
+    let mac = start_mac().await;
+    let win = start_win(None).await;
+    let at = win.agent.local_addr();
+    pair(&mac, &win).await;
+    connected(&mac, "win").await;
+    mac.agent.shutdown().await;
+    win.agent.shutdown().await;
+    // As InputWeave 1.0 left them: the PC took the Mac's key by itself.
+    std::fs::write(
+        license_file("mac"),
+        format!(
+            "key = \"{KEY_A}\"\nstate = \"licensed\"\nactivation_id = \"act-mac\"\n\
+             [[peers]]\nid = \"win\"\nkey = \"{KEY_A}\"\nlicensed = true\n"
+        ),
+    )
+    .unwrap();
+    std::fs::write(
+        license_file("win"),
+        format!(
+            "key = \"{KEY_A}\"\nstate = \"licensed\"\nactivation_id = \"act-win\"\n\
+             source_device_id = \"mac\"\nsource_device_name = \"MacBook Pro\"\n\
+             opted_out = false\n\
+             [[peers]]\nid = \"mac\"\nkey = \"{KEY_A}\"\nlicensed = true\n"
+        ),
+    )
+    .unwrap();
+
+    let mac = start_mac().await;
+    // Listed from the file before the PC is even up.
+    assert_eq!(
+        listed(&mac.agent.status().license.unwrap(), "win"),
+        Some(agent::LicenseUse::Licensed)
+    );
+    let win = start_win(Some(at)).await;
+    let theirs = win.agent.status().license.unwrap();
+    assert_eq!(theirs.state, agent::LicenseState::Licensed);
+    assert_eq!(theirs.source_device_id, "mac");
+    connected(&mac, "win").await;
+    // As the PC tells it now: with its activation, which the Mac may
+    // revoke, and no longer as 1.0.
+    let mine = wait_license(&mac, |l| {
+        l.devices
+            .iter()
+            .any(|d| d.id == "win" && d.activation_id == "act-win" && !d.legacy)
+    })
+    .await;
+    assert_eq!(listed(&mine, "win"), Some(agent::LicenseUse::Licensed));
+    mac.agent.shutdown().await;
+    win.agent.shutdown().await;
+    // Neither file holds a key in the clear but its own.
+    for id in ["mac", "win"] {
+        let text = std::fs::read_to_string(license_file(id)).unwrap();
+        assert_eq!(text.matches(KEY_A).count(), 1, "{text}");
+        assert!(!text.contains("opted_out"), "{text}");
+    }
+}
+
+/// A device on InputWeave 1.0 that `node` trusts as "zed", speaking the
+/// protocol by hand (protocol 6); `node` dials it. Returns its session.
+async fn legacy_peer(spec: &Spec, licensed: Option<&str>) -> (Node, iw_net::Session) {
+    peer_by_hand(spec, licensed, 6).await
+}
+
+/// A device that `node` trusts as "zed", speaking peer protocol `protocol`
+/// by hand; `node` dials it. Returns its session.
+async fn peer_by_hand(
+    spec: &Spec,
+    licensed: Option<&str>,
+    protocol: u32,
+) -> (Node, iw_net::Session) {
+    let (node, hand) = hand_peer(spec, licensed, protocol, false, None).await;
+    let session = hand.accept().await;
+    (node, session)
+}
+
+/// "zed", by hand, for a node that dials it, again each time a session
+/// ends.
+struct Hand {
+    rogue: iw_net::PeerEndpoint,
+    node: Fingerprint,
+    protocol: u32,
+    _dir: Option<tempfile::TempDir>,
+}
+
+impl Hand {
+    /// The node's next session.
+    async fn accept(&self) -> iw_net::Session {
+        use iw_net::{Session, hello};
+        use iw_proto::peer::v1::Os;
+
+        let node = self.node;
+        let accepted = tokio::time::timeout(TIMEOUT, async {
+            self.rogue
+                .accept()
+                .await
+                .unwrap()
+                .finish(|theirs| *theirs == node)
+                .await
+                .unwrap()
+        })
+        .await
+        .unwrap();
+        let mut ours = hello("zed", "Old PC", Os::Windows);
+        ours.protocol_max = self.protocol;
+        Session::accept(accepted.connection, accepted.peer, ours)
+            .await
+            .unwrap()
+    }
+}
+
+/// A node that trusts "zed", speaking peer protocol `protocol` by hand:
+/// paired with it (so it can be removed), or listed in its configuration
+/// file. `take_wait`: how long zed, on 1.0, has to say it took the key
+/// (a minute when `None`).
+async fn hand_peer(
+    spec: &Spec,
+    licensed: Option<&str>,
+    protocol: u32,
+    paired: bool,
+    take_wait: Option<Duration>,
+) -> (Node, Hand) {
+    let rogue = iw_net::PeerEndpoint::bind(
+        "127.0.0.1:0".parse().unwrap(),
+        Arc::new(Identity::generate().unwrap()),
+    )
+    .unwrap();
+    let address = rogue.local_addr().unwrap();
+    let mut options = Options {
+        licenses: agent::Licenses::Memory,
+        license_resend: Some(Duration::from_millis(100)),
+        legacy_take_wait: take_wait,
+        ..Options::default()
+    };
+    let mut known = Vec::new();
+    let dir = if paired {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("devices.toml");
+        std::fs::write(
+            &file,
+            format!(
+                "[[devices]]\nid = \"zed\"\nname = \"Old PC\"\nfingerprint = \"{}\"\n\
+                 last_address = \"{address}\"\n",
+                rogue.fingerprint()
+            ),
+        )
+        .unwrap();
+        options.devices_file = Some(file);
+        Some(dir)
+    } else {
+        known.push(Known {
+            id: "zed",
+            name: "Old PC",
+            fingerprint: rogue.fingerprint(),
+            address: Some(address),
+        });
+        None
+    };
+    let node = start_with(
+        spec,
+        Identity::generate().unwrap(),
+        &[spec],
+        &known,
+        options,
+    )
+    .await;
+    if let Some(key) = licensed {
+        license_with(&node, key).await;
+    }
+    let node_fp = node.agent.fingerprint();
+    (
+        node,
+        Hand {
+            rogue,
+            node: node_fp,
+            protocol,
+            _dir: dir,
+        },
+    )
+}
+
+/// Waits until `node` handled all `session` sent it before this: it hears
+/// sharing paused, on the same ordered control stream, then resumed.
+async fn handled(node: &Node, session: &mut iw_net::Session) {
+    use iw_proto::peer::v1::{Control, SessionState, control};
+    for paused in [true, false] {
+        session
+            .control_tx
+            .send(&Control {
+                msg: Some(control::Msg::SessionState(SessionState {
+                    sharing_paused: paused,
+                    ..SessionState::default()
+                })),
+            })
+            .await
+            .unwrap();
+        wait_status(node, |s| {
+            s.device("zed").is_some_and(|d| d.sharing_paused == paused)
+        })
+        .await;
+    }
+}
+
+/// The next license `session` is told.
+async fn told_license(session: &mut iw_net::Session) -> iw_proto::peer::v1::LicenseInfo {
+    use iw_proto::peer::v1::{Control, control};
+    tokio::time::timeout(TIMEOUT, async {
+        loop {
+            let msg: Control = session.control_rx.recv().await.unwrap().unwrap();
+            match msg.msg {
+                Some(control::Msg::LicenseInfo(info)) => return info,
+                Some(control::Msg::LicenseAssign(_) | control::Msg::LicenseRevoke(_)) => {
+                    panic!("sent to InputWeave 1.0")
+                }
+                _ => {}
+            }
+        }
+    })
+    .await
+    .unwrap()
+}
+
+async fn tell_license(session: &mut iw_net::Session, key: &str, licensed: bool) {
+    use iw_proto::peer::v1::{Control, LicenseInfo, control};
+    session
+        .control_tx
+        .send(&Control {
+            msg: Some(control::Msg::LicenseInfo(LicenseInfo {
+                key: key.to_owned(),
+                licensed,
+                ..LicenseInfo::default()
+            })),
+        })
+        .await
+        .unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_device_on_1_0_hears_the_key_while_it_counts_on_the_license() {
+    let (mac, mut zed) = legacy_peer(&mac(), Some(KEY_A)).await;
+    // Not applied to it, and not saying it has the key: no key, once the
+    // Mac is licensed (the session may come up before).
+    let mut first = told_license(&mut zed).await;
+    while !first.licensed {
+        assert!(first.key.is_empty());
+        first = told_license(&mut zed).await;
+    }
+    assert!(first.key.is_empty());
+    // It says it has the key, synced under 1.0 before the Mac was
+    // updated: it counts on the license, so it keeps hearing the key.
+    tell_license(&mut zed, KEY_A, true).await;
+    let keyed = told_license(&mut zed).await;
+    assert_eq!(keyed.key, KEY_A);
+    let mine = wait_license(&mac, |l| {
+        listed(l, "zed") == Some(agent::LicenseUse::Licensed)
+    })
+    .await;
+    let row = mine.devices.iter().find(|d| d.id == "zed").unwrap();
+    assert!(row.legacy);
+    assert!(row.activation_id.is_empty());
+    // It cannot be told of a revoke.
+    assert_eq!(
+        mac.agent.revoke_license("zed", "", false).await,
+        Err(agent::LicenseError::Legacy)
+    );
+    // Gone from it (removed there): no key from now on until applied.
+    tell_license(&mut zed, "", false).await;
+    let after = told_license(&mut zed).await;
+    assert!(after.key.is_empty());
+    wait_license(&mac, |l| listed(l, "zed").is_none()).await;
+    mac.agent.apply_license("zed").await.unwrap();
+    assert_eq!(told_license(&mut zed).await.key, KEY_A);
+    // It heard the key: it cannot be taken back from 1.0.
+    let row = |l: &agent::LicenseStatus| l.devices.iter().find(|d| d.id == "zed").cloned();
+    assert!(
+        !row(&mac.agent.status().license.unwrap())
+            .unwrap()
+            .can_take_back
+    );
+    assert_eq!(
+        mac.agent.revoke_license("zed", "", false).await,
+        Err(agent::LicenseError::Legacy)
+    );
+    // What it says without the key decides nothing by itself: it has a
+    // minute to take it.
+    tell_license(&mut zed, "", false).await;
+    tell_license(&mut zed, "", false).await;
+    handled(&mac, &mut zed).await;
+    let still = row(&mac.agent.status().license.unwrap()).unwrap();
+    assert!(!still.legacy_refused);
+    assert_eq!(still.licensed_use, agent::LicenseUse::Activating);
+    mac.agent.shutdown().await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn only_a_device_holding_the_key_revokes_it_and_only_where_it_means_to() {
+    use iw_proto::peer::v1::{Control, LicenseRevoke, SessionState, control};
+
+    // A device the Mac trusts, on 1.1, that never held the Mac's key: it
+    // hears the key's match form, as every paired device does.
+    let (mac, mut zed) = peer_by_hand(&mac(), Some(KEY_A), iw_proto::PEER_PROTOCOL_MAX).await;
+    let told = loop {
+        let info = told_license(&mut zed).await;
+        if info.licensed {
+            break info;
+        }
+    };
+    assert!(told.key.is_empty());
+    assert_eq!(told.activation_id, "act");
+    let bytes = |proof: &[u8; 32]| proof.to_vec();
+    let revoke = |proof: Vec<u8>| Control {
+        msg: Some(control::Msg::LicenseRevoke(LicenseRevoke {
+            proof,
+            activation_id: "act".to_owned(),
+            free_it: false,
+            apply_id: String::new(),
+        })),
+    };
+    // What it heard is no proof; nor a proof made for another device, or
+    // with another key.
+    for proof in [
+        told.key_match.clone(),
+        bytes(&agent::license_revoke_proof(KEY_A, "zed")),
+        bytes(&agent::license_revoke_proof(KEY_B, "mac")),
+    ] {
+        zed.control_tx.send(&revoke(proof)).await.unwrap();
+    }
+    // Everything before this is handled once the Mac sees it paused.
+    zed.control_tx
+        .send(&Control {
+            msg: Some(control::Msg::SessionState(SessionState {
+                sharing_paused: true,
+                ..SessionState::default()
+            })),
+        })
+        .await
+        .unwrap();
+    wait_status(&mac, |s| s.device("zed").is_some_and(|d| d.sharing_paused)).await;
+    let mine = mac.agent.status().license.unwrap();
+    assert_eq!(mine.state, agent::LicenseState::Licensed);
+    assert_eq!(mine.activation_id, "act");
+    // One holding the key, meaning the Mac, naming its activation: done.
+    zed.control_tx
+        .send(&revoke(bytes(&agent::license_revoke_proof(KEY_A, "mac"))))
+        .await
+        .unwrap();
+    wait_license(&mac, |l| l.key.is_empty()).await;
+    mac.agent.shutdown().await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn an_apply_a_device_does_not_show_goes_again_until_it_does() {
+    use iw_proto::peer::v1::{Control, LicenseAssign, LicenseInfo, LicenseStanding, control};
+
+    // A device on 1.1, by hand, that drops what it is sent (as with its
+    // license file unreadable).
+    let (mac, mut zed) = peer_by_hand(&mac(), Some(KEY_A), iw_proto::PEER_PROTOCOL_MAX).await;
+    async fn assigned(zed: &mut iw_net::Session) -> LicenseAssign {
+        tokio::time::timeout(TIMEOUT, async {
+            loop {
+                let msg: Control = zed.control_rx.recv().await.unwrap().unwrap();
+                if let Some(control::Msg::LicenseAssign(assign)) = msg.msg {
+                    return assign;
+                }
+            }
+        })
+        .await
+        .unwrap()
+    }
+    loop {
+        if told_license(&mut zed).await.licensed {
+            break;
+        }
+    }
+    mac.agent.apply_license("zed").await.unwrap();
+    let first = assigned(&mut zed).await;
+    assert_eq!(first.key, KEY_A);
+    // Saying nothing of it: sent again, the same apply.
+    let again = assigned(&mut zed).await;
+    assert_eq!(again.apply_id, first.apply_id);
+    // It shows it waits with the key: no more.
+    zed.control_tx
+        .send(&Control {
+            msg: Some(control::Msg::LicenseInfo(LicenseInfo {
+                key_match: agent::license_key_match(KEY_A).to_vec(),
+                standing: LicenseStanding::Pending.into(),
+                apply_id: first.apply_id.clone(),
+                ..LicenseInfo::default()
+            })),
+        })
+        .await
+        .unwrap();
+    handled(&mac, &mut zed).await;
+    let more = tokio::time::timeout(Duration::from_millis(400), assigned(&mut zed)).await;
+    assert!(more.is_err(), "sent again after the device showed it");
+    mac.agent.shutdown().await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_revoke_to_a_device_being_removed_goes_again_until_it_shows_it() {
+    use iw_proto::peer::v1::{Control, LicenseInfo, LicenseRevoke, LicenseStanding, control};
+
+    let (mac, hand) = hand_peer(&mac(), Some(KEY_A), iw_proto::PEER_PROTOCOL_MAX, true, None).await;
+    let mut zed = hand.accept().await;
+    while !told_license(&mut zed).await.licensed {}
+    let tell = |info: LicenseInfo| Control {
+        msg: Some(control::Msg::LicenseInfo(info)),
+    };
+    // Licensed with the Mac's key.
+    zed.control_tx
+        .send(&tell(LicenseInfo {
+            licensed: true,
+            key_match: agent::license_key_match(KEY_A).to_vec(),
+            standing: LicenseStanding::Licensed.into(),
+            activation_id: "act-zed".to_owned(),
+            ..LicenseInfo::default()
+        }))
+        .await
+        .unwrap();
+    wait_license(&mac, |l| {
+        listed(l, "zed") == Some(agent::LicenseUse::Licensed)
+    })
+    .await;
+    // Removed with Also revoke its license.
+    mac.agent
+        .revoke_license("zed", "act-zed", true)
+        .await
+        .unwrap();
+    mac.agent.unpair("zed").unwrap();
+    async fn revoked(zed: &mut iw_net::Session) -> LicenseRevoke {
+        loop {
+            let msg: Control = zed.control_rx.recv().await.unwrap().unwrap();
+            if let Some(control::Msg::LicenseRevoke(revoke)) = msg.msg {
+                return revoke;
+            }
+        }
+    }
+    // It drops the first (its license file unreadable then): the revoke
+    // comes again while its session is kept.
+    let grace = Duration::from_secs(3);
+    let first = tokio::time::timeout(grace, revoked(&mut zed))
+        .await
+        .unwrap();
+    let again = tokio::time::timeout(grace, revoked(&mut zed))
+        .await
+        .unwrap();
+    assert_eq!(first.activation_id, "act-zed");
+    assert_eq!(again, first);
+    // It says it dropped the license: its session ends.
+    zed.control_tx
+        .send(&tell(LicenseInfo::default()))
+        .await
+        .unwrap();
+    let ended = tokio::time::timeout(grace, async {
+        while let Ok(Some(_)) = zed.control_rx.recv::<Control>().await {}
+    })
+    .await;
+    assert!(ended.is_ok(), "the session was kept");
+    mac.agent.shutdown().await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_device_on_1_0_that_does_not_take_the_key_in_its_time_did_not_take_it() {
+    let wait = Duration::from_millis(600);
+    let (mac, hand) = hand_peer(&mac(), Some(KEY_A), 6, false, Some(wait)).await;
+    let mut zed = hand.accept().await;
+    while !told_license(&mut zed).await.licensed {}
+    let row = |l: &agent::LicenseStatus| l.devices.iter().find(|d| d.id == "zed").cloned();
+    tell_license(&mut zed, "", false).await;
+    mac.agent.apply_license("zed").await.unwrap();
+    assert_eq!(told_license(&mut zed).await.key, KEY_A);
+    // The session ends before its time is up: nothing is decided, however
+    // long it stays away.
+    drop(zed);
+    tokio::time::sleep(wait * 2).await;
+    let away = row(&mac.agent.status().license.unwrap()).unwrap();
+    assert!(!away.legacy_refused);
+    assert_eq!(away.licensed_use, agent::LicenseUse::Waiting);
+    // Back, it is told the key again, and has its time again; it says
+    // nothing of taking it (its user removed the license there, so 1.0
+    // takes none): it did not take it, and is back on trial, said so.
+    let mut zed = hand.accept().await;
+    assert_eq!(told_license(&mut zed).await.key, KEY_A);
+    tell_license(&mut zed, "", false).await;
+    let since = std::time::Instant::now();
+    let mine = wait_license(&mac, |l| {
+        row(l).is_some_and(|d| d.legacy_refused && d.licensed_use == agent::LicenseUse::None)
+    })
+    .await;
+    assert!(since.elapsed() >= wait / 2);
+    assert_eq!(listed(&mine, "zed"), Some(agent::LicenseUse::None));
+    // No more key for it.
+    assert!(told_license(&mut zed).await.key.is_empty());
+    mac.agent.shutdown().await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_device_on_1_0_that_takes_the_key_is_not_held_to_have_refused_it() {
+    let wait = Duration::from_millis(300);
+    let (mac, hand) = hand_peer(&mac(), Some(KEY_A), 6, false, Some(wait)).await;
+    let mut zed = hand.accept().await;
+    while !told_license(&mut zed).await.licensed {}
+    tell_license(&mut zed, "", false).await;
+    mac.agent.apply_license("zed").await.unwrap();
+    assert_eq!(told_license(&mut zed).await.key, KEY_A);
+    // It takes the key, waiting to activate it, and says so at once.
+    tell_license(&mut zed, KEY_A, false).await;
+    tokio::time::sleep(wait * 3).await;
+    handled(&mac, &mut zed).await;
+    let row = mac
+        .agent
+        .status()
+        .license
+        .unwrap()
+        .devices
+        .into_iter()
+        .find(|d| d.id == "zed")
+        .unwrap();
+    assert!(!row.legacy_refused);
+    assert_eq!(row.licensed_use, agent::LicenseUse::Activating);
+    mac.agent.shutdown().await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_device_the_profile_leaves_out_waits_for_the_license_as_one_offline() {
+    let mac = keeper(&mac()).await;
+    let win = keeper(&win()).await;
+    license_with(&mac, KEY_A).await;
+    on_network(&mac, Some(home())).await;
+    wait_status(&mac, |s| s.profile == DEFAULT).await;
+    pair(&mac, &win).await;
+    connected(&mac, "win").await;
+    // The Mac's profile leaves the PC out: their session ends.
+    change(
+        &mac,
+        ProfileChange::Edit(DEFAULT.to_owned(), connect("win", false)),
+    )
+    .await;
+    wait_status(&mac, |s| {
+        s.device("win")
+            .is_some_and(|d| d.not_in_profile && !d.connected)
+    })
+    .await;
+    // Applied: offline to the license, it waits to connect, and nothing is
+    // sent meanwhile.
+    mac.agent.apply_license("win").await.unwrap();
+    let mine = wait_license(&mac, |l| {
+        listed(l, "win") == Some(agent::LicenseUse::Waiting)
+    })
+    .await;
+    let row = mine.devices.iter().find(|d| d.id == "win").unwrap();
+    assert!(row.can_take_back);
+    assert!(row.waiting_to_apply);
+    assert!(!row.key_out_of_reach);
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    assert!(win.agent.status().license.unwrap().key.is_empty());
+    // Back in the profile: it goes as they connect.
+    change(
+        &mac,
+        ProfileChange::Edit(DEFAULT.to_owned(), connect("win", true)),
+    )
+    .await;
+    wait_license(&win, |l| l.key == KEY_A).await;
+    wait_license(&mac, |l| {
+        listed(l, "win") == Some(agent::LicenseUse::Activating)
+    })
+    .await;
+    mac.agent.shutdown().await;
+    win.agent.shutdown().await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn an_apply_never_replaces_a_key_entered_there_waiting_to_be_activated() {
+    let mac = keeper(&mac()).await;
+    let win = keeper(&win()).await;
+    license_with(&mac, KEY_A).await;
+    win.agent.set_license_key(KEY_B).await.unwrap();
+    pair(&mac, &win).await;
+    connected(&mac, "win").await;
+    heard(&win, &mac).await;
+    mac.agent.apply_license("win").await.unwrap();
+    // The PC refuses it and says so; the Mac drops it.
+    heard(&mac, &win).await;
+    heard(&win, &mac).await;
+    let mine = mac.agent.status().license.unwrap();
+    assert_eq!(listed(&mine, "win"), None);
+    let theirs = win.agent.status().license.unwrap();
+    assert_eq!(theirs.key, KEY_B);
+    assert_eq!(theirs.state, agent::LicenseState::PendingActivation);
+    assert!(theirs.source_device_id.is_empty());
+    mac.agent.shutdown().await;
+    win.agent.shutdown().await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn no_key_is_taken_from_a_device_on_1_0() {
+    let (win, mut zed) = legacy_peer(&win(), None).await;
+    told_license(&mut zed).await;
+    // InputWeave 1.0 tells its key to every device; this one takes none.
+    tell_license(&mut zed, KEY_B, true).await;
+    let mine = wait_license(&win, |l| {
+        listed(l, "zed") == Some(agent::LicenseUse::OtherLicense)
+    })
+    .await;
+    assert!(mine.key.is_empty());
+    assert_eq!(mine.state, agent::LicenseState::None);
+    assert!(mine.devices[0].legacy);
+    win.agent.shutdown().await;
+}
+
+/// A PC whose agent opens the app through a simulated broker, keeping its
+/// license in `license` and serving IPC on `socket`, with what the broker
+/// was asked.
+#[cfg(unix)]
+async fn license_launcher(
+    dir: &std::path::Path,
+    license: agent::Licenses,
+    wait: Duration,
+) -> (Node, SimBroker, std::path::PathBuf) {
+    license_launcher_with(dir, license, wait, |_| {}).await
+}
+
+/// Like [`license_launcher`], with options changed by `change`.
+#[cfg(unix)]
+async fn license_launcher_with(
+    dir: &std::path::Path,
+    license: agent::Licenses,
+    wait: Duration,
+    change: impl FnOnce(&mut Options),
+) -> (Node, SimBroker, std::path::PathBuf) {
+    let pipe = dir.join("broker.sock");
+    let socket = dir.join("agent.sock");
+    let mut options = Options {
+        broker_socket: Some(pipe.clone()),
+        ipc_socket: Some(socket.clone()),
+        open_app: true,
+        licenses: license,
+        license_app_wait: Some(wait),
+        ..Options::default()
+    };
+    change(&mut options);
+    let win = start_showing(
+        &win(),
+        Identity::generate().unwrap(),
+        &[],
+        &[],
+        options,
+        MockDesktopPictures::default(),
+    )
+    .await;
+    let broker = SimBroker::connect(&pipe, &dir.join("Downloads")).await;
+    let deadline = tokio::time::Instant::now() + TIMEOUT;
+    while win.agent.file_settings().folder.is_none() {
+        assert!(
+            tokio::time::Instant::now() < deadline,
+            "the broker never linked"
+        );
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+    (win, broker, socket)
+}
+
+#[cfg(unix)]
+async fn wait_launches(broker: &SimBroker, count: usize) {
+    let deadline = tokio::time::Instant::now() + TIMEOUT;
+    while broker.desk.lock().unwrap().launches != count {
+        assert!(
+            tokio::time::Instant::now() < deadline,
+            "the app was started {} times, not {count}",
+            broker.desk.lock().unwrap().launches
+        );
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+}
+
+#[cfg(unix)]
+#[tokio::test(flavor = "multi_thread")]
+async fn the_app_is_opened_for_a_license_applied_or_revoked_here() {
+    let dir = tempfile::tempdir().unwrap();
+    let (win, broker, _socket) = license_launcher(
+        dir.path(),
+        agent::Licenses::Memory,
+        Duration::from_millis(50),
+    )
+    .await;
+    let mac = keeper(&mac()).await;
+    license_with(&mac, KEY_A).await;
+    // The Mac shows the code, so the PC's app is not opened for it.
+    pair(&win, &mac).await;
+    connected(&mac, "win").await;
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    assert_eq!(broker.desk.lock().unwrap().launches, 0);
+    // Applied: the app activates it, opened in the background.
+    mac.agent.apply_license("win").await.unwrap();
+    wait_launches(&broker, 1).await;
+    assert_eq!(
+        broker.desk.lock().unwrap().launch_reasons,
+        [iw_proto::service::v1::LaunchReason::AskUser]
+    );
+    win.agent
+        .record_license_result(KEY_A, activated("act-win"))
+        .await
+        .unwrap();
+    wait_license(&mac, |l| {
+        listed(l, "win") == Some(agent::LicenseUse::Licensed)
+    })
+    .await;
+    // Revoked without the activation freed: the app frees it, opened
+    // again past the broker's interval.
+    tokio::time::sleep(Duration::from_secs(11)).await;
+    mac.agent
+        .revoke_license("win", "act-win", false)
+        .await
+        .unwrap();
+    wait_license(&win, |l| l.state == agent::LicenseState::Revoked).await;
+    wait_launches(&broker, 2).await;
+
+    broker.quit().await;
+    win.agent.shutdown().await;
+    mac.agent.shutdown().await;
+}
+
+/// An app that connects to the agent at `socket`, as long as it is kept.
+#[cfg(unix)]
+async fn app_connects(socket: &std::path::Path) -> iw_ipc::IpcConnection {
+    use iw_proto::app::v1::{ClientHello, ClientMessage, client_message::Command};
+    let mut conn = iw_ipc::IpcConnection::connect(socket).await.unwrap();
+    conn.send(&ClientMessage {
+        request_id: 0,
+        command: Some(Command::Hello(ClientHello {
+            ipc_version: iw_proto::IPC_VERSION,
+            client: "app".into(),
+            ..ClientHello::default()
+        })),
+    })
+    .await
+    .unwrap();
+    conn
+}
+
+#[cfg(unix)]
+#[tokio::test(flavor = "multi_thread")]
+async fn an_app_that_connected_is_not_opened_again_until_the_work_changes() {
+    let dir = tempfile::tempdir().unwrap();
+    let (win, broker, socket) = license_launcher_with(
+        dir.path(),
+        agent::Licenses::Memory,
+        Duration::from_millis(50),
+        |options| {
+            options.license_app_retries =
+                Some(vec![Duration::from_millis(300), Duration::from_millis(300)]);
+            options.app_open_interval = Some(Duration::from_millis(1));
+        },
+    )
+    .await;
+    let mac = keeper(&mac()).await;
+    license_with(&mac, KEY_A).await;
+    pair(&win, &mac).await;
+    connected(&mac, "win").await;
+    mac.agent.apply_license("win").await.unwrap();
+    wait_launches(&broker, 1).await;
+    // It connects, and quits without activating the key (stuck on it, say):
+    // not opened again, over and over.
+    let app = app_connects(&socket).await;
+    tokio::time::sleep(Duration::from_millis(100)).await;
+    drop(app);
+    tokio::time::sleep(Duration::from_millis(800)).await;
+    assert_eq!(broker.desk.lock().unwrap().launches, 1);
+    // Taken back and applied again: new work, so it is opened again.
+    mac.agent.revoke_license("win", "", false).await.unwrap();
+    wait_license(&win, |l| l.key.is_empty()).await;
+    mac.agent.apply_license("win").await.unwrap();
+    wait_launches(&broker, 2).await;
+
+    broker.quit().await;
+    win.agent.shutdown().await;
+    mac.agent.shutdown().await;
+}
+
+#[cfg(unix)]
+#[tokio::test(flavor = "multi_thread")]
+async fn license_work_found_at_start_waits_for_an_app_to_reconnect() {
+    use iw_ipc::IpcConnection;
+    use iw_proto::app::v1::{ClientHello, ClientMessage, client_message::Command};
+
+    // A key applied here that the app has not activated yet, as the agent
+    // starts again.
+    let applied = format!(
+        "key = \"{KEY_A}\"\nstate = \"pending_activation\"\n\
+         source_device_id = \"mac\"\nsource_device_name = \"MacBook Pro\"\n"
+    );
+    let wait = Duration::from_millis(600);
+    for reconnects in [true, false] {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("license.toml");
+        std::fs::write(&file, &applied).unwrap();
+        let (win, broker, socket) =
+            license_launcher(dir.path(), agent::Licenses::File(file), wait).await;
+        assert_eq!(
+            win.agent.status().license.unwrap().state,
+            agent::LicenseState::PendingActivation
+        );
+        // An app still running reconnects at once: nothing is opened, so
+        // its window is not brought forward.
+        let conn = if reconnects {
+            let mut conn = IpcConnection::connect(&socket).await.unwrap();
+            conn.send(&ClientMessage {
+                request_id: 0,
+                command: Some(Command::Hello(ClientHello {
+                    ipc_version: iw_proto::IPC_VERSION,
+                    client: "app".into(),
+                    ..ClientHello::default()
+                })),
+            })
+            .await
+            .unwrap();
+            Some(conn)
+        } else {
+            None
+        };
+        tokio::time::sleep(wait + Duration::from_millis(400)).await;
+        let expected = usize::from(!reconnects);
+        wait_launches(&broker, expected).await;
+        tokio::time::sleep(Duration::from_millis(200)).await;
+        assert_eq!(broker.desk.lock().unwrap().launches, expected);
+        drop(conn);
+        broker.quit().await;
+        win.agent.shutdown().await;
+    }
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -11975,17 +13342,25 @@ async fn unpairing_a_device_takes_it_off_the_license() {
     let mac = keeper(&mac()).await;
     license_with(&mac, KEY_A).await;
     pair(&mac, &win).await;
+    mac.agent.apply_license("win").await.unwrap();
     wait_license(&win, |l| l.key == KEY_A).await;
     win.agent
         .record_license_result(KEY_A, activated("act-win"))
         .await
         .unwrap();
-    wait_license(&mac, |l| listed(l, "win") == Some(true)).await;
+    wait_license(&mac, |l| {
+        listed(l, "win") == Some(agent::LicenseUse::Licensed)
+    })
+    .await;
 
+    // Removed without revoking (as ctl unpair does): it keeps its
+    // license, and the Mac keeps its own.
     mac.agent.unpair("win").unwrap();
     let mine = wait_license(&mac, |l| l.devices.is_empty()).await;
-    // Its own license stays.
     assert_eq!(mine.state, agent::LicenseState::Licensed);
+    let theirs = win.agent.status().license.unwrap();
+    assert_eq!(theirs.state, agent::LicenseState::Licensed);
+    assert_eq!(theirs.activation_id, "act-win");
 
     mac.agent.shutdown().await;
     win.agent.shutdown().await;
@@ -12075,8 +13450,8 @@ async fn a_license_file_that_cannot_be_read_leaves_the_license_unavailable() {
         return;
     }
 
-    // Unavailable: nothing changes, nothing is taken from or told to the
-    // paired PC, and the file is not written.
+    // Unavailable: nothing changes, nothing is told to the paired PC, and
+    // the file is not written.
     let mac = start(None).await;
     let win = keeper(&win()).await;
     license_with(&win, KEY_A).await;
@@ -12096,6 +13471,10 @@ async fn a_license_file_that_cannot_be_read_leaves_the_license_unavailable() {
         mac.agent.remove_license().await,
         Err(agent::LicenseError::Unavailable)
     );
+    assert_eq!(
+        mac.agent.apply_license("win").await,
+        Err(agent::LicenseError::Unavailable)
+    );
     mac.agent.shutdown().await;
     set_mode(0o600);
     assert_eq!(std::fs::read(&license_file).unwrap(), saved);
@@ -12107,13 +13486,32 @@ async fn a_license_file_that_cannot_be_read_leaves_the_license_unavailable() {
     connected(&mac, "win").await;
     set_mode(0o600);
     let license = wait_license(&mac, |l| {
-        l.state == agent::LicenseState::Licensed && listed(l, "win") == Some(true)
+        l.state == agent::LicenseState::Licensed
+            && listed(l, "win") == Some(agent::LicenseUse::Licensed)
     })
     .await;
     assert_eq!(license.activation_id, "act");
-    wait_license(&win, |l| listed(l, "mac") == Some(true)).await;
+    wait_license(&win, |l| {
+        listed(l, "mac") == Some(agent::LicenseUse::Licensed)
+    })
+    .await;
 
+    // A device that said its license while the file could not be read,
+    // then was unpaired before it could: neither listed nor written.
     mac.agent.shutdown().await;
+    set_mode(0o000);
+    let mac = start(Some(Duration::from_millis(50))).await;
+    connected(&mac, "win").await;
+    heard(&win, &mac).await;
+    mac.agent.unpair("win").unwrap();
+    wait_status(&mac, |s| s.device("win").is_none()).await;
+    set_mode(0o600);
+    let license = wait_license(&mac, |l| l.state == agent::LicenseState::Licensed).await;
+    assert_eq!(listed(&license, "win"), None);
+    mac.agent.shutdown().await;
+    let text = std::fs::read_to_string(&license_file).unwrap();
+    assert!(!text.contains("\"win\""), "{text}");
+
     win.agent.shutdown().await;
 }
 
@@ -12142,6 +13540,10 @@ async fn an_answer_about_a_key_no_longer_here_is_ignored() {
         other.agent.set_license_key(KEY_A).await,
         Err(agent::LicenseError::Unsupported)
     );
+    assert_eq!(
+        other.agent.apply_license("mac").await,
+        Err(agent::LicenseError::Unsupported)
+    );
 
     mac.agent.shutdown().await;
     other.agent.shutdown().await;
@@ -12159,12 +13561,7 @@ async fn a_device_on_an_older_protocol_neither_hears_nor_tells_a_license() {
     .await;
     let mac = keeper(&mac()).await;
     license_with(&win, KEY_B).await;
-    // Full here: the PC's licensed key would be taken, were it heard.
-    mac.agent.set_license_key(KEY_A).await.unwrap();
-    mac.agent
-        .record_license_result(KEY_A, refused(agent::Refusal::SeatsFull))
-        .await
-        .unwrap();
+    license_with(&mac, KEY_A).await;
     pair(&mac, &win).await;
     connected(&mac, "win").await;
     connected(&win, "mac").await;
@@ -12172,7 +13569,6 @@ async fn a_device_on_an_older_protocol_neither_hears_nor_tells_a_license() {
     heard(&win, &mac).await;
     let mine = mac.agent.status().license.unwrap();
     assert_eq!(mine.key, KEY_A);
-    assert_eq!(mine.state, agent::LicenseState::SeatsFull);
     assert!(mine.devices.is_empty());
     let theirs = win.agent.status().license.unwrap();
     assert_eq!(theirs.key, KEY_B);
@@ -12329,8 +13725,7 @@ async fn ctl_enters_and_removes_a_license_over_ipc() {
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(output.status.success(), "ctl failed: {output:?}");
     assert!(stdout.contains("license:        none (trial)"), "{stdout}");
-    assert!(stdout.contains("removed here:"), "{stdout}");
-    assert!(mac.agent.status().license.unwrap().opted_out);
+    assert!(!stdout.contains("removed here:"), "{stdout}");
 
     mac.agent.shutdown().await;
 }

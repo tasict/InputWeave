@@ -5035,16 +5035,6 @@
         }
       }
     },
-    "Your paired computers pick up the license by themselves, up to 5 in all.": {
-      "localizations": {
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "已配對的電腦會自動取得授權，最多 5 台。"
-          }
-        }
-      }
-    },
     "How the license works": {
       "localizations": {
         "zh-Hant": {
@@ -5161,16 +5151,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "移除授權"
-          }
-        }
-      }
-    },
-    "This frees one of your 5 computers. Your other computers keep their license, and this one won’t pick it up from them again until you enter the key.": {
-      "localizations": {
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "這會空出 5 台中的一個名額，其他電腦的授權不受影響。這台之後不會再從已配對的電腦自動取得授權，直到你再次輸入授權碼。"
           }
         }
       }
@@ -5321,6 +5301,296 @@
           "stringUnit": {
             "state": "translated",
             "value": "InputWeave 無法在這台電腦移除授權。"
+          }
+        }
+      }
+    },
+    "This frees one of your 5 places. Your other computers keep their license. You can enter the key again later, or apply it to this computer from a licensed one.": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "這會空出 5 台中的一個名額，其他電腦的授權不受影響。之後可以再輸入授權碼，或從已授權的電腦再套用到這台。"
+          }
+        }
+      }
+    },
+    "On that computer’s License page, choose the other computers that use it, up to 5 in all.": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在那台的授權頁選擇其他要使用授權的電腦，最多 5 台。"
+          }
+        }
+      }
+    },
+    "%@ is licensed. To use the license here too, apply it to this computer from %@’s License page.": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "「%1$@」已授權。要讓這台也使用這份授權，請在「%2$@」的授權頁套用到這台。"
+          }
+        }
+      }
+    },
+    "Apply License": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "套用授權"
+          }
+        }
+      }
+    },
+    "Revoke License…": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "取消授權…"
+          }
+        }
+      }
+    },
+    "Don’t Apply": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "不套用"
+          }
+        }
+      }
+    },
+    "Offline. Applies when it connects": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "離線，連上後套用"
+          }
+        }
+      }
+    },
+    "No places left": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "名額已滿"
+          }
+        }
+      }
+    },
+    "Another license": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "另一份授權"
+          }
+        }
+      }
+    },
+    "This computer uses a different license.": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "這台使用另一份授權。"
+          }
+        }
+      }
+    },
+    "InputWeave 1.0 didn’t take the license. Update it to 1.1, then apply it again.": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "InputWeave 1.0 沒有接受這份授權；把它更新到 1.1 後再套用。"
+          }
+        }
+      }
+    },
+    "Waiting to Apply": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "等待套用"
+          }
+        }
+      }
+    },
+    "Applies once this computer is licensed again": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "這台電腦恢復授權後套用"
+          }
+        }
+      }
+    },
+    "InputWeave 1.0: you can revoke it here once it’s updated to 1.1. To free its place now, use Polar’s customer portal.": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "InputWeave 1.0：更新到 1.1 後才能在這裡取消；要立刻空出名額，請到 Polar 的顧客入口。"
+          }
+        }
+      }
+    },
+    "All 5 are in use. To apply the license to another computer, revoke it on one first.": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "5 台都用了。要套用到其他電腦，先取消其中一台的授權。"
+          }
+        }
+      }
+    },
+    "Only computers you apply the license to here use it; newly paired computers don’t get it by themselves. Polar’s customer portal lists all of them.": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "只有在這裡套用的電腦才會使用授權，新配對的電腦不會自動取得。全部的電腦請到 Polar 的顧客入口查看。"
+          }
+        }
+      }
+    },
+    "Polar says this license is already on 5 computers, maybe including some not paired with this one. Free one you no longer use in Polar’s customer portal, then apply again.": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Polar 說這份授權已經用在 5 台電腦上，其中可能有沒和這台配對的電腦。到 Polar 的顧客入口停用一台不再使用的電腦後，再套用一次。"
+          }
+        }
+      }
+    },
+    "Revoke the license on %@?": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "要取消「%@」的授權嗎？"
+          }
+        }
+      }
+    },
+    "%@ goes back to trial with every feature still working, and one of your 5 places is freed. You can apply it again later.": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "「%@」會回到試用中，所有功能照常可用，並空出 5 台中的一個名額。之後可以再套用。"
+          }
+        }
+      }
+    },
+    "Revoke License": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "取消授權"
+          }
+        }
+      }
+    },
+    "Keep": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "保留"
+          }
+        }
+      }
+    },
+    "Also revoke its license": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "同時取消它的授權"
+          }
+        }
+      }
+    },
+    "Frees one of your 5 places; it goes back to trial.": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "空出 5 台中的一個名額；它會回到試用中。"
+          }
+        }
+      }
+    },
+    "%@ runs InputWeave 1.0, so its license keeps its place after you remove it. To free it, deactivate it in Polar’s customer portal.": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "「%@」是 InputWeave 1.0：移除後它的授權仍佔著名額；要空出名額，請到 Polar 的顧客入口停用它。"
+          }
+        }
+      }
+    },
+    "%@ was removed, but its license couldn’t be revoked.": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已移除「%@」，但沒能取消它的授權。"
+          }
+        }
+      }
+    },
+    "Deactivate it in Polar’s customer portal to free its place.": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "到 Polar 的顧客入口停用它，名額才會空出來。"
+          }
+        }
+      }
+    },
+    "It was offline. If it activates the license later, free its place in Polar’s customer portal.": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "它當時沒有連線。之後如果它啟用了授權，請到 Polar 的顧客入口空出它的名額。"
+          }
+        }
+      }
+    },
+    "%@ was removed, and its place on the license is free.": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已移除「%@」，它在授權上的名額也已空出。"
+          }
+        }
+      }
+    },
+    "It couldn’t be told, so it may still show as licensed until it next checks its license with Polar.": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "沒能通知它，所以在它下次向 Polar 確認授權之前，可能仍顯示為已授權。"
           }
         }
       }

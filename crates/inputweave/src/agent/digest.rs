@@ -4,7 +4,6 @@
 //! written by apps/macos/scripts/embed-agent.sh with `shasum -a 256`) and
 //! restarts a service still running another build, as after an update.
 
-use std::fmt::Write as _;
 use std::io::{self, Read};
 use std::path::Path;
 
@@ -29,11 +28,7 @@ fn file_digest(path: &Path) -> io::Result<String> {
             Err(e) => return Err(e),
         }
     }
-    let mut hex = String::with_capacity(64);
-    for byte in hasher.finalize() {
-        let _ = write!(hex, "{byte:02x}");
-    }
-    Ok(hex)
+    Ok(crate::hex::hex(&hasher.finalize()))
 }
 
 #[cfg(test)]

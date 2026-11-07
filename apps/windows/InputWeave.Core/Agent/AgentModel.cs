@@ -478,9 +478,49 @@ public sealed class AgentModel : IAsyncDisposable
     public async Task RecordLicenseResultAsync(RecordLicenseResult result) =>
         Apply(await RequestAsync(new ClientMessage { RecordLicenseResult = result }).ConfigureAwait(false));
 
-    /// <summary>Remove License, after the app freed the seat with Polar (or could not).</summary>
-    public async Task RemoveLicenseAsync() =>
-        Apply(await RequestAsync(new ClientMessage { RemoveLicense = new RemoveLicense() }).ConfigureAwait(false));
+    /// <summary>
+    /// Remove License, of the license with <paramref name="key"/> and
+    /// <paramref name="activationId"/> (empty for none) as the app saw it;
+    /// refused with "license_stale" when the service has a newer one by then.
+    /// </summary>
+    public async Task RemoveLicenseAsync(string key, string activationId) =>
+        Apply(await RequestAsync(new ClientMessage
+        {
+            RemoveLicense = new RemoveLicense { Key = key, ActivationId = activationId },
+        }).ConfigureAwait(false));
+
+    /// <summary>Apply License: the service sends this computer's key to the other computer, now or as it connects.</summary>
+    public async Task ApplyLicenseAsync(string deviceId) =>
+        Apply(await RequestAsync(new ClientMessage { ApplyLicense = new ApplyLicense { DeviceId = deviceId } })
+            .ConfigureAwait(false));
+
+    /// <summary>
+    /// Revoke License, or Don't Apply: the service tells the other computer
+    /// to drop the key, now or as it connects. <paramref name="activationId"/>
+    /// is its activation, empty to take back what was applied there;
+    /// <paramref name="deactivated"/> says Polar deactivated it (or said it
+    /// was gone), otherwise the computer deactivates it itself. Returns the
+    /// status the service answered with.
+    /// </summary>
+    public async Task<Status?> RevokeLicenseAsync(string deviceId, string activationId, bool deactivated)
+    {
+        var response = await RequestAsync(new ClientMessage
+        {
+            RevokeLicense = new RevokeLicense { DeviceId = deviceId, ActivationId = activationId, Deactivated = deactivated },
+        }).ConfigureAwait(false);
+        Apply(response);
+        return response.Status;
+    }
+
+    /// <summary>
+    /// An activation the service listed to be freed (License.to_free) is
+    /// freed with Polar, or was gone already: the service forgets it.
+    /// </summary>
+    public async Task LicenseActivationFreedAsync(string activationId) =>
+        Apply(await RequestAsync(new ClientMessage
+        {
+            LicenseActivationFreed = new LicenseActivationFreed { ActivationId = activationId },
+        }).ConfigureAwait(false));
 
     /// <summary>Forgets a paired computer.</summary>
     public async Task UnpairAsync(string deviceId) =>
