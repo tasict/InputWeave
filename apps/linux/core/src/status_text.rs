@@ -5,6 +5,9 @@
 
 use std::time::SystemTime;
 
+use iw_proto::app::v1::DeviceStatus;
+
+use crate::offline;
 use crate::service::ServiceState;
 use crate::snapshot::{Link, Snapshot};
 use crate::text::{UiText, keys};
@@ -29,6 +32,10 @@ pub fn title(model: &Snapshot, service: ServiceState, now: SystemTime) -> UiText
         Link::Connected => {}
     }
     let status = &model.status;
+    // Neither controlling nor controlled, whatever sharing says.
+    if offline::this_offline(model) {
+        return ui!(keys::TITLE_THIS_OFFLINE);
+    }
     if !status.sharing {
         return ui!(keys::TITLE_PAUSED);
     }
@@ -59,6 +66,9 @@ pub fn title(model: &Snapshot, service: ServiceState, now: SystemTime) -> UiText
 pub fn subtitle(model: &Snapshot) -> Option<UiText> {
     if !model.connected() {
         return None;
+    }
+    if let Some(offline) = offline::this_subtitle(model) {
+        return Some(offline);
     }
     let status = &model.status;
     if model.controlled_from_elsewhere() {
@@ -118,6 +128,20 @@ impl Problem {
     }
 }
 
+/// The computers out of reach: offline, but not offline for now (that is
+/// someone's choice, not a fault), and none while this computer is offline
+/// for now, which keeps every other one offline.
+fn unreachable(model: &Snapshot) -> Vec<&DeviceStatus> {
+    if offline::this_offline(model) {
+        return Vec::new();
+    }
+    model
+        .offline_devices()
+        .into_iter()
+        .filter(|d| !offline::is_offline(model, &d.id))
+        .collect()
+}
+
 /// The problems to list while the service is connected: computers out of
 /// reach, and (`compact`, outside Troubleshooting) no other computer yet.
 /// A stopped or unreachable service is no row: the main window covers its
@@ -125,7 +149,7 @@ impl Problem {
 pub fn problems(model: &Snapshot, compact: bool) -> Vec<Problem> {
     let mut rows = Vec::new();
     if model.connected() {
-        for device in model.offline_devices() {
+        for device in unreachable(model) {
             rows.push(Problem {
                 text: ui!(keys::EXCEPTION_UNREACHABLE, device.name.clone()),
                 action: if compact {
@@ -148,7 +172,7 @@ pub fn problems(model: &Snapshot, compact: bool) -> Vec<Problem> {
 pub fn everything_works(model: &Snapshot, service: ServiceState) -> bool {
     matches!(service, ServiceState::Running | ServiceState::Unknown)
         && model.connected()
-        && model.offline_devices().is_empty()
+        && unreachable(model).is_empty()
         && model.status.capturing
 }
 
@@ -161,6 +185,11 @@ pub struct MenuState {
     pub lock_enabled: bool,
     pub identify_enabled: bool,
     pub send_enabled: bool,
+    /// Taking this computer offline for now, or bringing it back: its
+    /// label and whether it takes it offline; `None` from a service before
+    /// it (`offline::this_item`).
+    pub offline: Option<(&'static str, bool)>,
+    pub offline_enabled: bool,
 }
 
 impl MenuState {
@@ -180,10 +209,16 @@ impl MenuState {
                 keys::MENU_LOCK
             },
             // While another computer controls this one, its lock is the one
-            // that holds the cursor.
-            lock_enabled: connected && status.sharing && !model.controlled_from_elsewhere(),
+            // that holds the cursor; while this one is offline for now,
+            // there is nowhere else for it to go.
+            lock_enabled: connected
+                && status.sharing
+                && !model.controlled_from_elsewhere()
+                && !offline::this_offline(model),
             identify_enabled: connected,
             send_enabled: connected && !model.file_receivers().is_empty(),
+            offline: offline::this_item(model),
+            offline_enabled: connected,
         }
     }
 }
@@ -220,7 +255,9 @@ impl TrayState {
         if !model.missing_permissions().is_empty() {
             return TrayState::Attention;
         }
-        if !model.status.sharing {
+        // Offline for now, this computer neither controls nor is controlled,
+        // as when paused; another look would change a second part of it.
+        if !model.status.sharing || offline::this_offline(model) {
             return TrayState::Paused;
         }
         if model.controlled_from_elsewhere() {
@@ -231,6 +268,16 @@ impl TrayState {
         } else {
             TrayState::Normal
         }
+    }
+
+    /// What screen readers say for the icon, and its tooltip's title: as
+    /// [`TrayState::description`], but while this computer is offline for
+    /// now (the paused look) that, not that sharing is paused.
+    pub fn description_of(self, model: &Snapshot) -> UiText {
+        if self == TrayState::Paused && offline::this_offline(model) && model.connected() {
+            return ui!(keys::TRAY_THIS_OFFLINE);
+        }
+        self.description()
     }
 
     /// What screen readers say for the icon.
@@ -473,6 +520,140 @@ mod tests {
             TrayState::of(&Snapshot::default(), ServiceState::Running, now()),
             TrayState::Normal
         );
+    }
+
+    /// The model with this computer offline for now, set by the Mac mini,
+    /// from a service that knows it: every other computer offline.
+    fn this_offline() -> Snapshot {
+        let mut m = model();
+        m.status.offline_supported = true;
+        m.status.offline_for_now = true;
+        m.status.offline_by_device_id = "mac".into();
+        m.status.offline_by_name = "Mac mini".into();
+        m.status.devices[0].state = ConnectionState::Offline as i32;
+        m
+    }
+
+    #[test]
+    fn this_computer_offline_for_now_says_so_and_who_set_it() {
+        let service = ServiceState::Running;
+        let mut m = this_offline();
+        // Before paused, controlled and the rest.
+        m.status.sharing = false;
+        m.status.controlled_by_device_id = "mac".into();
+        assert_eq!(
+            title(&m, service, now()).to_string(),
+            "This computer is offline for now"
+        );
+        assert_eq!(
+            subtitle(&m).unwrap().to_string(),
+            "Set by Mac mini. Your other computers don’t control this one or share the clipboard and files with it."
+        );
+        let zh = crate::text::Catalog::for_language(crate::text::Language::ChineseTaiwan);
+        assert_eq!(zh.render(&title(&m, service, now())), "這台暫時離線");
+        m.status.offline_by_device_id = "me".into();
+        assert_eq!(
+            subtitle(&m).unwrap().to_string(),
+            "Set on this computer. Your other computers don’t control this one or share the clipboard and files with it."
+        );
+        // From a service before it: as ever.
+        m.status.offline_supported = false;
+        assert_eq!(title(&m, service, now()).to_string(), "Sharing paused");
+    }
+
+    #[test]
+    fn computers_offline_for_now_are_no_problem() {
+        let mut m = model();
+        m.status.offline_supported = true;
+        m.status.devices.push(DeviceStatus {
+            id: "pc".into(),
+            name: "Studio PC".into(),
+            state: ConnectionState::Offline as i32,
+            offline_for_now: true,
+            ..Default::default()
+        });
+        assert!(problems(&m, true).is_empty());
+        assert!(everything_works(&m, ServiceState::Running));
+        // Asleep instead: out of reach.
+        m.status.devices[1].offline_for_now = false;
+        assert_eq!(
+            problems(&m, true)[0].text.to_string(),
+            "Studio PC can't be reached."
+        );
+        assert!(!everything_works(&m, ServiceState::Running));
+        // This computer offline for now: every other one is offline, and
+        // none of it is a problem.
+        let m = this_offline();
+        assert!(problems(&m, true).is_empty());
+        assert!(problems(&m, false).is_empty());
+        assert!(everything_works(&m, ServiceState::Running));
+        // A service before it: every offline computer is listed.
+        let mut old = this_offline();
+        old.status.offline_supported = false;
+        assert_eq!(problems(&old, true).len(), 1);
+    }
+
+    #[test]
+    fn the_menu_takes_this_computer_offline_and_brings_it_back() {
+        let mut m = model();
+        assert_eq!(MenuState::of(&m).offline, None, "a service before it");
+        m.status.offline_supported = true;
+        let menu = MenuState::of(&m);
+        assert_eq!(menu.offline, Some((keys::MENU_TAKE_THIS_OFFLINE, true)));
+        assert!(menu.offline_enabled && menu.lock_enabled);
+        let m = this_offline();
+        let menu = MenuState::of(&m);
+        assert_eq!(menu.offline, Some((keys::OFFLINE_BRING_BACK, false)));
+        assert!(menu.offline_enabled);
+        assert!(!menu.lock_enabled, "nowhere else for the cursor to go");
+        assert!(menu.pause_enabled && !menu.send_enabled);
+        assert_eq!(menu.pause_key, keys::MENU_PAUSE_SHARING, "its own choice");
+        // Until the service answers, off.
+        let mut away = m.clone();
+        away.link = Link::Connecting;
+        assert!(!MenuState::of(&away).offline_enabled);
+    }
+
+    #[test]
+    fn the_tray_icon_is_paused_while_this_computer_is_offline_for_now() {
+        let mut m = this_offline();
+        let state = TrayState::of(&m, ServiceState::Running, now());
+        assert_eq!(state, TrayState::Paused);
+        let zh = crate::text::Catalog::for_language(crate::text::Language::ChineseTaiwan);
+        let said = state.description_of(&m);
+        assert_eq!(
+            (said.to_string(), zh.render(&said)),
+            (
+                "InputWeave, this computer is offline for now".to_owned(),
+                "InputWeave，這台暫時離線".to_owned()
+            )
+        );
+        // Paused as well: still offline for now first.
+        m.status.sharing = false;
+        assert_eq!(
+            TrayState::of(&m, ServiceState::Running, now()).description_of(&m),
+            ui!(keys::TRAY_THIS_OFFLINE)
+        );
+        // Only paused.
+        m.status.offline_for_now = false;
+        assert_eq!(
+            TrayState::of(&m, ServiceState::Running, now()).description_of(&m),
+            ui!(keys::TRAY_PAUSED)
+        );
+        // A missing permission still needs the user first.
+        let mut m = this_offline();
+        m.status.permissions = vec![PermissionStatus {
+            permission: Permission::Accessibility as i32,
+            granted: false,
+            ..Default::default()
+        }];
+        let state = TrayState::of(&m, ServiceState::Running, now());
+        assert_eq!(state, TrayState::Attention);
+        assert_eq!(state.description_of(&m), ui!(keys::TRAY_ATTENTION));
+        // Other states say what they always do.
+        let m = model();
+        let state = TrayState::of(&m, ServiceState::Running, now());
+        assert_eq!(state.description_of(&m), ui!(keys::TRAY_NORMAL));
     }
 
     #[test]

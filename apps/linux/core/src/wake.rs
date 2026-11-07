@@ -3,13 +3,15 @@
 //! (`Status.wake_supported`: nothing of waking shows from one before it),
 //! which ones it can wake now (`DeviceStatus.can_wake`, only while they are
 //! offline) and whether one is being woken (`DeviceStatus.wake`). This
-//! computer is never offered. The service sends the wake-up and decides
-//! when it did not work; this says what the app shows of it.
+//! computer is never offered, nor a computer offline for now, nor any
+//! while this one is offline for now. The service sends the wake-up and
+//! decides when it did not work; this says what the app shows of it.
 
 use std::collections::HashSet;
 
 use iw_proto::app::v1::{ConnectionState, DeviceStatus, WakeState};
 
+use crate::offline;
 use crate::snapshot::Snapshot;
 use crate::text::{UiText, keys};
 use crate::ui;
@@ -22,9 +24,14 @@ pub fn supported(model: &Snapshot) -> bool {
     model.status.wake_supported
 }
 
-/// Another device, from a service that wakes devices.
+/// Another device, from a service that wakes devices, that neither it
+/// nor this one is offline for now.
 fn other<'a>(model: &'a Snapshot, id: &str) -> Option<&'a DeviceStatus> {
-    if !supported(model) || id == model.this_device_id() {
+    if !supported(model)
+        || id == model.this_device_id()
+        || offline::this_offline(model)
+        || offline::is_offline(model, id)
+    {
         return None;
     }
     model.device(id)
@@ -275,6 +282,30 @@ mod tests {
         let m = model(OFFLINE, true, WakeState::None);
         assert_eq!(offer(&m, "gone", false), None);
         assert_eq!(note(&m, "gone"), None);
+    }
+
+    #[test]
+    fn nothing_for_a_computer_offline_for_now_or_while_this_one_is() {
+        for wake in [WakeState::None, WakeState::Waking, WakeState::NotWoken] {
+            for can in [true, false] {
+                let mut m = model(OFFLINE, can, wake);
+                m.status.offline_supported = true;
+                m.status.devices[0].offline_for_now = true;
+                assert!(!can_wake(&m, "mini") && !waking(&m, "mini"));
+                assert!(!shows_moon(&m, "mini"));
+                assert_eq!(glyph(&m, "mini"), None);
+                assert_eq!(offer(&m, "mini", false), None);
+                assert_eq!(note(&m, "mini"), None, "no line it can't be woken");
+                // This computer offline for now: every other one is just
+                // offline.
+                m.status.devices[0].offline_for_now = false;
+                m.status.offline_for_now = true;
+                assert!(!shows_moon(&m, "mini"));
+                assert_eq!(glyph(&m, "mini"), None);
+                assert_eq!(offer(&m, "mini", false), None);
+                assert_eq!(note(&m, "mini"), None);
+            }
+        }
     }
 
     #[test]

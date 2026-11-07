@@ -375,6 +375,14 @@ impl Wakes {
         }
     }
 
+    /// `id` is neither being woken nor said not to have woken up any more:
+    /// it, or this device, was taken offline for now, which gives waking it
+    /// up. When a wake-up last went to it stays, so a push after it is
+    /// brought back still waits its turn.
+    pub(crate) fn forget(&mut self, id: &str) {
+        self.states.remove(id);
+    }
+
     /// Forgets the devices `keep` does not keep, as they are unpaired.
     pub(crate) fn retain(&mut self, keep: impl Fn(&str) -> bool) {
         self.states.retain(|id, _| keep(id));

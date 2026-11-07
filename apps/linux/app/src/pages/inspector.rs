@@ -1,7 +1,7 @@
 //! The inspector beside the device lists (Devices, Arrangement): one
 //! computer's name, system, status (and waking it), screens, how fast the
-//! cursor moves on it, what it shares with this one, the key swap, and
-//! removing it.
+//! cursor moves on it, what it shares with this one, the key swap, taking
+//! it offline for now or bringing it back, and removing it.
 //!
 //! Its rows are made again only when what they are changes (another
 //! device, its screens, whether it is paired); otherwise every model
@@ -22,7 +22,7 @@ use inputweave_app_core::proto::{
 use inputweave_app_core::snapshot::Snapshot;
 use inputweave_app_core::text::keys;
 use inputweave_app_core::wake::{self, Glyph, Note};
-use inputweave_app_core::{device_text, log, ui};
+use inputweave_app_core::{device_text, log, offline, ui};
 
 use super::{EntrySync, Quiet, row_button, set_subtitle, set_switch, set_text, value_label};
 use crate::strings::{t, tr};
@@ -39,6 +39,8 @@ struct Rows {
     status: adw::ActionRow,
     /// Another computer's.
     wake: Option<WakeRow>,
+    /// Another computer's.
+    offline: Option<OfflineRow>,
     speed: Option<SpeedRow>,
     clipboard: Option<adw::SwitchRow>,
     files: Option<adw::SwitchRow>,
@@ -93,6 +95,89 @@ impl WakeRow {
         }
         self.not_told.set_visible(not_told.is_some());
     }
+}
+
+/// What the inspector of another computer shows of taking it offline for
+/// now: the icon at the end of its status while it is, under the status
+/// who set it and, when it runs a version from before it, a warning for
+/// each other connected computer on such a version (which still controls
+/// it), and, in a group of
+/// its own after the switches, Take Offline or Bring Back Online with what
+/// it does.
+#[derive(Clone)]
+pub struct OfflineRow {
+    pub icon: gtk::Image,
+    pub set_by: gtk::Label,
+    /// The group of the status, which the warnings go below.
+    about: adw::PreferencesGroup,
+    pub group: adw::PreferencesGroup,
+    pub button: gtk::Button,
+    /// The warnings as shown: their texts, and their lines in `about`.
+    shown: Rc<RefCell<Vec<String>>>,
+    lines: Rc<RefCell<Vec<gtk::Box>>>,
+}
+
+impl OfflineRow {
+    fn show(&self, model: &Snapshot, id: &str) {
+        self.icon.set_visible(offline::is_offline(model, id));
+        let set_by = offline::set_by_line(model, id);
+        if let Some(text) = &set_by {
+            set_text(&self.set_by, &tr(text));
+        }
+        self.set_by.set_visible(set_by.is_some());
+        let warnings: Vec<String> = offline::unaware_warnings(model, id)
+            .iter()
+            .map(tr)
+            .collect();
+        // Each a line of the status's group, as the lines about waking it:
+        // added after those, but never shown with them (a computer offline
+        // for now is not offered waking), so right under the status.
+        if *self.shown.borrow() != warnings {
+            for line in self.lines.borrow_mut().drain(..) {
+                self.about.remove(&line);
+            }
+            for text in &warnings {
+                let line = warning_line(text);
+                self.about.add(&line);
+                self.lines.borrow_mut().push(line);
+            }
+            *self.shown.borrow_mut() = warnings;
+        }
+        let offer = offline::offer(model, id);
+        self.group.set_visible(offer.is_some());
+        if let Some(offline) = offer {
+            let label = t(offline::offer_key(offline));
+            if self.button.label().as_deref() != Some(label.as_str()) {
+                self.button.set_label(&label);
+            }
+        }
+    }
+}
+
+/// A line under the status with the warning icon before it.
+fn warning_line(text: &str) -> gtk::Box {
+    let icon = gtk::Image::builder()
+        .icon_name("dialog-warning-symbolic")
+        .accessible_role(gtk::AccessibleRole::Presentation)
+        .css_classes(["warning"])
+        .valign(gtk::Align::Start)
+        .build();
+    let label = gtk::Label::builder()
+        .label(text)
+        .wrap(true)
+        .xalign(0.0)
+        .hexpand(true)
+        .build();
+    let line = gtk::Box::builder()
+        .orientation(gtk::Orientation::Horizontal)
+        .spacing(8)
+        .margin_top(6)
+        .margin_start(12)
+        .margin_end(12)
+        .build();
+    line.append(&icon);
+    line.append(&label);
+    line
 }
 
 /// How long the keys must leave the slider alone before the speed it shows
@@ -387,6 +472,9 @@ impl Inspector {
             &rows.status,
             &tr(&device_text::status(model, id, SystemTime::now())),
         );
+        if let Some(row) = &rows.offline {
+            row.show(model, id);
+        }
         if let Some(row) = &rows.wake {
             let in_flight = self.ui.upgrade().is_some_and(|ui| ui.waking_asked(id));
             row.show(model, id, in_flight);
@@ -423,6 +511,22 @@ impl Inspector {
     #[cfg(test)]
     pub fn wake_widgets(&self) -> Option<WakeRow> {
         self.rows.borrow().as_ref().and_then(|r| r.wake.clone())
+    }
+
+    #[cfg(test)]
+    pub fn offline_widgets(&self) -> Option<OfflineRow> {
+        self.rows.borrow().as_ref().and_then(|r| r.offline.clone())
+    }
+
+    /// The warnings under the status, as shown.
+    #[cfg(test)]
+    pub fn offline_warnings(&self) -> Vec<String> {
+        self.rows
+            .borrow()
+            .as_ref()
+            .and_then(|r| r.offline.as_ref())
+            .map(|o| o.shown.borrow().clone())
+            .unwrap_or_default()
     }
 
     #[cfg(test)]
@@ -555,6 +659,9 @@ impl Inspector {
         let status = property(&t(keys::INSPECTOR_STATUS));
         about.add(&system);
         about.add(&status);
+        // Under the status: who took it offline, before what is said of
+        // waking it.
+        let offline_lines = (!this).then(|| (offline_lines(&about, &status), about.clone()));
         let wake = (!this).then(|| self.wake_row(&about, &status, id));
         self.add(about);
 
@@ -606,6 +713,7 @@ impl Inspector {
             name_refused,
             status,
             wake,
+            offline: None,
             speed,
             clipboard: None,
             files: None,
@@ -650,29 +758,36 @@ impl Inspector {
         rows.clipboard = Some(clipboard);
         rows.files = Some(files);
 
+        if device.paired {
+            let options = adw::PreferencesGroup::new();
+            let swap = adw::SwitchRow::builder()
+                .use_markup(false)
+                .title(t(device_text::swap_key(&os)))
+                .build();
+            let (weak, device_id, quiet) = (self.ui.clone(), id.to_owned(), self.quiet.clone());
+            swap.connect_active_notify(move |row| {
+                if quiet.is_set() {
+                    return;
+                }
+                if let Some(ui) = weak.upgrade() {
+                    ui.command(Command::SetDeviceOptions(SetDeviceOptions {
+                        device_id: device_id.clone(),
+                        swap_gui_and_control: row.is_active(),
+                    }));
+                }
+            });
+            options.add(&swap);
+            self.add(options);
+            rows.swap = Some(swap);
+        }
+
+        if let Some(((icon, set_by), about)) = offline_lines {
+            rows.offline = Some(self.offline_group(id, icon, set_by, about));
+        }
+
         if !device.paired {
             return rows;
         }
-        let options = adw::PreferencesGroup::new();
-        let swap = adw::SwitchRow::builder()
-            .use_markup(false)
-            .title(t(device_text::swap_key(&os)))
-            .build();
-        let (weak, device_id, quiet) = (self.ui.clone(), id.to_owned(), self.quiet.clone());
-        swap.connect_active_notify(move |row| {
-            if quiet.is_set() {
-                return;
-            }
-            if let Some(ui) = weak.upgrade() {
-                ui.command(Command::SetDeviceOptions(SetDeviceOptions {
-                    device_id: device_id.clone(),
-                    swap_gui_and_control: row.is_active(),
-                }));
-            }
-        });
-        options.add(&swap);
-        self.add(options);
-        rows.swap = Some(swap);
 
         let removal = adw::PreferencesGroup::new();
         let remove = gtk::Button::builder()
@@ -709,7 +824,80 @@ impl Inspector {
     }
 }
 
+/// The status row's part in taking another computer offline for now: the
+/// icon at its end, and below the group (`group`) who set it, hidden until
+/// the model says (the warnings follow it there as they come).
+fn offline_lines(
+    group: &adw::PreferencesGroup,
+    status: &adw::ActionRow,
+) -> (gtk::Image, gtk::Label) {
+    // The status says it in words; the icon only goes with them.
+    let icon = gtk::Image::builder()
+        .icon_name(offline::ICON)
+        .accessible_role(gtk::AccessibleRole::Presentation)
+        .css_classes(["dim-label"])
+        .visible(false)
+        .build();
+    status.add_suffix(&icon);
+    let set_by = gtk::Label::builder()
+        .wrap(true)
+        .xalign(0.0)
+        .margin_top(6)
+        .margin_start(12)
+        .margin_end(12)
+        .css_classes(["dim-label", "caption"])
+        .visible(false)
+        .build();
+    // Not a row: below the group's list, under the status.
+    group.add(&set_by);
+    (icon, set_by)
+}
+
 impl Inspector {
+    /// Take Offline or Bring Back Online for another computer, `id`, in a
+    /// group of its own, with what it does under it; with the lines made
+    /// by `offline_lines` in `about`.
+    fn offline_group(
+        &self,
+        id: &str,
+        icon: gtk::Image,
+        set_by: gtk::Label,
+        about: adw::PreferencesGroup,
+    ) -> OfflineRow {
+        let group = adw::PreferencesGroup::builder().visible(false).build();
+        let button = gtk::Button::builder()
+            .label(t(keys::OFFLINE_TAKE))
+            .halign(gtk::Align::Start)
+            .build();
+        let (weak, device_id) = (self.ui.clone(), id.to_owned());
+        button.connect_clicked(move |_| {
+            let Some(ui) = weak.upgrade() else { return };
+            // As the service says now, whatever the label still shows.
+            if let Some(offline) = offline::offer(&ui.snapshot(), &device_id) {
+                ui.set_offline(&device_id, !offline);
+            }
+        });
+        let explanation = gtk::Label::builder()
+            .label(t(keys::OFFLINE_EXPLAIN))
+            .wrap(true)
+            .xalign(0.0)
+            .margin_top(6)
+            .css_classes(["dim-label", "caption"])
+            .build();
+        group.add(&button);
+        group.add(&explanation);
+        self.add(group.clone());
+        OfflineRow {
+            icon,
+            set_by,
+            about,
+            group,
+            button,
+            shown: Rc::default(),
+            lines: Rc::default(),
+        }
+    }
+
     /// The status row's part in waking another computer, `id`: the glyph
     /// and Wake at its end, and the lines under it below the group.
     fn wake_row(

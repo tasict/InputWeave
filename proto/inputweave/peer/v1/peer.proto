@@ -374,7 +374,10 @@ message SessionState {
   // controlled. A controller keeps the cursor off it, and gives control
   // back if it had it. Agents before this field say nothing; as it pauses,
   // the device also says its user took over (LocalActivity) to a
-  // controller, which those understand.
+  // controller, which those understand. A device also says so to a session
+  // before protocol 7, which knows nothing of devices taken offline for now
+  // (OfflineDevices), while it or the receiver is one of them: that keeps
+  // such a device off it.
   bool sharing_paused = 4;
 }
 
@@ -413,6 +416,46 @@ message WakeInfo {
   bytes broadcast = 2;
 }
 
+// The devices of the group taken offline for now (protocol 7;
+// docs/architecture.md §6.4): none of the others controls one of them or
+// is controlled by it, and the clipboard and files go neither to it nor
+// from it, until someone brings it back. Any device of the group may take
+// any device offline or bring it back, itself included. The group shares
+// one document of them, apart from the Layout, so that taking a device
+// offline and moving another on the canvas never undo each other. Each
+// device listed has an entry of its own, offline or back online, which a
+// receiver merges on its own: the newer entry for each device wins
+// (versions compare by number, then by author), so changes to different
+// devices never undo each other. A receiver passes the document on when
+// it changed anything there, and sends its own back when the sender's
+// lacked something it has. Sent once a session starts and whenever it
+// changes. Sessions stay up with a device taken offline, so it hears when
+// it is brought back and can bring itself back; its pointer datagrams,
+// input stream, clipboard and files are refused both ways. A receiver
+// ignores a document of more than 1,024 entries, and an entry whose id or
+// author is not one. Receivers before protocol 7 ignore it, as they do any
+// message they do not know.
+message OfflineDevices {
+  repeated OfflineDevice devices = 1;
+}
+
+message OfflineDevice {
+  string device_id = 1;
+  // Offline for now; false: brought back. An entry back online is kept, so
+  // that an older entry taking the device offline, from a device that was
+  // apart from the group, does not win again.
+  bool offline = 2;
+  // The change that made the entry so: above every version the device
+  // making it knew of, and the device that made it (empty: not known).
+  uint64 version = 3;
+  string author = 4;
+  // While offline: the device that took it offline, and the name that
+  // device gave itself then, for devices that do not know it by another.
+  // Either may be empty when not known; the device is offline all the same.
+  string by_device_id = 5;
+  string by_name = 6;
+}
+
 // Messages on the reliable, ordered control stream.
 message Control {
   reserved 5, 6;
@@ -440,6 +483,7 @@ message Control {
     PointerAt pointer_at = 23;
     LicenseInfo license_info = 24;
     WakeInfo wake_info = 25;
+    OfflineDevices offline_devices = 26;
   }
 }
 

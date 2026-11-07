@@ -147,12 +147,25 @@ struct DeviceInspector: View {
             }
             CursorSpeedSection(deviceID: deviceID)
             DeviceSharingSection(deviceID: deviceID)
+            let offline = model.offlineOffer(deviceID)
             if let status, status.paired {
                 Section {
                     Toggle("Swap ⌘ and Ctrl", isOn: Binding(
                         get: { status.swapGuiAndControl },
                         set: { on in Task { try? await model.setSwapGUIAndControl(deviceID, on) } }))
-                    Button("Remove Device…", role: .destructive) { confirmingRemoval = true }
+                    if offline == .hidden {
+                        removeButton
+                    }
+                }
+            }
+            // Taking it offline for now is a group of its own after the
+            // switches; removing it still comes last.
+            if offline != .hidden {
+                OfflineSection(deviceID: deviceID, offer: offline)
+                if let status, status.paired {
+                    Section {
+                        removeButton
+                    }
                 }
             }
         }
@@ -161,6 +174,33 @@ struct DeviceInspector: View {
             Button("Remove", role: .destructive) { Task { try? await model.unpair(deviceID) } }
         } message: {
             Text("This computer stops trusting it. To use it again, pair it again.")
+        }
+    }
+
+    private var removeButton: some View {
+        Button("Remove Device…", role: .destructive) { confirmingRemoval = true }
+    }
+}
+
+/// Taking another computer offline for now, or bringing it back, in the
+/// inspector, with what that means; no confirmation, as it is easily
+/// undone and the HUD tells what happened.
+private struct OfflineSection: View {
+    @Environment(AgentModel.self) private var model
+    let deviceID: String
+    let offer: OfflineText.Offer
+
+    var body: some View {
+        Section {
+            VStack(alignment: .leading, spacing: 6) {
+                if let label = OfflineText.label(offer) {
+                    Button(label) { model.setOffline(deviceID, offer == .takeOffline) }
+                }
+                Text(OfflineText.help())
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
         }
     }
 }
@@ -185,7 +225,8 @@ struct DevicesPage: View {
                     List(model.status.devices, id: \.id, selection: $selection) { device in
                         DeviceRow(
                             device: device, jump: model.jumpShortcut(slot: device.jumpSlot),
-                            wakeSupported: model.wakeSupported)
+                            wakeSupported: model.wakeSupported,
+                            offlineForNow: model.showsOfflineForNow(device.id))
                     }
                     Divider()
                     DeviceInspector(deviceID: selection ?? model.status.devices.first?.id ?? "")
@@ -208,6 +249,8 @@ private struct DeviceRow: View {
     var jump: String?
     /// The service can wake other computers.
     var wakeSupported = false
+    /// It is taken offline for now (`OfflineText.shows`).
+    var offlineForNow = false
 
     var body: some View {
         HStack {
@@ -217,8 +260,12 @@ private struct DeviceRow: View {
             VStack(alignment: .leading) {
                 HStack(spacing: 4) {
                     Text(device.name)
-                    // The status says it; the moon only marks it.
-                    if WakeText.showsMoon(device, supported: wakeSupported) {
+                    // The status says it; the symbol only marks it.
+                    if offlineForNow {
+                        Image(systemName: OfflineText.symbol)
+                            .imageScale(.small)
+                            .accessibilityHidden(true)
+                    } else if WakeText.showsMoon(device, supported: wakeSupported) {
                         Image(systemName: WakeText.moon)
                             .imageScale(.small)
                             .accessibilityHidden(true)
@@ -233,7 +280,11 @@ private struct DeviceRow: View {
                     .foregroundStyle(.secondary)
                     .accessibilityLabel(Text("Shortcut \(jump)"))
             }
-            if device.state == .connected {
+            if offlineForNow {
+                Label(OfflineText.status(), systemImage: OfflineText.symbol)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            } else if device.state == .connected {
                 Label(
                     ConnectionText.connected(
                         rttMs: device.rttMs, screenLocked: device.screenLocked,
@@ -491,7 +542,7 @@ struct TroubleshootingPage: View {
             Section("Problems") {
                 ExceptionList()
                 if service.state == .enabled && model.link == .connected && model.missingPermissions.isEmpty
-                    && model.offlineDevices.isEmpty && !model.status.secureInput {
+                    && model.unreachableDevices.isEmpty && !model.status.secureInput {
                     Label("Everything is working.", systemImage: "checkmark.circle.fill")
                         .foregroundStyle(.green)
                 }

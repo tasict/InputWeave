@@ -149,6 +149,15 @@ enum CtlCommand {
         #[arg(long, conflicts_with = "device")]
         push: Option<OnOff>,
     },
+    /// Take a device offline for now, this one or another, or bring it
+    /// back, as the app's Take Offline and Bring Back Online do: no device
+    /// of the group controls it or is controlled by it, nor shares the
+    /// clipboard or files with it, until someone brings it back.
+    Offline {
+        /// A device id as `ctl status` lists it, or this device's.
+        device: String,
+        state: OnOff,
+    },
     /// Move the cursor to the middle of a device's main display.
     Jump {
         /// A device id as `ctl status` lists it, or this device's.
@@ -482,7 +491,7 @@ fn run_login_window() -> Result<(), String> {
     let options = Options {
         log_files: vec![PathBuf::from(login_window::LOG_FILE)],
         agent_digest: agent::executable_digest().unwrap_or_default(),
-        ..login_window::options(state.devices)
+        ..login_window::options(state.devices, state.offline)
     };
     runtime()?.block_on(async move {
         let agent =
@@ -580,6 +589,7 @@ fn run_agent(config: Option<PathBuf>) -> Result<(), String> {
         license_reread: None,
         devices_file: Some(devices),
         devices: None,
+        offline: None,
         previews_unchanged: false,
         // The login window's agent reads only the default folder.
         login_window: inputweave::login_window::support(
@@ -1078,6 +1088,14 @@ fn ctl(socket: Option<PathBuf>, command: CtlCommand) -> Result<(), String> {
                     }
                     (None, None) => unreachable!("clap requires one"),
                 }
+            }
+            CtlCommand::Offline { device, state } => {
+                let mut client = ctl::Client::connect(&socket).await.map_err(fail)?;
+                let status = client
+                    .set_offline_for_now(&device, matches!(state, OnOff::On))
+                    .await
+                    .map_err(fail)?;
+                print!("{}", ctl::format_status(&status));
             }
             CtlCommand::Jump { device } => {
                 let mut client = ctl::Client::connect(&socket).await.map_err(fail)?;

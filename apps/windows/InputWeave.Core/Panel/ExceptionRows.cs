@@ -1,4 +1,6 @@
+using Inputweave.App.V1;
 using InputWeave.Agent;
+using InputWeave.Settings;
 using InputWeave.Support;
 
 namespace InputWeave.Panel;
@@ -48,7 +50,7 @@ public static class ExceptionRows
         }
         if (model.Link == AgentLink.Connected)
         {
-            foreach (var device in model.OfflineDevices)
+            foreach (var device in Unreachable(model))
             {
                 rows.Add(new(
                     new(TextKeys.ExceptionUnreachable, device.Name),
@@ -66,6 +68,16 @@ public static class ExceptionRows
     public static bool EverythingWorks(AgentSnapshot model, ServiceState service) =>
         service is ServiceState.Running or ServiceState.Unknown
         && model.Link == AgentLink.Connected
-        && model.OfflineDevices.Count == 0
+        && Unreachable(model).Count == 0
         && model.Status.Capturing;
+
+    /// <summary>
+    /// The computers that can't be reached: offline, except those taken
+    /// offline for now, which are offline on purpose; and none while this
+    /// computer is offline for now, when every other one shows offline.
+    /// </summary>
+    private static IReadOnlyList<DeviceStatus> Unreachable(AgentSnapshot model) =>
+        OfflineForNow.ThisOffline(model)
+            ? []
+            : model.OfflineDevices.Where(d => !OfflineForNow.IsOffline(model, d.Id)).ToList();
 }

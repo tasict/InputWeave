@@ -607,6 +607,22 @@ public sealed class AgentModel : IAsyncDisposable
             .ConfigureAwait(false));
 
     /// <summary>
+    /// Takes a computer offline for now, this one or another this one
+    /// trusts, or brings it back: none of the group controls it or is
+    /// controlled by it, and the clipboard and files go neither to it nor
+    /// from it, until someone brings it back. Answered with the status once
+    /// the service has the change; doing it again changes nothing. Refused
+    /// with "unknown_device", and with "offline_for_now" for another
+    /// computer while this one is offline for now (it can only bring itself
+    /// back).
+    /// </summary>
+    public async Task SetOfflineForNowAsync(string deviceId, bool offline) =>
+        Apply(await RequestAsync(new ClientMessage
+        {
+            SetOfflineForNow = new SetOfflineForNow { DeviceId = deviceId, Offline = offline },
+        }).ConfigureAwait(false));
+
+    /// <summary>
     /// Moves computers' desktop origins on the shared canvas. The service
     /// refuses positions that make screens overlap, as a whole.
     /// </summary>

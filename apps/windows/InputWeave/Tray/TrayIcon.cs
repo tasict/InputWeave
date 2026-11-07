@@ -19,6 +19,7 @@ internal sealed class TrayIcon : IDisposable
     private AppMenu? menu;
     private TrayIconState? shownState;
     private bool shownLight;
+    private UiText? shownDescription;
     private System.Drawing.Icon? shownIcon;
     private MenuState? lastMenu;
 
@@ -48,6 +49,7 @@ internal sealed class TrayIcon : IDisposable
                 icon = null;
                 menu = null;
                 shownState = null;
+                shownDescription = null;
             }
             AppLog.Info($"tray icon shown: {value}");
         }
@@ -73,11 +75,25 @@ internal sealed class TrayIcon : IDisposable
         icon.ForceCreate(enablesEfficiencyMode: false);
     }
 
-    public void Update(TrayIconState state, bool lightTaskbar, MenuState menuState)
+    /// <summary>
+    /// Shows <paramref name="state"/> with <paramref name="description"/> as
+    /// the tooltip, which can change on its own: the paused icon says
+    /// whether sharing is paused or this computer is offline for now.
+    /// </summary>
+    public void Update(TrayIconState state, UiText description, bool lightTaskbar, MenuState menuState)
     {
         lastMenu = menuState;
         menu?.Update(menuState);
-        if (icon is null || (state == shownState && lightTaskbar == shownLight))
+        if (icon is null)
+        {
+            return;
+        }
+        if (!description.Equals(shownDescription))
+        {
+            icon.ToolTipText = Strings.Text(description);
+            shownDescription = description;
+        }
+        if (state == shownState && lightTaskbar == shownLight)
         {
             return;
         }
@@ -86,7 +102,6 @@ internal sealed class TrayIcon : IDisposable
         var size = Native.GetSystemMetricsForDpi(Native.SM_CXSMICON, Native.GetDpiForSystem());
         var next = new System.Drawing.Icon(file, size, size);
         icon.Icon = next;
-        icon.ToolTipText = Strings.Text(TrayIcons.Description(state));
         shownIcon?.Dispose();
         shownIcon = next;
         if (shownState != state)

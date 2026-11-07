@@ -12,12 +12,14 @@ use iw_proto::app::v1::{
     IdentifyScreens, JumpTo, LicenseState, PairingPhase, PairingState, RemoveLicense,
     RemoveTransfer, RenameDevice, RequestFolderAccess, RequestPermission, Response, SendFiles,
     SetArrangement, SetDeviceSharing, SetDeviceSpeed, SetEdgeOptions, SetHotkeys, SetLicenseKey,
-    SetLocked, SetLoginWindowAccess, SetRelativeAuto, SetRelativeMouse, SetSwitchModifier,
-    SetWakeOnPush, StartPairing, SubmitPairingCode, SwitchModifier, TransferState, Unpair,
-    WakeDevice, WakeState, agent_message, client_message::Command, event, response, start_pairing,
+    SetLocked, SetLoginWindowAccess, SetOfflineForNow, SetRelativeAuto, SetRelativeMouse,
+    SetSwitchModifier, SetWakeOnPush, StartPairing, SubmitPairingCode, SwitchModifier,
+    TransferState, Unpair, WakeDevice, WakeState, agent_message, client_message::Command, event,
+    response, start_pairing,
 };
 
 use crate::agent::{Access, UserFolder};
+use crate::offline_file::describe_setter;
 
 #[derive(Debug, thiserror::Error)]
 pub enum CtlError {
@@ -185,6 +187,20 @@ impl Client {
             device_id: device_id.to_owned(),
         });
         self.status_request(wake).await
+    }
+
+    /// Takes a device, this one or another, offline for now, or brings it
+    /// back.
+    pub async fn set_offline_for_now(
+        &mut self,
+        device_id: &str,
+        offline: bool,
+    ) -> Result<app::Status, CtlError> {
+        let set = Command::SetOfflineForNow(SetOfflineForNow {
+            device_id: device_id.to_owned(),
+            offline,
+        });
+        self.status_request(set).await
     }
 
     /// Has pushing the cursor toward an offline device wake it, or not.
@@ -1065,6 +1081,17 @@ pub fn format_status(status: &app::Status) -> String {
     let mut out = String::new();
     let on_off = if status.sharing { "on" } else { "paused" };
     out.push_str(&format!("sharing:        {on_off}\n"));
+    if status.offline_for_now {
+        out.push_str(&format!(
+            "offline:        for now, {}; no device controls this one or is controlled by it, \
+             nor shares the clipboard or files with it\n",
+            describe_setter(
+                &status.this_device_id,
+                &status.offline_by_device_id,
+                &status.offline_by_name
+            )
+        ));
+    }
     out.push_str(&format!(
         "this device:    {} ({})\n",
         status.this_device_id, status.this_device_name
@@ -1171,6 +1198,7 @@ pub fn format_status(status: &app::Status) -> String {
     }
     for d in &status.devices {
         let state = match app::ConnectionState::try_from(d.state) {
+            _ if d.offline_for_now => "offline for now".to_owned(),
             Ok(app::ConnectionState::Connected) if d.rtt_ms > 0 => {
                 format!("connected, {} ms", d.rtt_ms)
             }
@@ -1180,6 +1208,16 @@ pub fn format_status(status: &app::Status) -> String {
         };
         let origin = if d.paired { "paired" } else { "configured" };
         let mut notes = vec![origin.to_owned()];
+        if d.offline_for_now {
+            notes.push(describe_setter(
+                &status.this_device_id,
+                &d.offline_by_device_id,
+                &d.offline_by_name,
+            ));
+        }
+        if d.offline_unaware {
+            notes.push("InputWeave 1.0: knows nothing of devices taken offline for now".to_owned());
+        }
         if d.screen_locked && d.lock_screen_input {
             notes.push("screen locked".to_owned());
         } else if d.screen_locked {
@@ -1731,6 +1769,50 @@ mod tests {
         };
         assert!(knows_double_press(&new, Some("double+control")).is_ok());
         assert!(knows_double_press(&new, Some("")).is_ok());
+    }
+
+    #[test]
+    fn the_status_says_who_took_a_device_offline_whatever_is_known() {
+        let device = |id: &str, by_id: &str, by_name: &str| app::DeviceStatus {
+            id: id.to_owned(),
+            name: id.to_owned(),
+            paired: true,
+            offline_for_now: true,
+            offline_by_device_id: by_id.to_owned(),
+            offline_by_name: by_name.to_owned(),
+            ..Default::default()
+        };
+        let mut status = app::Status {
+            this_device_id: "mac".to_owned(),
+            this_device_name: "MacBook Pro".to_owned(),
+            devices: vec![
+                device("a", "", ""),
+                device("b", "", "Studio PC"),
+                device("c", "mac", "MacBook Pro"),
+                device("d", "win", "Windows PC"),
+            ],
+            ..Default::default()
+        };
+        let text = format_status(&status);
+        for line in [
+            "paired; set by another computer\n",
+            "paired; set by Studio PC\n",
+            "paired; set on this device\n",
+            "paired; set by Windows PC (win)\n",
+        ] {
+            assert!(text.contains(line), "{line}: {text}");
+        }
+        assert!(
+            !text.contains("set by \n") && !text.contains("()"),
+            "{text}"
+        );
+        // This device, taken offline by a device no one knows.
+        status.offline_for_now = true;
+        let text = format_status(&status);
+        assert!(
+            text.contains("offline:        for now, set by another computer;"),
+            "{text}"
+        );
     }
 
     #[test]

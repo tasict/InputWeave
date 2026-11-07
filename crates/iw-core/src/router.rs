@@ -110,9 +110,18 @@ pub enum Event {
     /// The device paused sharing (true), or resumed it (false): meanwhile it
     /// is left out like a locked one, and control comes back from it.
     PeerSharingPaused(DeviceId, bool),
+    /// The device was taken offline for now (true), or brought back
+    /// (false): meanwhile it is left out like a locked one, and control
+    /// comes back from it. Kept while it is connected only, as the others
+    /// are: the caller tells it again as the device connects.
+    PeerOfflineForNow(DeviceId, bool),
     /// Someone used the remote device's own keyboard or mouse.
     RemoteActivity(DeviceId),
     SetSharing(bool),
+    /// This machine was taken offline for now (true), or brought back
+    /// (false): meanwhile it controls no device, as while sharing is
+    /// paused, whatever `SetSharing` said, and control comes back to it.
+    SetOfflineForNow(bool),
     /// Locks the cursor to the device it is on, or unlocks it.
     SetLocked(bool),
     /// A drag of files from this device began (an app reported it while a
@@ -166,6 +175,9 @@ pub enum ReturnReason {
     InputUnavailable(DeviceId),
     /// The controlled device paused sharing.
     PeerPaused(DeviceId),
+    /// The controlled device was taken offline for now, or this machine
+    /// was (the device is then this machine).
+    OfflineForNow(DeviceId),
     /// Capture lost hold of the input (`InputEvent::CaptureEnded`).
     CaptureEnded,
 }
@@ -382,6 +394,10 @@ pub enum JumpError {
     InputUnavailable(DeviceId),
     #[error("device {0} paused sharing")]
     PeerPaused(DeviceId),
+    /// That device, or this machine (the device is then this machine), is
+    /// taken offline for now.
+    #[error("device {0} is offline for now")]
+    OfflineForNow(DeviceId),
 }
 
 /// Where the cursor may jump (`Router::jump_target`), for `Router::jump`.
@@ -436,11 +452,13 @@ struct Unreachable {
     input_unavailable: bool,
     /// It paused sharing.
     sharing_paused: bool,
+    /// It is taken offline for now.
+    offline_for_now: bool,
 }
 
 impl Unreachable {
     fn any(self) -> bool {
-        self.screen_locked || self.input_unavailable || self.sharing_paused
+        self.screen_locked || self.input_unavailable || self.sharing_paused || self.offline_for_now
     }
 }
 
@@ -450,6 +468,7 @@ enum Barrier {
     ScreenLocked,
     InputUnavailable,
     SharingPaused,
+    OfflineForNow,
 }
 
 #[derive(Debug)]
@@ -465,6 +484,8 @@ pub struct Router {
     /// the normal speed.
     speeds: HashMap<DeviceId, CursorSpeed>,
     sharing: bool,
+    /// This machine is taken offline for now: it controls no device.
+    offline_for_now: bool,
     /// The cursor stays on the device it is on.
     locked: bool,
     state: State,
@@ -527,6 +548,7 @@ impl Router {
             remaps: HashMap::new(),
             speeds: HashMap::new(),
             sharing: true,
+            offline_for_now: false,
             locked: false,
             state: State::Local,
             held_keys: BTreeSet::new(),
@@ -735,11 +757,17 @@ impl Router {
         self.locked
     }
 
+    /// Whether this machine may control others: sharing is on, and it is
+    /// not taken offline for now.
+    fn shares(&self) -> bool {
+        self.sharing && !self.offline_for_now
+    }
+
     /// Where the cursor leaves this device for another now, in its desktop
-    /// coordinates (`Layout::exits`): nowhere while sharing is paused or
-    /// the cursor is locked.
+    /// coordinates (`Layout::exits`): nowhere while sharing is paused, this
+    /// machine is offline for now or the cursor is locked.
     pub fn exits(&self) -> Vec<Exit> {
-        if !self.sharing || self.locked {
+        if !self.shares() || self.locked {
             return Vec::new();
         }
         self.layout
@@ -843,6 +871,9 @@ impl Router {
             Event::PeerSharingPaused(device, paused) => {
                 self.set_unreachable(device, Barrier::SharingPaused, paused)
             }
+            Event::PeerOfflineForNow(device, offline) => {
+                self.set_unreachable(device, Barrier::OfflineForNow, offline)
+            }
             Event::RemoteActivity(device) => {
                 if self.is_remote(&device) {
                     self.return_control(ReturnReason::RemoteActivity(device), true)
@@ -855,6 +886,15 @@ impl Router {
                 self.push = None;
                 if !enabled && matches!(self.state, State::Remote { .. }) {
                     self.return_control(ReturnReason::SharingPaused, true)
+                } else {
+                    Vec::new()
+                }
+            }
+            Event::SetOfflineForNow(offline) => {
+                self.offline_for_now = offline;
+                self.push = None;
+                if offline && matches!(self.state, State::Remote { .. }) {
+                    self.return_control(ReturnReason::OfflineForNow(self.local.clone()), true)
                 } else {
                     Vec::new()
                 }
@@ -986,6 +1026,9 @@ impl Router {
     /// Whether the cursor may jump to `device` now (`jump_to`), without
     /// moving it: where it would land, to `jump` there, or why not.
     pub fn jump_target(&self, device: &DeviceId) -> Result<JumpTarget, JumpError> {
+        if self.offline_for_now {
+            return Err(JumpError::OfflineForNow(self.local.clone()));
+        }
         if !self.sharing {
             return Err(JumpError::SharingPaused);
         }
@@ -999,7 +1042,9 @@ impl Router {
             return Err(JumpError::NotConnected(device.clone()));
         }
         if let Some(unreachable) = self.unreachable.get(device) {
-            return Err(if unreachable.screen_locked {
+            return Err(if unreachable.offline_for_now {
+                JumpError::OfflineForNow(device.clone())
+            } else if unreachable.screen_locked {
                 JumpError::ScreenLocked(device.clone())
             } else if unreachable.input_unavailable {
                 JumpError::InputUnavailable(device.clone())
@@ -1042,6 +1087,7 @@ impl Router {
             Barrier::ScreenLocked => reasons.screen_locked = on,
             Barrier::InputUnavailable => reasons.input_unavailable = on,
             Barrier::SharingPaused => reasons.sharing_paused = on,
+            Barrier::OfflineForNow => reasons.offline_for_now = on,
         }
         if !reasons.any() {
             self.unreachable.remove(&device);
@@ -1057,6 +1103,7 @@ impl Router {
                 Barrier::ScreenLocked => ReturnReason::ScreenLocked(device),
                 Barrier::InputUnavailable => ReturnReason::InputUnavailable(device),
                 Barrier::SharingPaused => ReturnReason::PeerPaused(device),
+                Barrier::OfflineForNow => ReturnReason::OfflineForNow(device),
             };
             self.return_control(reason, true)
         } else {
@@ -1194,7 +1241,7 @@ impl Router {
             .edge
             .switch_modifier
             .is_none_or(|m| m.is_held(|k| self.held_keys.contains(&k)));
-        let can_cross = self.sharing
+        let can_cross = self.shares()
             && !self.locked
             && switch_held
             && (self.held_buttons.is_empty() || self.drag);
@@ -2230,6 +2277,14 @@ mod tests {
         assert_eq!(exits(&r), []);
         handle(&mut r, Event::SetSharing(true));
         assert_eq!(exits(&r).len(), 1);
+        handle(&mut r, Event::PeerOfflineForNow(id("win"), true));
+        assert_eq!(exits(&r), []);
+        handle(&mut r, Event::PeerOfflineForNow(id("win"), false));
+        assert_eq!(exits(&r).len(), 1);
+        handle(&mut r, Event::SetOfflineForNow(true));
+        assert_eq!(exits(&r), []);
+        handle(&mut r, Event::SetOfflineForNow(false));
+        assert_eq!(exits(&r).len(), 1);
     }
 
     #[test]
@@ -2595,6 +2650,95 @@ mod tests {
                 Action::ControlReturned(ReturnReason::PeerPaused(id("win"))),
             ]
         );
+    }
+
+    #[test]
+    fn a_device_taken_offline_is_left_alone_and_hands_control_back() {
+        let mut r = router();
+        handle(&mut r, Event::PeerOfflineForNow(id("win"), true));
+        assert!(
+            matches!(enter_win(&mut r).last(), Some(Action::Enter { device, .. }) if *device == id("mini")),
+            "passed over for the next one that way"
+        );
+        assert_eq!(
+            r.jump_to(&id("win")),
+            Err(JumpError::OfflineForNow(id("win")))
+        );
+        // Paused and locked as well, being offline is told first.
+        handle(&mut r, Event::PeerSharingPaused(id("win"), true));
+        handle(&mut r, Event::PeerScreenLocked(id("win"), true));
+        assert_eq!(
+            r.jump_target(&id("win")),
+            Err(JumpError::OfflineForNow(id("win")))
+        );
+        handle(&mut r, Event::PeerOfflineForNow(id("win"), false));
+        assert_eq!(
+            r.jump_target(&id("win")),
+            Err(JumpError::ScreenLocked(id("win")))
+        );
+        // Brought back, it is entered; taken offline while controlled, it
+        // gives control back, for its own reason, and is let go of, so it
+        // releases everything.
+        let mut r = router();
+        handle(&mut r, Event::PeerOfflineForNow(id("win"), true));
+        handle(&mut r, Event::PeerOfflineForNow(id("win"), false));
+        assert!(
+            matches!(enter_win(&mut r).last(), Some(Action::Enter { device, .. }) if *device == id("win"))
+        );
+        assert_eq!(
+            handle(&mut r, Event::PeerOfflineForNow(id("win"), true)),
+            vec![
+                Action::Leave { device: id("win") },
+                Action::Ungrab {
+                    warp_to: Point::new(1511.0, 500.0),
+                },
+                Action::ControlReturned(ReturnReason::OfflineForNow(id("win"))),
+            ]
+        );
+        // Losing the connection forgets it, as the other reasons: the
+        // caller tells it again as the device connects.
+        handle(&mut r, Event::PeerLost(id("win")));
+        handle(&mut r, Event::PeerConnected(id("win")));
+        assert!(
+            matches!(enter_win(&mut r).last(), Some(Action::Enter { device, .. }) if *device == id("win"))
+        );
+    }
+
+    #[test]
+    fn this_device_taken_offline_controls_none_until_brought_back() {
+        let mut r = router();
+        enter_win(&mut r);
+        assert_eq!(
+            handle(&mut r, Event::SetOfflineForNow(true)),
+            vec![
+                Action::Leave { device: id("win") },
+                Action::Ungrab {
+                    warp_to: Point::new(1511.0, 500.0),
+                },
+                Action::ControlReturned(ReturnReason::OfflineForNow(id("mac"))),
+            ]
+        );
+        assert!(enter_win(&mut r).is_empty());
+        assert_eq!(
+            r.jump_to(&id("win")),
+            Err(JumpError::OfflineForNow(id("mac")))
+        );
+        // Sharing turned on again changes nothing, nor does pausing it
+        // hide why; while it is paused, coming back leaves it paused.
+        handle(&mut r, Event::SetSharing(true));
+        assert!(enter_win(&mut r).is_empty());
+        handle(&mut r, Event::SetSharing(false));
+        assert_eq!(
+            r.jump_target(&id("win")),
+            Err(JumpError::OfflineForNow(id("mac")))
+        );
+        assert!(handle(&mut r, Event::SetOfflineForNow(false)).is_empty());
+        assert_eq!(r.jump_target(&id("win")), Err(JumpError::SharingPaused));
+        handle(&mut r, Event::SetSharing(true));
+        assert_eq!(enter_win(&mut r)[0], Action::Grab);
+        // Taken offline with the cursor here, nothing comes back.
+        let mut r = router();
+        assert!(handle(&mut r, Event::SetOfflineForNow(true)).is_empty());
     }
 
     #[test]

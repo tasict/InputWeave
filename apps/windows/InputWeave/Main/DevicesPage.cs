@@ -14,7 +14,8 @@ namespace InputWeave.Main;
 
 /// <summary>
 /// Every trusted computer with how it is connected (since when it is
-/// offline, with a moon after its name, when it can be woken), the same
+/// offline, with a moon after its name, when it can be woken; offline for
+/// now, with that glyph after its name), the same
 /// inspector as the arrangement page, and the way to add more.
 /// </summary>
 internal sealed partial class DevicesPage : UserControl, IMainPage
@@ -131,7 +132,8 @@ internal sealed partial class DevicesPage : UserControl, IMainPage
         }
 
         // Rebuilt only when what the rows show changes, so the selection and focus stay.
-        var key = string.Join("|", all.Select((d, i) => $"{d.Id},{d.Name},{d.Os},{d.State},{d.ScreenLocked},{d.SharingPaused},{statuses[i]},{Wake.Offered(snapshot, d.Id)},{snapshot.JumpShortcut(d.JumpSlot)}"));
+        var glyphs = all.Select(d => NameGlyph(snapshot, d.Id)).ToList();
+        var key = string.Join("|", all.Select((d, i) => $"{d.Id},{d.Name},{d.Os},{d.State},{d.ScreenLocked},{d.SharingPaused},{statuses[i]},{glyphs[i]},{snapshot.JumpShortcut(d.JumpSlot)}"));
         if (key != shownList)
         {
             shownList = key;
@@ -139,7 +141,7 @@ internal sealed partial class DevicesPage : UserControl, IMainPage
             list.Items.Clear();
             for (int i = 0; i < all.Count; i++)
             {
-                list.Items.Add(Row(all[i], snapshot.JumpShortcut(all[i].JumpSlot), statuses[i], Wake.Offered(snapshot, all[i].Id)));
+                list.Items.Add(Row(all[i], snapshot.JumpShortcut(all[i].JumpSlot), statuses[i], glyphs[i]));
             }
             filling = false;
         }
@@ -158,11 +160,19 @@ internal sealed partial class DevicesPage : UserControl, IMainPage
     }
 
     /// <summary>
-    /// A computer: its name (and a moon after it when it can be woken) and
+    /// The glyph after a computer's name: the network with a slash while it
+    /// is offline for now, else a moon when it can be woken; null for none.
+    /// </summary>
+    private static string? NameGlyph(AgentSnapshot model, string id) =>
+        OfflineForNow.IsOffline(model, id) ? OfflineForNow.Glyph : Wake.Offered(model, id) ? Wake.MoonGlyph : null;
+
+    /// <summary>
+    /// A computer: its name (and <paramref name="nameGlyph"/> after it, when
+    /// it is offline for now or can be woken) and
     /// system, and on the right the shortcut that jumps to it, if any, and
     /// its <paramref name="status"/>: whether it is connected and how fast.
     /// </summary>
-    private static ListViewItem Row(DeviceStatus device, string? jump, string status, bool moon)
+    private static ListViewItem Row(DeviceStatus device, string? jump, string status, string? nameGlyph)
     {
         var grid = new Grid { ColumnSpacing = 12, Padding = new Thickness(4, 10, 4, 10) };
         grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
@@ -178,20 +188,20 @@ internal sealed partial class DevicesPage : UserControl, IMainPage
         });
         var words = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
         var nameText = new TextBlock { Text = device.Name, TextTrimming = TextTrimming.CharacterEllipsis };
-        if (moon)
+        if (nameGlyph is not null)
         {
             // Left-aligned, the name's column is only as wide as the name
-            // until room runs short: the moon stays beside it, and the name
+            // until room runs short: the glyph stays beside it, and the name
             // is cut short first.
             var line = new Grid { HorizontalAlignment = HorizontalAlignment.Left, ColumnSpacing = 5 };
             line.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
             line.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
             line.Children.Add(nameText);
-            var moonIcon = new FontIcon { Glyph = Wake.MoonGlyph, FontSize = 12, VerticalAlignment = VerticalAlignment.Center };
-            // The status says it can be woken; the moon only shows it.
-            AutomationProperties.SetAccessibilityView(moonIcon, Microsoft.UI.Xaml.Automation.Peers.AccessibilityView.Raw);
-            Grid.SetColumn(moonIcon, 1);
-            line.Children.Add(moonIcon);
+            var nameIcon = new FontIcon { Glyph = nameGlyph, FontSize = 12, VerticalAlignment = VerticalAlignment.Center };
+            // The status says it in words; the glyph only shows it.
+            AutomationProperties.SetAccessibilityView(nameIcon, Microsoft.UI.Xaml.Automation.Peers.AccessibilityView.Raw);
+            Grid.SetColumn(nameIcon, 1);
+            line.Children.Add(nameIcon);
             words.Children.Add(line);
         }
         else

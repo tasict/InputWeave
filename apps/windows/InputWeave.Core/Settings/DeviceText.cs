@@ -58,8 +58,9 @@ public static class DeviceText
         model.Device(id) is { State: ConnectionState.Connected, ScreenLocked: true };
 
     /// <summary>
-    /// A computer's status: this one, connected with its latency or locked,
-    /// or offline; being woken, or since when it is offline when it can be
+    /// A computer's status: this one, offline for now (before anything
+    /// else, without a latency), connected with its latency or locked, or
+    /// offline; being woken, or since when it is offline when it can be
     /// woken (<see cref="Wake.OfflineStatus"/>), as of <paramref name="now"/>.
     /// </summary>
     public static UiText Status(AgentSnapshot model, string id, DateTimeOffset now, CultureInfo culture)
@@ -67,6 +68,10 @@ public static class DeviceText
         if (id == model.ThisDeviceId)
         {
             return new(TextKeys.ConnectionThisComputer);
+        }
+        if (OfflineForNow.IsOffline(model, id))
+        {
+            return new(TextKeys.ConnectionOfflineForNow);
         }
         return model.Device(id) is { State: ConnectionState.Connected } device
             ? Connected(device.RttMs, device.ScreenLocked, device.LockScreenInput, device.InputUnavailable, device.SharingPaused)
@@ -106,16 +111,20 @@ public static class DeviceText
     public static UiText FilesOff(string name) => new(TextKeys.DeviceFilesOff, name);
 
     /// <summary>
-    /// Why files dragged over the canvas would not go to a computer: files
-    /// are turned off with it ("Files turned off" on the mini map, where
-    /// room is short), or it is offline. Null for this computer, which says
-    /// nothing.
+    /// Why files dragged over the canvas would not go to a computer: it is
+    /// offline for now, files are turned off with it ("Files turned off" on
+    /// the mini map, where room is short), or it is offline. Null for this
+    /// computer, which says nothing.
     /// </summary>
     public static UiText? CannotReceive(AgentSnapshot model, string id, bool compact)
     {
         if (id == model.ThisDeviceId)
         {
             return null;
+        }
+        if (OfflineForNow.IsOffline(model, id))
+        {
+            return new(TextKeys.ConnectionOfflineForNow);
         }
         if (model.FilesOff(id))
         {

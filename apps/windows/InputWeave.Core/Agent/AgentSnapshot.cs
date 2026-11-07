@@ -283,6 +283,13 @@ public sealed record AgentSnapshot
     public bool WakeSupported => Status.WakeSupported;
 
     /// <summary>
+    /// Whether the service knows computers taken offline for now
+    /// (Status.offline_supported); one from before says nothing, and the app
+    /// then shows nothing of it.
+    /// </summary>
+    public bool OfflineSupported => Status.OfflineSupported;
+
+    /// <summary>
     /// Whether the service knows relative mode,
     /// as it says (Status.relative_supported); one from before says nothing.
     /// </summary>

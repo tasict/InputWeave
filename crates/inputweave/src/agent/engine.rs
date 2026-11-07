@@ -12,7 +12,7 @@
 //! trusted devices, and `Engine::on_peers` takes the copy anew then too. So
 //! the copy is only ever what the directory has.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeSet, HashMap, HashSet};
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -42,7 +42,9 @@ use tokio::sync::{broadcast, mpsc, oneshot, watch};
 use tracing::{debug, info, warn};
 
 use super::clipboard_files::{self, Patience, Staging};
-use super::directory::{Directory, LayoutDoc, Peer, TrustedDevices, Unsaved, name_of};
+use super::directory::{
+    Directory, LayoutDoc, OfflineTaken, Peer, TrustedDevices, Unsaved, name_of,
+};
 use super::drag::{DragEvent, Drags, Effect, MAX_LINKED, REMOTE_DRAG_SINCE};
 use super::files::{Carrier, Files, SendError};
 use super::folder_access::FolderAccess;
@@ -63,13 +65,14 @@ use super::peers::LastHeard;
 use super::previews::{self, Pictures, PreviewFiles};
 use super::status::{
     ArrangedDevice, Arrangement, ClipboardActivity, CursorCrossed, DeviceState, LazyStats,
-    RelativeEnded, RelativeMode, Status,
+    OfflineChange, RelativeEnded, RelativeMode, Status,
 };
 use super::this_device::ThisDevice;
 use super::transfer::ClipboardTransfer;
-use super::wake::{self, INFO_INTERVAL, WakeData, Wakes};
+use super::wake::{self, INFO_INTERVAL, WakeData, WakeState, Wakes};
 use crate::config::{Config, PlacementConfig};
 use crate::convert;
+use crate::offline_file::{Entry as OfflineEntry, Full, OfflineDoc, TakenBy};
 
 /// Makes new hotkeys of those in effect (`EngineEvent::SetHotkeys`).
 pub(crate) type HotkeysChange = Box<dyn FnOnce(&Hotkeys) -> Result<Hotkeys, HotkeyError> + Send>;
@@ -158,6 +161,14 @@ pub(crate) enum EngineEvent {
     SetWakeOnPush {
         on: bool,
         reply: oneshot::Sender<Option<Saved>>,
+    },
+    /// The user took a device offline for now, or brought it back; the
+    /// status shows it before the reply, which carries, when the offline
+    /// file is to be written, what says once it is.
+    SetOfflineForNow {
+        device: String,
+        offline: bool,
+        reply: oneshot::Sender<Result<Option<Saved>, OfflineError>>,
     },
     /// The user moved devices on the canvas.
     Rearrange {
@@ -372,6 +383,10 @@ pub enum JumpError {
     Stopping,
 }
 
+/// How long the agent waits, as it stops, for the devices, wake or
+/// offline file writes still going on (`Engine::finish_saves`).
+const SAVES_WAIT: Duration = Duration::from_secs(2);
+
 /// How often when the devices connected now were last heard from is
 /// written down (`Engine::stamp_connected`), besides as they go offline and
 /// as the agent stops.
@@ -399,6 +414,9 @@ pub enum WakeError {
     NoWakeData(String),
     #[error("no wake-up could be sent: {0}")]
     NotSent(String),
+    /// That device, or this one, is taken offline for now: it is not woken.
+    #[error("{0:?} or this device is offline for now")]
+    OfflineForNow(String),
     #[error("the agent is stopping")]
     Stopping,
 }
@@ -411,6 +429,49 @@ impl WakeError {
             Self::Connected(_) => "connected",
             Self::NoWakeData(_) => "no_wake_data",
             Self::NotSent(_) => "not_sent",
+            Self::OfflineForNow(_) => "offline_for_now",
+            Self::Stopping => "agent_stopping",
+        }
+    }
+}
+
+/// Why a device cannot be taken offline for now or brought back
+/// (`SetOfflineForNow`).
+#[derive(Debug, thiserror::Error, PartialEq)]
+pub enum OfflineError {
+    #[error("{0:?} is neither this device nor a trusted one")]
+    UnknownDevice(String),
+    /// This device is offline for now: it brings itself back, and changes
+    /// nothing else meanwhile.
+    #[error("this device is offline for now; it can only bring itself back")]
+    OfflineHere,
+    /// As many other devices are offline for now as taking one more allows.
+    #[error(
+        "{} devices are offline for now already; bring one back first",
+        crate::offline_file::MAX_TAKEN
+    )]
+    TooMany,
+    /// The group's list of devices taken offline is full of devices
+    /// offline, merged from other devices.
+    #[error("the group's list of devices taken offline is full; bring some back first")]
+    ListFull,
+    /// No change could come after every one listed: only entries no device
+    /// takes in could bring that about.
+    #[error("no change to the devices taken offline can come after those listed")]
+    Exhausted,
+    #[error("the agent is stopping")]
+    Stopping,
+}
+
+impl OfflineError {
+    /// The error code clients are told.
+    pub fn code(&self) -> &'static str {
+        match self {
+            Self::UnknownDevice(_) => "unknown_device",
+            Self::OfflineHere => "offline_for_now",
+            Self::TooMany => "too_many",
+            Self::ListFull => "list_full",
+            Self::Exhausted => "exhausted",
             Self::Stopping => "agent_stopping",
         }
     }
@@ -465,6 +526,11 @@ pub(crate) const RELATIVE_SINCE: u32 = 5;
 /// The peer protocol version that passes licenses between paired devices
 /// (`LicenseInfo`).
 pub(crate) const LICENSE_SINCE: u32 = 6;
+
+/// The peer protocol version that knows the devices taken offline for now
+/// (`OfflineDevices`); a device before it is only told that sharing is
+/// paused (`SessionState.sharing_paused`) while either end is offline.
+pub(crate) const OFFLINE_SINCE: u32 = 7;
 
 /// A change to this computer's license, from the app or `ctl`.
 #[derive(Debug)]
@@ -623,6 +689,10 @@ struct Link {
     pointer_captured: bool,
     /// When it last said how to wake it, as taken.
     wake_info_at: Option<Instant>,
+    /// It sent the devices taken offline for now in this session already:
+    /// its first, as the session starts, needs no answer, this device's
+    /// having gone to it then.
+    offline_heard: bool,
     /// When it was last heard from, by the wall clock, as the session keeps
     /// it.
     heard: Arc<LastHeard>,
@@ -927,6 +997,17 @@ pub(crate) struct Engine {
     /// Kept here too, since the router may not exist yet.
     wake_on_push: bool,
     wake_wait: Duration,
+    /// The group's document of the devices taken offline for now: the
+    /// directory's, as of the last change, which only the engine makes.
+    offline: OfflineDoc,
+    /// How many devices were taken offline or brought back from here, and
+    /// times another device took this one offline, and the last of them,
+    /// for the apps to tell.
+    offline_changes: u64,
+    last_offline_change: Option<OfflineChange>,
+    /// Writes of the devices, wake or offline file going on
+    /// (`save_devices`).
+    saves: tokio::task::JoinSet<()>,
     #[cfg(feature = "test-hooks")]
     lose_relative_motion: u64,
     #[cfg(feature = "test-hooks")]
@@ -994,6 +1075,7 @@ impl Engine {
         let local = DeviceId::new(&config.device.id);
         let relay_device = local.clone();
         let (peers, peers_generation) = directory.peers_now();
+        let offline = directory.offline();
         // Devices seen before keep their displays and pictures while
         // offline, so the arrangement can still show them.
         let peer_displays: HashMap<DeviceId, Vec<Display>> = peers
@@ -1128,6 +1210,10 @@ impl Engine {
             last_seen: HashMap::new(),
             wake_on_push,
             wake_wait,
+            offline,
+            offline_changes: 0,
+            last_offline_change: None,
+            saves: tokio::task::JoinSet::new(),
             #[cfg(feature = "test-hooks")]
             lose_relative_motion,
             #[cfg(feature = "test-hooks")]
@@ -1135,6 +1221,9 @@ impl Engine {
             #[cfg(feature = "test-hooks")]
             wake_target,
         };
+        if engine.offline_here() {
+            info!("this device is offline for now, as the group last said");
+        }
         engine.take_last_seen();
         engine.start_capture();
         engine.rebuild_layout();
@@ -1223,7 +1312,7 @@ impl Engine {
         }
         // One message for whatever of it changed in this tick.
         if session_changed {
-            self.broadcast(self.session_message());
+            self.tell_session(|_, _| true);
         }
         if state.pointer_captured != self.pointer_captured {
             debug!(
@@ -1519,15 +1608,32 @@ impl Engine {
         self.license_changed();
     }
 
-    /// The state of this device's session, for other devices.
-    fn session_message(&self) -> Control {
+    /// The state of this device's session, for `device`, whose session
+    /// speaks peer protocol `version`. One before devices taken offline for
+    /// now is told sharing is paused while either of them is, which is all
+    /// it understands of it.
+    fn session_message(&self, device: &DeviceId, version: u32) -> Control {
         Control {
             msg: Some(control::Msg::SessionState(SessionState {
                 screen_locked: self.screen_locked,
                 lock_screen_blocked: !self.lock_screen_input,
                 input_unavailable: !self.input_available,
-                sharing_paused: !self.sharing,
+                sharing_paused: !self.sharing
+                    || (version < OFFLINE_SINCE && self.offline_between(device)),
             })),
+        }
+    }
+
+    /// Tells the connected devices `which` picks the state of this device's
+    /// session, each as it is for it (`session_message`).
+    fn tell_session(&self, which: impl Fn(&DeviceId, &Link) -> bool) {
+        for (device, link) in self
+            .links
+            .iter()
+            .filter(|(device, link)| which(device, link))
+        {
+            let msg = self.session_message(device, link.version);
+            let _ = link.tx.send(Outbound::Control(msg));
         }
     }
 
@@ -1536,9 +1642,10 @@ impl Engine {
     /// control back and keeps off; then that its user took over, which
     /// every controller understands, so one that does not know the field
     /// lets go too, if only until it enters again (and is turned away
-    /// again).
+    /// again). So too while either is taken offline for now, which a
+    /// controller that knows it heard of first.
     fn turn_away(&self, controller: &DeviceId) {
-        self.send(controller, Outbound::Control(self.session_message()));
+        self.tell_session(|device, _| device == controller);
         self.took_over(controller);
     }
 
@@ -1564,7 +1671,7 @@ impl Engine {
         // Every device hears that this one paused, the controller first of
         // all: it gives control back for that.
         if changed {
-            self.broadcast(self.session_message());
+            self.tell_session(|_, _| true);
         }
         if !enabled && let Some((controller, releases)) = self.receiver.local_activity() {
             info!(%controller, "sharing paused while controlled; control ends");
@@ -1664,6 +1771,9 @@ impl Engine {
         }
         self.wind_down();
         self.publish();
+        // What was being written is in its file before the agent stops,
+        // keys and grabs let go of first.
+        self.finish_saves().await;
         // The last change to the license is in its file before the agent
         // stops.
         if let Some(saver) = self.license_saver.as_mut() {
@@ -1873,6 +1983,16 @@ impl Engine {
                 self.publish();
                 let _ = reply.send(saved);
             }
+            EngineEvent::SetOfflineForNow {
+                device,
+                offline,
+                reply,
+            } => {
+                let result = self.set_offline_for_now(&device, offline);
+                // The client reads the status as soon as it has the reply.
+                self.publish();
+                let _ = reply.send(result);
+            }
             EngineEvent::PeerUp {
                 device,
                 fingerprint,
@@ -1983,13 +2103,28 @@ impl Engine {
     /// whoever asked for the change waits for it; a later change's write
     /// wins over an earlier one's (`Directory::save`). What it returns says
     /// once it is written, or why it could not be (logged too).
-    fn save_devices(&self, unsaved: Unsaved) -> Saved {
+    ///
+    /// The writes still going on are kept (`saves`), so the agent waits for
+    /// them as it stops (`finish_saves`), and one started just before it
+    /// stops is in the file once it has.
+    fn save_devices(&mut self, unsaved: Unsaved) -> Saved {
         let directory = self.directory.clone();
         let (done, saved) = oneshot::channel();
-        tokio::task::spawn_blocking(move || {
+        self.saves.spawn_blocking(move || {
             let _ = done.send(directory.save(unsaved));
         });
+        // Those already written are let go of as others start.
+        while self.saves.try_join_next().is_some() {}
         saved
+    }
+
+    /// Waits for the writes still going on to be done, up to
+    /// [`SAVES_WAIT`]: as the agent stops, after everything is let go of.
+    async fn finish_saves(&mut self) {
+        let all = async { while self.saves.join_next().await.is_some() {} };
+        if tokio::time::timeout(SAVES_WAIT, all).await.is_err() {
+            warn!("a devices, wake or offline file was still being written as the agent stopped");
+        }
     }
 
     /// Tells `device` that relative mode began or ended there: ending, with
@@ -2294,7 +2429,12 @@ impl Engine {
         info!(%device, "peer connected");
         let _ = tx.send(Outbound::Control(self.displays_message()));
         let _ = tx.send(Outbound::Control(layout_message(&self.directory.layout())));
-        let _ = tx.send(Outbound::Control(self.session_message()));
+        // Before the session's state, which a device before them is told
+        // instead.
+        if version >= OFFLINE_SINCE {
+            let _ = tx.send(Outbound::Control(offline_message(&self.offline)));
+        }
+        let _ = tx.send(Outbound::Control(self.session_message(&device, version)));
         if version >= RELATIVE_SINCE {
             let _ = tx.send(Outbound::Control(self.pointer_message()));
         }
@@ -2322,6 +2462,7 @@ impl Engine {
                 relative_total: Point::default(),
                 pointer_captured: false,
                 wake_info_at: None,
+                offline_heard: false,
                 heard,
             },
         );
@@ -2331,7 +2472,11 @@ impl Engine {
         if self.wakes.connected(device.as_str()) {
             info!(%device, "a device being woken connected");
         }
-        self.route(Event::PeerConnected(device));
+        self.route(Event::PeerConnected(device.clone()));
+        // Kept off from the start, while it is offline for now.
+        if self.offline_for_now(&device) {
+            self.route(Event::PeerOfflineForNow(device, true));
+        }
         self.publish_arrangement();
     }
 
@@ -2354,10 +2499,11 @@ impl Engine {
         // nothing to trust, name or place anew.
         if only_local_choices_differ(&self.peers, &peers) {
             self.peers = peers;
+            let wakeable = self.wakeable_now();
             if let Some(router) = self.router.as_mut() {
                 router.set_speeds(peer_speeds(&self.peers));
                 if wakeable_changed {
-                    router.set_wakeable(wakeable(&self.peers));
+                    router.set_wakeable(wakeable);
                 }
             }
             return;
@@ -2384,12 +2530,13 @@ impl Engine {
             // Removing the link drops its sender, which ends the session.
             self.on_peer_down(device, Gone::Untrusted);
         }
+        let wakeable = self.wakeable_now();
         if let Some(router) = self.router.as_mut() {
             // Replaced, so devices no longer trusted keep none.
             router.set_remaps(peer_remaps(&self.peers));
             router.set_speeds(peer_speeds(&self.peers));
             if wakeable_changed {
-                router.set_wakeable(wakeable(&self.peers));
+                router.set_wakeable(wakeable);
             }
         }
         let peers = self.peers.clone();
@@ -2418,11 +2565,6 @@ impl Engine {
         {
             self.save_devices(unsaved);
         }
-        for waiter in self.clipboard.pulls.lost(&device) {
-            self.pull_failed(waiter, ClipboardSkip::Unavailable);
-        }
-        // Files coming from it are given up.
-        self.clipboard.file_pulls.retain(|_, p| p.origin != device);
         self.route(Event::PeerLost(device.clone()));
         let releases = self
             .receiver
@@ -2430,9 +2572,7 @@ impl Engine {
         self.inject_all(releases);
         // Controlled by it no more.
         self.refresh_exits();
-        self.forget_arriving_drags();
-        let gone = self.drags.peer_down(&device);
-        self.carry_out(gone);
+        self.end_with(&device);
         self.publish_arrangement();
     }
 
@@ -2507,6 +2647,9 @@ impl Engine {
             .iter()
             .find(|p| p.id == device)
             .ok_or_else(|| WakeError::Unknown(device.to_owned()))?;
+        if self.offline_between(&DeviceId::new(device)) {
+            return Err(WakeError::OfflineForNow(device.to_owned()));
+        }
         if self.links.contains_key(&DeviceId::new(device)) {
             return Err(WakeError::Connected(device.to_owned()));
         }
@@ -2565,6 +2708,7 @@ impl Engine {
     }
 
     fn on_peer_msg(&mut self, from: DeviceId, msg: PeerMsg) {
+        let sender = from.clone();
         // Where the cursor crossed an edge here, coming in or going out,
         // and the device that said so.
         let mut crossed_in: Option<(peer::EdgeSpot, DeviceId)> = None;
@@ -2683,6 +2827,7 @@ impl Engine {
                         }
                     }
                     control::Msg::WakeInfo(info) => self.on_wake_info(from, info),
+                    control::Msg::OfflineDevices(doc) => self.on_offline_devices(from, doc),
                     control::Msg::Hello(_) | control::Msg::Heartbeat(_) => {}
                 }
                 return;
@@ -2764,13 +2909,16 @@ impl Engine {
             },
             _ => return,
         };
-        // Paused, this device takes control from none: an entry, as from a
-        // controller that does not know it paused or that entered as it
-        // did, is turned away, and input meant for a controller that has
-        // none here is dropped.
-        if !self.sharing {
+        // Paused or taken offline for now, this device takes control from
+        // none, nor from a device taken offline: an entry, as from a
+        // controller that does not know it yet (or ever: InputWeave 1.0) or
+        // that entered as it did, is turned away, and input meant for a
+        // controller that has none here is dropped, a `Leave` too. None
+        // has: pausing and being cut off let go of the controller at once
+        // (`set_sharing`, `offline_changed`), and nothing enters after.
+        if !self.shares() || self.offline_for_now(&sender) {
             if let RemoteEvent::Enter { from, .. } = &remote {
-                info!(device = %from, "it entered while sharing is paused here; turned away");
+                info!(device = %from, "it entered while sharing is paused or offline for now; turned away");
                 self.turn_away(from);
             }
             return;
@@ -2917,11 +3065,15 @@ impl Engine {
         self.send(device, skipped_message(id, self.skip_for(device, reason)));
     }
 
-    /// Whether this device's user turned the clipboard off with `device`.
+    /// Whether the clipboard goes neither to `device` nor from it: this
+    /// device's user turned it off with that device, or either is taken
+    /// offline for now.
     fn clipboard_off(&self, device: &DeviceId) -> bool {
-        self.peers
-            .iter()
-            .any(|p| p.id == device.as_str() && p.clipboard_off)
+        self.offline_between(device)
+            || self
+                .peers
+                .iter()
+                .any(|p| p.id == device.as_str() && p.clipboard_off)
     }
 
     /// Whether this device's user turned files off with `device`.
@@ -2933,10 +3085,15 @@ impl Engine {
         self.ui_clients.load(Ordering::SeqCst) > 0 && !self.refuses_drags
     }
 
+    /// Whether files go neither to `device` nor from it: this device's user
+    /// turned them off with that device, or either is taken offline for
+    /// now.
     fn files_off(&self, device: &DeviceId) -> bool {
-        self.peers
-            .iter()
-            .any(|p| p.id == device.as_str() && p.files_off)
+        self.offline_between(device)
+            || self
+                .peers
+                .iter()
+                .any(|p| p.id == device.as_str() && p.files_off)
     }
 
     /// Has IPC clients show this device's name on its screens, as `source`
@@ -4335,6 +4492,16 @@ impl Engine {
         if let Some(controller) = self.receiver.controller() {
             return Err(JumpError::ControlledBy(controller.to_string()));
         }
+        // Offline for now comes before every other reason, connected or not,
+        // as the apps show it.
+        if self.offline_here() || (!here && self.offline_for_now(&id)) {
+            let which = if self.offline_here() {
+                self.local.clone()
+            } else {
+                id
+            };
+            return Err(router::JumpError::OfflineForNow(which).into());
+        }
         let router = self
             .router
             .as_mut()
@@ -4726,6 +4893,274 @@ impl Engine {
         }
     }
 
+    /// Whether this device is taken offline for now.
+    fn offline_here(&self) -> bool {
+        self.offline.contains(self.local.as_str())
+    }
+
+    /// Whether `device` is taken offline for now.
+    fn offline_for_now(&self, device: &DeviceId) -> bool {
+        self.offline.contains(device.as_str())
+    }
+
+    /// Whether nothing goes between this device and `device`: either is
+    /// taken offline for now (`OfflineDoc::between`, the one test of it,
+    /// which the directory, and so file transfers, use too).
+    fn offline_between(&self, device: &DeviceId) -> bool {
+        self.offline.between(self.local.as_str(), device.as_str())
+    }
+
+    /// Whether this device controls others and is controlled: sharing is
+    /// on, and it is not taken offline for now.
+    fn shares(&self) -> bool {
+        self.sharing && !self.offline_here()
+    }
+
+    /// The device that took another offline, and what this device calls
+    /// it: itself by its name; a trusted device by the name given it here;
+    /// another by the name it gave itself. The name is empty when none is
+    /// known (never the id, which means nothing to people: the apps then
+    /// say another computer did it), and both are when the entry does not
+    /// say who.
+    fn taken_by(&self, entry: &OfflineEntry) -> (String, String) {
+        let Some(by) = entry.by.as_deref() else {
+            return (String::new(), entry.by_name.clone());
+        };
+        let name = if by == self.local.as_str() {
+            self.this.name()
+        } else {
+            name_of(&self.peers, by).unwrap_or_else(|| entry.by_name.clone())
+        };
+        (by.to_owned(), name)
+    }
+
+    /// The devices the router may wake by a push: those that told how,
+    /// but none taken offline for now, and none at all while this one is.
+    fn wakeable_now(&self) -> Vec<DeviceId> {
+        if self.offline_here() {
+            return Vec::new();
+        }
+        wakeable(&self.peers)
+            .filter(|d| !self.offline_for_now(d))
+            .collect()
+    }
+
+    /// The user took `device` offline for now, or brought it back: a change
+    /// of its entry made here, which the other devices hear of. Taken
+    /// offline, it is this device or a trusted one; brought back, also any
+    /// device the group lists offline, trusted here or not. What says once
+    /// the offline file has it, when it is to be written; nothing when
+    /// nothing changed.
+    fn set_offline_for_now(
+        &mut self,
+        device: &str,
+        offline: bool,
+    ) -> Result<Option<Saved>, OfflineError> {
+        let here = device == self.local.as_str();
+        let known = here
+            || name_of(&self.peers, device).is_some()
+            || (!offline && self.offline.contains(device));
+        if !known {
+            return Err(OfflineError::UnknownDevice(device.to_owned()));
+        }
+        if !here && self.offline_here() {
+            return Err(OfflineError::OfflineHere);
+        }
+        let by = TakenBy {
+            device: self.local.to_string(),
+            name: self.this.name(),
+        };
+        let unsaved = match self.directory.take_offline(device, offline, by) {
+            Err(Full::TooMany) => return Err(OfflineError::TooMany),
+            Err(Full::ListFull) => return Err(OfflineError::ListFull),
+            Err(Full::Exhausted) => return Err(OfflineError::Exhausted),
+            Ok(OfflineTaken::Unchanged) => return Ok(None),
+            Ok(OfflineTaken::Changed(unsaved)) => unsaved,
+        };
+        info!(
+            device,
+            offline, "a device was taken offline for now, or brought back, here"
+        );
+        self.note_offline_change(device, offline, (self.local.to_string(), self.this.name()));
+        self.offline_changed(None);
+        Ok(unsaved.map(|unsaved| self.save_devices(unsaved)))
+    }
+
+    /// Counts a device taken offline or brought back, by the device `by`
+    /// (id and name), for the apps to tell.
+    fn note_offline_change(&mut self, device: &str, offline: bool, by: (String, String)) {
+        self.offline_changes += 1;
+        self.last_offline_change = Some(OfflineChange {
+            device: device.to_owned(),
+            offline,
+            by: by.0,
+            by_name: by.1,
+        });
+    }
+
+    /// Another device's document of the devices taken offline for now:
+    /// merged entry by entry; passed on when it changed anything here, and
+    /// this device's sent back when that one lacked something.
+    fn on_offline_devices(&mut self, from: DeviceId, doc: peer::OfflineDevices) {
+        let Some(doc) = OfflineDoc::from_proto(doc) else {
+            warn!(device = %from, "ignoring a list of devices taken offline that is too long");
+            return;
+        };
+        let (merged, unsaved) = self.directory.merge_offline(&doc);
+        if let Some(unsaved) = unsaved {
+            // Written whether or not anyone waits for it.
+            self.save_devices(unsaved);
+        }
+        if merged.changed {
+            info!(device = %from, "the devices taken offline for now changed");
+            self.offline_changed(Some(&from));
+        }
+        // Not to the first it sends in a session: this device's went to it
+        // as the session started, and every change here since went to it as
+        // well (`offline_changed` passes each on to every device but the
+        // one whose document made it). So once this merge is done, every
+        // entry here is one that device sent, or was sent: what the merge
+        // took is that device's own, and what `fit` forgot needs telling to
+        // no one. Answering would only repeat what it has.
+        let first = self
+            .links
+            .get_mut(&from)
+            .is_some_and(|link| !std::mem::replace(&mut link.offline_heard, true));
+        if merged.behind && !first {
+            self.send(&from, Outbound::Control(offline_message(&self.offline)));
+        }
+    }
+
+    /// The directory's document of the devices taken offline for now
+    /// changed, here or as `from` sent it: the engine takes it anew from
+    /// there (the only way the engine's copy changes, so it is always the
+    /// directory's), passes it on to the other devices, and lets go of and
+    /// keeps off each device taken offline (every device, when this one
+    /// is), as if its session ended, while those brought back may be
+    /// reached again.
+    fn offline_changed(&mut self, from: Option<&DeviceId>) {
+        let before = std::mem::replace(&mut self.offline, self.directory.offline());
+        // Passed on before anything else, so a device this one controls,
+        // or that controls it, hears why it is let go of first.
+        let msg = offline_message(&self.offline);
+        for (device, link) in &self.links {
+            if Some(device) != from && link.version >= OFFLINE_SINCE {
+                let _ = link.tx.send(Outbound::Control(msg.clone()));
+            }
+        }
+        self.files.offline_changed(&self.offline);
+        let local = self.local.clone();
+        let was_here = before.contains(local.as_str());
+        let here = self.offline_here();
+        if here && !was_here {
+            info!("this device is offline for now");
+            // Another device took it offline: the apps say so, once.
+            if let Some(entry) = self
+                .offline
+                .taken_by(local.as_str())
+                .filter(|e| e.by.as_deref() != Some(local.as_str()))
+            {
+                // Named as it is now, so the apps tell it by that name
+                // whatever comes after.
+                let by = self.taken_by(entry);
+                self.note_offline_change(local.as_str(), true, by);
+            }
+        } else if was_here && !here {
+            info!("this device is back online");
+        }
+        // The other devices taken offline or brought back.
+        let changed: Vec<(DeviceId, bool)> = before
+            .devices
+            .keys()
+            .chain(self.offline.devices.keys())
+            .collect::<BTreeSet<_>>()
+            .into_iter()
+            .filter(|id| **id != local.as_str() && before.contains(id) != self.offline.contains(id))
+            .map(|id| (DeviceId::new(id), self.offline.contains(id)))
+            .collect();
+        // Controlled by a device cut off from this one now: control ends
+        // at once, and whatever it held here is let go of.
+        let mut let_go = None;
+        if self
+            .receiver
+            .controller()
+            .is_some_and(|controller| self.offline_between(controller))
+            && let Some((controller, releases)) = self.receiver.local_activity()
+        {
+            info!(%controller, "taken offline for now while controlled; control ends");
+            self.inject_all(releases);
+            let_go = Some(controller);
+        }
+        // A device that knows nothing of it is told sharing is paused while
+        // either end is offline, which keeps it off: those whose state with
+        // this one changed. The controller let go of hears it before that
+        // its user took over, as `turn_away` says.
+        self.tell_session(|device, link| {
+            link.version < OFFLINE_SINCE
+                && before.between(local.as_str(), device.as_str())
+                    != self.offline.between(local.as_str(), device.as_str())
+        });
+        if let Some(controller) = let_go {
+            self.took_over(&controller);
+        }
+        if here != was_here {
+            self.route(Event::SetOfflineForNow(here));
+        }
+        for (device, offline) in &changed {
+            if self.links.contains_key(device) {
+                self.route(Event::PeerOfflineForNow(device.clone(), *offline));
+            }
+        }
+        // Waking a device cut off from this one is given up, so it is not
+        // shown waking, or not woken, once it is brought back.
+        let given_up: Vec<String> = if here && !was_here {
+            self.peers.iter().map(|p| p.id.clone()).collect()
+        } else {
+            changed
+                .iter()
+                .filter(|(_, offline)| *offline)
+                .map(|(id, _)| id.to_string())
+                .collect()
+        };
+        for id in given_up {
+            self.wakes.forget(&id);
+        }
+        // What going away ends, as for a session that ended.
+        let cut_off: Vec<DeviceId> = if here && !was_here {
+            self.links.keys().cloned().collect()
+        } else {
+            changed
+                .into_iter()
+                .filter(|(id, offline)| *offline && self.links.contains_key(id))
+                .map(|(id, _)| id)
+                .collect()
+        };
+        for device in cut_off {
+            self.end_with(&device);
+        }
+        let wakeable = self.wakeable_now();
+        if let Some(router) = self.router.as_mut() {
+            router.set_wakeable(wakeable);
+        }
+        self.refresh_exits();
+        self.publish_arrangement();
+    }
+
+    /// Ends what this device has going on with `device` once it is gone, or
+    /// cut off from this one though its session goes on (taken offline for
+    /// now): pulls through it fail, files pasted from it are given up, and
+    /// drags with it end.
+    fn end_with(&mut self, device: &DeviceId) {
+        for waiter in self.clipboard.pulls.lost(device) {
+            self.pull_failed(waiter, ClipboardSkip::Unavailable);
+        }
+        // Files coming from it are given up.
+        self.clipboard.file_pulls.retain(|_, p| p.origin != *device);
+        self.forget_arriving_drags();
+        let gone = self.drags.peer_down(device);
+        self.carry_out(gone);
+    }
+
     fn inject_all(&mut self, injections: Vec<Injection>) {
         for injection in injections {
             self.inject(injection);
@@ -4841,7 +5276,7 @@ impl Engine {
                 };
                 router.set_remaps(peer_remaps(&self.peers));
                 router.set_speeds(peer_speeds(&self.peers));
-                router.set_wakeable(wakeable(&self.peers));
+                router.set_wakeable(self.wakeable_now());
                 router.set_wake_on_push(self.wake_on_push);
                 // A router without relative mode yet: nothing to end.
                 let _ = router.set_relative_auto(self.relative_auto);
@@ -4861,8 +5296,12 @@ impl Engine {
                     if link.pointer_captured {
                         router.handle(Event::PointerCaptured(device.clone(), true), now);
                     }
+                    if self.offline.contains(device.as_str()) {
+                        router.handle(Event::PeerOfflineForNow(device.clone(), true), now);
+                    }
                 }
                 router.handle(Event::SetSharing(self.sharing), now);
+                router.handle(Event::SetOfflineForNow(self.offline_here()), now);
                 router.handle(Event::SetLocked(self.locked), now);
                 self.router = Some(router);
                 Vec::new()
@@ -4903,7 +5342,8 @@ impl Engine {
                 offset: placed(&peer.id),
                 displays: self.peer_displays.get(&id).cloned().unwrap_or_default(),
                 pictures: self.peer_pictures.get(&id).cloned().unwrap_or_default(),
-                connected: self.links.contains_key(&id),
+                // Shown offline while it or this device is offline for now.
+                connected: self.links.contains_key(&id) && !self.offline_between(&id),
                 this_device: false,
                 jump_slot: self.jump_slot(&id),
             });
@@ -4965,16 +5405,33 @@ impl Engine {
                 .iter()
                 .map(|p| {
                     let id = DeviceId::new(&p.id);
-                    let link = self.links.get(&id);
+                    let session = self.links.get(&id);
+                    // While it or this device is offline for now, it is
+                    // shown offline, and not as one that can be woken.
+                    let cut_off = self.offline_between(&id);
+                    let link = session.filter(|_| !cut_off);
+                    // While this device is offline for now, every other
+                    // one is just offline here, taken offline or not.
+                    let taken_by = self
+                        .offline
+                        .taken_by(&p.id)
+                        .filter(|_| !self.offline_here());
                     DeviceState {
                         connected: link.is_some(),
-                        can_wake: link.is_none() && p.wake.is_some(),
-                        wake: self.wakes.state(&p.id),
-                        offline_since: if link.is_none() && p.wake.is_some() {
+                        can_wake: session.is_none() && !cut_off && p.wake.is_some(),
+                        wake: if cut_off {
+                            WakeState::None
+                        } else {
+                            self.wakes.state(&p.id)
+                        },
+                        offline_since: if session.is_none() && !cut_off && p.wake.is_some() {
                             self.last_seen.get(&p.id).copied()
                         } else {
                             None
                         },
+                        offline_for_now: taken_by.is_some(),
+                        offline_by: taken_by.map(|entry| self.taken_by(entry)),
+                        offline_unaware: session.is_some_and(|l| l.version < OFFLINE_SINCE),
                         arranged: self.arranged.contains(&id),
                         rtt_ms: link.map_or(0, |l| l.rtt_ms),
                         screen_locked: link.is_some_and(|l| l.screen_locked),
@@ -5022,6 +5479,12 @@ impl Engine {
             firewall: self.firewall,
             license: self.license_status.clone(),
             wake_on_push: self.wake_on_push,
+            offline_by: self
+                .offline
+                .taken_by(self.local.as_str())
+                .map(|entry| self.taken_by(entry)),
+            offline_changes: self.offline_changes,
+            last_offline_change: self.last_offline_change.clone(),
         };
         self.status.send_if_modified(|current| {
             if *current == status {
@@ -5132,6 +5595,12 @@ fn same_but_local_choices(a: &Peer, b: &Peer) -> bool {
         && *side == b.side
         && *clipboard_off == b.clipboard_off
         && *files_off == b.files_off
+}
+
+fn offline_message(doc: &OfflineDoc) -> Control {
+    Control {
+        msg: Some(control::Msg::OfflineDevices(doc.to_proto())),
+    }
 }
 
 fn layout_message(doc: &LayoutDoc) -> Control {

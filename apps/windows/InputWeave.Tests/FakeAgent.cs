@@ -149,6 +149,9 @@ internal sealed class FakeAgent
     /// <summary>No wake-up can be sent, as without a network.</summary>
     public bool WakeUnsent { get; set; }
 
+    /// <summary>The group lists as many computers offline for now as it can: no more can be taken offline.</summary>
+    public bool OfflineFull { get; set; }
+
     /// <summary>Whether the app said the user quit it.</summary>
     public bool UserQuit { get; private set; }
     private readonly List<ClientMessage> received = [];
@@ -249,6 +252,61 @@ internal sealed class FakeAgent
         }
         // The app closed its end: close this one too, as the agent does.
         agent.Dispose();
+    }
+
+    /// <summary>
+    /// Takes a computer offline for now or brings it back, as the service
+    /// does: another computer then shows offline, and while this one is,
+    /// every other one does; the change is counted.
+    /// </summary>
+    private Response SetOfflineForNow(SetOfflineForNow set)
+    {
+        var self = Status.ThisDeviceId;
+        if (set.DeviceId != self && Status.Devices.All(d => d.Id != set.DeviceId))
+        {
+            return Refuse("unknown_device", "no such trusted device");
+        }
+        if (Status.OfflineForNow && set.DeviceId != self)
+        {
+            return Refuse("offline_for_now", "this device is offline for now");
+        }
+        if (OfflineFull && set.Offline)
+        {
+            return Refuse("too_many", "the group lists too many devices offline for now");
+        }
+        Status = Status.Clone();
+        if (set.DeviceId == self)
+        {
+            if (Status.OfflineForNow == set.Offline)
+            {
+                return new Response { Status = Status };
+            }
+            Status.OfflineForNow = set.Offline;
+            (Status.OfflineByDeviceId, Status.OfflineByName) = set.Offline ? (self, Status.ThisDeviceName) : ("", "");
+            foreach (var device in Status.Devices)
+            {
+                (device.State, device.RttMs) = set.Offline ? (ConnectionState.Offline, 0u) : (ConnectionState.Connected, 3u);
+            }
+        }
+        else
+        {
+            var device = Status.Devices.First(d => d.Id == set.DeviceId);
+            if (device.OfflineForNow == set.Offline)
+            {
+                return new Response { Status = Status };
+            }
+            device.OfflineForNow = set.Offline;
+            (device.OfflineByDeviceId, device.OfflineByName) = set.Offline ? (self, Status.ThisDeviceName) : ("", "");
+            (device.State, device.RttMs, device.CanWake) = set.Offline
+                ? (ConnectionState.Offline, 0u, false)
+                : (ConnectionState.Connected, 3u, false);
+        }
+        Status.OfflineChanges++;
+        Status.LastOfflineChange = new OfflineChange
+        {
+            DeviceId = set.DeviceId, Offline = set.Offline, ByDeviceId = self, ByName = Status.ThisDeviceName,
+        };
+        return new Response { Status = Status };
     }
 
     private Response Answer(ClientMessage request)
@@ -415,6 +473,8 @@ internal sealed class FakeAgent
                 Status = Status.Clone();
                 Status.Devices.First(d => d.Id == sleeper.Id).Wake = WakeUnsent ? WakeState.NotWoken : WakeState.Waking;
                 return WakeUnsent ? Refuse("not_sent", "no network to send the wake-up on") : new Response { Status = Status };
+            case ClientMessage.CommandOneofCase.SetOfflineForNow:
+                return SetOfflineForNow(request.SetOfflineForNow);
             case ClientMessage.CommandOneofCase.SetWakeOnPush:
                 Status = Status.Clone();
                 Status.WakeOnPush = request.SetWakeOnPush.On;

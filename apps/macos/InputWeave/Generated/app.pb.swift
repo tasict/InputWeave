@@ -370,6 +370,11 @@ nonisolated enum Inputweave_App_V1_ReturnReason: SwiftProtobuf.Enum, Swift.CaseI
 
   /// The controlled device paused sharing (DeviceStatus.sharing_paused).
   case peerPaused // = 9
+
+  /// The controlled device was taken offline for now
+  /// (DeviceStatus.offline_for_now), or this one was, while it controlled
+  /// another: last_return_device_id is then this device.
+  case offlineForNow // = 10
   case UNRECOGNIZED(Int)
 
   init() {
@@ -388,6 +393,7 @@ nonisolated enum Inputweave_App_V1_ReturnReason: SwiftProtobuf.Enum, Swift.CaseI
     case 7: self = .inputUnavailable
     case 8: self = .captureEnded
     case 9: self = .peerPaused
+    case 10: self = .offlineForNow
     default: self = .UNRECOGNIZED(rawValue)
     }
   }
@@ -404,6 +410,7 @@ nonisolated enum Inputweave_App_V1_ReturnReason: SwiftProtobuf.Enum, Swift.CaseI
     case .inputUnavailable: return 7
     case .captureEnded: return 8
     case .peerPaused: return 9
+    case .offlineForNow: return 10
     case .UNRECOGNIZED(let i): return i
     }
   }
@@ -420,6 +427,7 @@ nonisolated enum Inputweave_App_V1_ReturnReason: SwiftProtobuf.Enum, Swift.CaseI
     .inputUnavailable,
     .captureEnded,
     .peerPaused,
+    .offlineForNow,
   ]
 
 }
@@ -1279,9 +1287,10 @@ nonisolated struct Inputweave_App_V1_SetDeviceName: Sendable {
 /// folder's failures; the rest goes. Refused: "unknown_device";
 /// "no_broker" on Windows while nobody is logged on; "too_many_items" over
 /// 1,000 items, counting those still going from this device; "too_large"
-/// over 10,000 files and folders or 100 GiB in all; and, when every item
-/// is one that cannot be sent, the first one's reason ("not_a_file",
-/// "unreadable", "symlink").
+/// over 10,000 files and folders or 100 GiB in all; "offline_for_now"
+/// while the device, or this one, is offline for now (SetOfflineForNow);
+/// and, when every item is one that cannot be sent, the first one's reason
+/// ("not_a_file", "unreadable", "symlink").
 nonisolated struct Inputweave_App_V1_SendFiles: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
@@ -1577,7 +1586,9 @@ nonisolated struct Inputweave_App_V1_SetLocked: Sendable {
 /// the cursor is locked, with "screen_locked" for a device whose screen is
 /// locked where input from here cannot reach it, and with
 /// "input_unavailable" for one no input from here reaches now
-/// (DeviceStatus.input_unavailable).
+/// (DeviceStatus.input_unavailable), and with "offline_for_now" for a
+/// device taken offline for now, or any while this one is
+/// (SetOfflineForNow).
 nonisolated struct Inputweave_App_V1_JumpTo: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
@@ -1833,8 +1844,10 @@ nonisolated struct Inputweave_App_V1_SetDeviceSpeed: Sendable {
 /// minutes over. Answered with Status once sent. Refused with
 /// "unknown_device" for a device not trusted here (this one included),
 /// "connected" while it is connected, "no_wake_data" for one that never told
-/// this one how to wake it, and "not_sent" when no packet could be sent, as
-/// without a network (its wake state is then WAKE_STATE_NOT_WOKEN).
+/// this one how to wake it, "not_sent" when no packet could be sent, as
+/// without a network (its wake state is then WAKE_STATE_NOT_WOKEN), and
+/// "offline_for_now" while it, or this device, is offline for now
+/// (SetOfflineForNow).
 nonisolated struct Inputweave_App_V1_WakeDevice: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
@@ -1860,6 +1873,40 @@ nonisolated struct Inputweave_App_V1_SetWakeOnPush: Sendable {
   // methods supported on all messages.
 
   var on: Bool = false
+
+  var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  init() {}
+}
+
+/// Takes a device offline for now, or brings it back: this device, or a
+/// trusted one. A device taken offline for now is neither controlled by nor
+/// controls any device of the group, and the clipboard and files go neither
+/// to it nor from it, until someone brings it back; meanwhile every device
+/// shows it offline (DeviceStatus.offline_for_now, Status.offline_for_now).
+/// It holds for the whole group, which every device tells the others of, and
+/// is remembered across restarts. Devices of the group still on InputWeave
+/// 1.0 do not know of it (DeviceStatus.offline_unaware). Taking offline a
+/// device already offline, or bringing back one that is not, changes
+/// nothing. A device the group lists offline can be brought back from here
+/// even when this device does not trust it. Answered with Status once it has
+/// the change. Refused with "unknown_device" for a device to take offline
+/// that is neither this one nor trusted here (or one to bring back that is
+/// none of these nor listed offline), with "offline_for_now" for another
+/// device while this one is offline for now (it can only bring itself back),
+/// with "too_many" to take another device offline while 256 are offline for
+/// now already, and with "list_full" when the group's list holds no room for
+/// one more (devices offline merged from elsewhere fill it), and with
+/// "exhausted" should no change be able to come after those listed, which
+/// only entries no device takes in could bring about.
+nonisolated struct Inputweave_App_V1_SetOfflineForNow: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  var deviceID: String = String()
+
+  var offline: Bool = false
 
   var unknownFields = SwiftProtobuf.UnknownStorage()
 
@@ -2683,6 +2730,14 @@ nonisolated struct Inputweave_App_V1_ClientMessage: Sendable {
     set {command = .setWakeOnPush(newValue)}
   }
 
+  var setOfflineForNow: Inputweave_App_V1_SetOfflineForNow {
+    get {
+      if case .setOfflineForNow(let v)? = command {return v}
+      return Inputweave_App_V1_SetOfflineForNow()
+    }
+    set {command = .setOfflineForNow(newValue)}
+  }
+
   var unknownFields = SwiftProtobuf.UnknownStorage()
 
   nonisolated enum OneOf_Command: Equatable, Sendable {
@@ -2737,6 +2792,7 @@ nonisolated struct Inputweave_App_V1_ClientMessage: Sendable {
     case setDeviceSpeed(Inputweave_App_V1_SetDeviceSpeed)
     case wakeDevice(Inputweave_App_V1_WakeDevice)
     case setWakeOnPush(Inputweave_App_V1_SetWakeOnPush)
+    case setOfflineForNow(Inputweave_App_V1_SetOfflineForNow)
 
   }
 
@@ -2909,6 +2965,40 @@ nonisolated struct Inputweave_App_V1_DeviceStatus: @unchecked Sendable {
     set {_uniqueStorage()._offlineSinceUnixMs = newValue}
   }
 
+  /// It is taken offline for now (SetOfflineForNow). Its state is then
+  /// CONNECTION_STATE_OFFLINE whether or not it is connected, as is every
+  /// device's while this one is (Status.offline_for_now); it cannot be woken,
+  /// and the fields that hold only while connected are as for an offline
+  /// device.
+  var offlineForNow: Bool {
+    get {_storage._offlineForNow}
+    set {_uniqueStorage()._offlineForNow = newValue}
+  }
+
+  /// The device that took it offline for now, this one or another, and what
+  /// this device calls it: the name this device's user gave it, or else the
+  /// name it gave itself; empty when no name is known (never the id). Both
+  /// empty when no device knows who did; the name alone when only it is
+  /// known.
+  var offlineByDeviceID: String {
+    get {_storage._offlineByDeviceID}
+    set {_uniqueStorage()._offlineByDeviceID = newValue}
+  }
+
+  var offlineByName: String {
+    get {_storage._offlineByName}
+    set {_uniqueStorage()._offlineByName = newValue}
+  }
+
+  /// It is connected and runs an InputWeave from before devices taken
+  /// offline for now (1.0), so it knows nothing of them: it still controls
+  /// them and is controlled by them, and shares the clipboard and files with
+  /// them, where they let it.
+  var offlineUnaware: Bool {
+    get {_storage._offlineUnaware}
+    set {_uniqueStorage()._offlineUnaware = newValue}
+  }
+
   var unknownFields = SwiftProtobuf.UnknownStorage()
 
   init() {}
@@ -2984,7 +3074,8 @@ nonisolated struct Inputweave_App_V1_Status: @unchecked Sendable {
     set {_uniqueStorage()._lastReturn = newValue}
   }
 
-  /// The device involved, for PEER_LOST and REMOTE_ACTIVITY.
+  /// The device involved, for PEER_LOST, REMOTE_ACTIVITY, SCREEN_LOCKED,
+  /// INPUT_UNAVAILABLE, PEER_PAUSED and OFFLINE_FOR_NOW.
   var lastReturnDeviceID: String {
     get {_storage._lastReturnDeviceID}
     set {_uniqueStorage()._lastReturnDeviceID = newValue}
@@ -3233,11 +3324,83 @@ nonisolated struct Inputweave_App_V1_Status: @unchecked Sendable {
     set {_uniqueStorage()._wakeOnPush = newValue}
   }
 
+  /// This device is taken offline for now (SetOfflineForNow): it neither
+  /// controls other devices nor is controlled by them, and shares neither the
+  /// clipboard nor files with them, whatever `sharing` says; every other
+  /// device's state is CONNECTION_STATE_OFFLINE meanwhile.
+  var offlineForNow: Bool {
+    get {_storage._offlineForNow}
+    set {_uniqueStorage()._offlineForNow = newValue}
+  }
+
+  /// The device that took it offline, this one or another, and what this
+  /// device calls it, as in DeviceStatus (both may be empty).
+  var offlineByDeviceID: String {
+    get {_storage._offlineByDeviceID}
+    set {_uniqueStorage()._offlineByDeviceID = newValue}
+  }
+
+  var offlineByName: String {
+    get {_storage._offlineByName}
+    set {_uniqueStorage()._offlineByName = newValue}
+  }
+
+  /// Counts the devices taken offline for now or brought back from here, and
+  /// the times another device took this one offline for now; the UI tells
+  /// the user of last_offline_change whenever it increases. Changes other
+  /// devices made to devices other than this one are not counted.
+  var offlineChanges: UInt64 {
+    get {_storage._offlineChanges}
+    set {_uniqueStorage()._offlineChanges = newValue}
+  }
+
+  var lastOfflineChange: Inputweave_App_V1_OfflineChange {
+    get {_storage._lastOfflineChange ?? Inputweave_App_V1_OfflineChange()}
+    set {_uniqueStorage()._lastOfflineChange = newValue}
+  }
+  /// Returns true if `lastOfflineChange` has been explicitly set.
+  var hasLastOfflineChange: Bool {_storage._lastOfflineChange != nil}
+  /// Clears the value of `lastOfflineChange`. Subsequent reads from it will return its default value.
+  mutating func clearLastOfflineChange() {_uniqueStorage()._lastOfflineChange = nil}
+
+  /// This agent knows devices taken offline for now: SetOfflineForNow and the
+  /// offline fields of Status and DeviceStatus. Agents from before leave it
+  /// false, and the apps then show nothing of it.
+  var offlineSupported: Bool {
+    get {_storage._offlineSupported}
+    set {_uniqueStorage()._offlineSupported = newValue}
+  }
+
   var unknownFields = SwiftProtobuf.UnknownStorage()
 
   init() {}
 
   fileprivate var _storage = _StorageClass.defaultInstance
+}
+
+/// A device taken offline for now or brought back (Status.offline_changes).
+nonisolated struct Inputweave_App_V1_OfflineChange: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  var deviceID: String = String()
+
+  /// Taken offline; false: brought back.
+  var offline: Bool = false
+
+  /// The device that did it: this one, or another that took this one offline
+  /// (empty when not known).
+  var byDeviceID: String = String()
+
+  /// What this device called that device as the change came (empty when not
+  /// known): an app telling of the change uses it, whatever the status says
+  /// by the time it does.
+  var byName: String = String()
+
+  var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  init() {}
 }
 
 /// This computer's license (Status.license).
@@ -4335,7 +4498,7 @@ nonisolated extension Inputweave_App_V1_WakeState: SwiftProtobuf._ProtoNameProvi
 }
 
 nonisolated extension Inputweave_App_V1_ReturnReason: SwiftProtobuf._ProtoNameProviding {
-  static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{2}\0RETURN_REASON_UNSPECIFIED\0\u{1}RETURN_REASON_HOTKEY\0\u{1}RETURN_REASON_PEER_LOST\0\u{1}RETURN_REASON_REMOTE_ACTIVITY\0\u{1}RETURN_REASON_SHARING_PAUSED\0\u{1}RETURN_REASON_LAYOUT_CHANGED\0\u{1}RETURN_REASON_SCREEN_LOCKED\0\u{1}RETURN_REASON_INPUT_UNAVAILABLE\0\u{1}RETURN_REASON_CAPTURE_ENDED\0\u{1}RETURN_REASON_PEER_PAUSED\0")
+  static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{2}\0RETURN_REASON_UNSPECIFIED\0\u{1}RETURN_REASON_HOTKEY\0\u{1}RETURN_REASON_PEER_LOST\0\u{1}RETURN_REASON_REMOTE_ACTIVITY\0\u{1}RETURN_REASON_SHARING_PAUSED\0\u{1}RETURN_REASON_LAYOUT_CHANGED\0\u{1}RETURN_REASON_SCREEN_LOCKED\0\u{1}RETURN_REASON_INPUT_UNAVAILABLE\0\u{1}RETURN_REASON_CAPTURE_ENDED\0\u{1}RETURN_REASON_PEER_PAUSED\0\u{1}RETURN_REASON_OFFLINE_FOR_NOW\0")
 }
 
 nonisolated extension Inputweave_App_V1_LicenseState: SwiftProtobuf._ProtoNameProviding {
@@ -5708,6 +5871,41 @@ nonisolated extension Inputweave_App_V1_SetWakeOnPush: SwiftProtobuf.Message, Sw
   }
 }
 
+nonisolated extension Inputweave_App_V1_SetOfflineForNow: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  static let protoMessageName: String = _protobuf_package + ".SetOfflineForNow"
+  static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}device_id\0\u{1}offline\0")
+
+  mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeSingularStringField(value: &self.deviceID) }()
+      case 2: try { try decoder.decodeSingularBoolField(value: &self.offline) }()
+      default: break
+      }
+    }
+  }
+
+  func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    if !self.deviceID.isEmpty {
+      try visitor.visitSingularStringField(value: self.deviceID, fieldNumber: 1)
+    }
+    if self.offline != false {
+      try visitor.visitSingularBoolField(value: self.offline, fieldNumber: 2)
+    }
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  static func ==(lhs: Inputweave_App_V1_SetOfflineForNow, rhs: Inputweave_App_V1_SetOfflineForNow) -> Bool {
+    if lhs.deviceID != rhs.deviceID {return false}
+    if lhs.offline != rhs.offline {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
 nonisolated extension Inputweave_App_V1_SetLoginWindowAccess: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   static let protoMessageName: String = _protobuf_package + ".SetLoginWindowAccess"
   static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}on\0")
@@ -6296,7 +6494,7 @@ nonisolated extension Inputweave_App_V1_RemoveLicense: SwiftProtobuf.Message, Sw
 
 nonisolated extension Inputweave_App_V1_ClientMessage: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   static let protoMessageName: String = _protobuf_package + ".ClientMessage"
-  static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}request_id\0\u{1}hello\0\u{3}get_status\0\u{3}set_sharing\0\u{3}start_pairing\0\u{3}submit_pairing_code\0\u{3}cancel_pairing\0\u{1}unpair\0\u{3}get_nearby\0\u{3}get_pairing\0\u{3}get_arrangement\0\u{3}set_arrangement\0\u{3}set_device_name\0\u{3}set_device_options\0\u{3}set_clipboard_sync\0\u{3}send_files\0\u{3}cancel_transfer\0\u{3}answer_file_offer\0\u{3}get_transfers\0\u{3}set_file_settings\0\u{3}get_diagnostics\0\u{3}set_locked\0\u{3}jump_to\0\u{3}set_edge_options\0\u{3}set_preview_sharing\0\u{3}remove_transfer\0\u{3}clear_transfers\0\u{3}begin_drag\0\u{3}end_drag\0\u{3}accept_drag\0\u{3}decline_drag\0\u{3}set_hotkeys\0\u{3}set_switch_modifier\0\u{3}identify_screens\0\u{3}rename_device\0\u{3}set_device_sharing\0\u{3}set_login_window_access\0\u{3}clipboard_files_placed\0\u{3}paste_clipboard_files\0\u{3}clipboard_files_gone\0\u{3}clipboard_files_place\0\u{3}user_quit_app\0\u{3}set_relative_mouse\0\u{3}set_relative_auto\0\u{3}request_folder_access\0\u{3}request_permission\0\u{3}set_license_key\0\u{3}record_license_result\0\u{3}remove_license\0\u{3}set_device_speed\0\u{3}wake_device\0\u{3}set_wake_on_push\0")
+  static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}request_id\0\u{1}hello\0\u{3}get_status\0\u{3}set_sharing\0\u{3}start_pairing\0\u{3}submit_pairing_code\0\u{3}cancel_pairing\0\u{1}unpair\0\u{3}get_nearby\0\u{3}get_pairing\0\u{3}get_arrangement\0\u{3}set_arrangement\0\u{3}set_device_name\0\u{3}set_device_options\0\u{3}set_clipboard_sync\0\u{3}send_files\0\u{3}cancel_transfer\0\u{3}answer_file_offer\0\u{3}get_transfers\0\u{3}set_file_settings\0\u{3}get_diagnostics\0\u{3}set_locked\0\u{3}jump_to\0\u{3}set_edge_options\0\u{3}set_preview_sharing\0\u{3}remove_transfer\0\u{3}clear_transfers\0\u{3}begin_drag\0\u{3}end_drag\0\u{3}accept_drag\0\u{3}decline_drag\0\u{3}set_hotkeys\0\u{3}set_switch_modifier\0\u{3}identify_screens\0\u{3}rename_device\0\u{3}set_device_sharing\0\u{3}set_login_window_access\0\u{3}clipboard_files_placed\0\u{3}paste_clipboard_files\0\u{3}clipboard_files_gone\0\u{3}clipboard_files_place\0\u{3}user_quit_app\0\u{3}set_relative_mouse\0\u{3}set_relative_auto\0\u{3}request_folder_access\0\u{3}request_permission\0\u{3}set_license_key\0\u{3}record_license_result\0\u{3}remove_license\0\u{3}set_device_speed\0\u{3}wake_device\0\u{3}set_wake_on_push\0\u{3}set_offline_for_now\0")
 
   mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -6968,6 +7166,19 @@ nonisolated extension Inputweave_App_V1_ClientMessage: SwiftProtobuf.Message, Sw
           self.command = .setWakeOnPush(v)
         }
       }()
+      case 53: try {
+        var v: Inputweave_App_V1_SetOfflineForNow?
+        var hadOneofValue = false
+        if let current = self.command {
+          hadOneofValue = true
+          if case .setOfflineForNow(let m) = current {v = m}
+        }
+        try decoder.decodeSingularMessageField(value: &v)
+        if let v = v {
+          if hadOneofValue {try decoder.handleConflictingOneOf()}
+          self.command = .setOfflineForNow(v)
+        }
+      }()
       default: break
       }
     }
@@ -7186,6 +7397,10 @@ nonisolated extension Inputweave_App_V1_ClientMessage: SwiftProtobuf.Message, Sw
       guard case .setWakeOnPush(let v)? = self.command else { preconditionFailure() }
       try visitor.visitSingularMessageField(value: v, fieldNumber: 52)
     }()
+    case .setOfflineForNow?: try {
+      guard case .setOfflineForNow(let v)? = self.command else { preconditionFailure() }
+      try visitor.visitSingularMessageField(value: v, fieldNumber: 53)
+    }()
     case nil: break
     }
     try unknownFields.traverse(visitor: &visitor)
@@ -7251,7 +7466,7 @@ nonisolated extension Inputweave_App_V1_PermissionStatus: SwiftProtobuf.Message,
 
 nonisolated extension Inputweave_App_V1_DeviceStatus: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   static let protoMessageName: String = _protobuf_package + ".DeviceStatus"
-  static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}id\0\u{1}name\0\u{1}state\0\u{1}paired\0\u{1}os\0\u{3}swap_gui_and_control\0\u{3}rtt_ms\0\u{3}jump_slot\0\u{3}reported_name\0\u{3}clipboard_off\0\u{3}files_off\0\u{3}screen_locked\0\u{3}lock_screen_input\0\u{3}pointer_captured\0\u{3}input_unavailable\0\u{3}sharing_paused\0\u{3}speed_percent\0\u{3}can_wake\0\u{1}wake\0\u{3}offline_since_unix_ms\0")
+  static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}id\0\u{1}name\0\u{1}state\0\u{1}paired\0\u{1}os\0\u{3}swap_gui_and_control\0\u{3}rtt_ms\0\u{3}jump_slot\0\u{3}reported_name\0\u{3}clipboard_off\0\u{3}files_off\0\u{3}screen_locked\0\u{3}lock_screen_input\0\u{3}pointer_captured\0\u{3}input_unavailable\0\u{3}sharing_paused\0\u{3}speed_percent\0\u{3}can_wake\0\u{1}wake\0\u{3}offline_since_unix_ms\0\u{3}offline_for_now\0\u{3}offline_by_device_id\0\u{3}offline_by_name\0\u{3}offline_unaware\0")
 
   fileprivate class _StorageClass {
     var _id: String = String()
@@ -7274,6 +7489,10 @@ nonisolated extension Inputweave_App_V1_DeviceStatus: SwiftProtobuf.Message, Swi
     var _canWake: Bool = false
     var _wake: Inputweave_App_V1_WakeState = .none
     var _offlineSinceUnixMs: UInt64 = 0
+    var _offlineForNow: Bool = false
+    var _offlineByDeviceID: String = String()
+    var _offlineByName: String = String()
+    var _offlineUnaware: Bool = false
 
       // This property is used as the initial default value for new instances of the type.
       // The type itself is protecting the reference to its storage via CoW semantics.
@@ -7304,6 +7523,10 @@ nonisolated extension Inputweave_App_V1_DeviceStatus: SwiftProtobuf.Message, Swi
       _canWake = source._canWake
       _wake = source._wake
       _offlineSinceUnixMs = source._offlineSinceUnixMs
+      _offlineForNow = source._offlineForNow
+      _offlineByDeviceID = source._offlineByDeviceID
+      _offlineByName = source._offlineByName
+      _offlineUnaware = source._offlineUnaware
     }
   }
 
@@ -7342,6 +7565,10 @@ nonisolated extension Inputweave_App_V1_DeviceStatus: SwiftProtobuf.Message, Swi
         case 18: try { try decoder.decodeSingularBoolField(value: &_storage._canWake) }()
         case 19: try { try decoder.decodeSingularEnumField(value: &_storage._wake) }()
         case 20: try { try decoder.decodeSingularUInt64Field(value: &_storage._offlineSinceUnixMs) }()
+        case 21: try { try decoder.decodeSingularBoolField(value: &_storage._offlineForNow) }()
+        case 22: try { try decoder.decodeSingularStringField(value: &_storage._offlineByDeviceID) }()
+        case 23: try { try decoder.decodeSingularStringField(value: &_storage._offlineByName) }()
+        case 24: try { try decoder.decodeSingularBoolField(value: &_storage._offlineUnaware) }()
         default: break
         }
       }
@@ -7410,6 +7637,18 @@ nonisolated extension Inputweave_App_V1_DeviceStatus: SwiftProtobuf.Message, Swi
       if _storage._offlineSinceUnixMs != 0 {
         try visitor.visitSingularUInt64Field(value: _storage._offlineSinceUnixMs, fieldNumber: 20)
       }
+      if _storage._offlineForNow != false {
+        try visitor.visitSingularBoolField(value: _storage._offlineForNow, fieldNumber: 21)
+      }
+      if !_storage._offlineByDeviceID.isEmpty {
+        try visitor.visitSingularStringField(value: _storage._offlineByDeviceID, fieldNumber: 22)
+      }
+      if !_storage._offlineByName.isEmpty {
+        try visitor.visitSingularStringField(value: _storage._offlineByName, fieldNumber: 23)
+      }
+      if _storage._offlineUnaware != false {
+        try visitor.visitSingularBoolField(value: _storage._offlineUnaware, fieldNumber: 24)
+      }
     }
     try unknownFields.traverse(visitor: &visitor)
   }
@@ -7439,6 +7678,10 @@ nonisolated extension Inputweave_App_V1_DeviceStatus: SwiftProtobuf.Message, Swi
         if _storage._canWake != rhs_storage._canWake {return false}
         if _storage._wake != rhs_storage._wake {return false}
         if _storage._offlineSinceUnixMs != rhs_storage._offlineSinceUnixMs {return false}
+        if _storage._offlineForNow != rhs_storage._offlineForNow {return false}
+        if _storage._offlineByDeviceID != rhs_storage._offlineByDeviceID {return false}
+        if _storage._offlineByName != rhs_storage._offlineByName {return false}
+        if _storage._offlineUnaware != rhs_storage._offlineUnaware {return false}
         return true
       }
       if !storagesAreEqual {return false}
@@ -7450,7 +7693,7 @@ nonisolated extension Inputweave_App_V1_DeviceStatus: SwiftProtobuf.Message, Swi
 
 nonisolated extension Inputweave_App_V1_Status: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   static let protoMessageName: String = _protobuf_package + ".Status"
-  static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}sharing\0\u{3}this_device_id\0\u{3}active_device_id\0\u{1}devices\0\u{3}controlled_by_device_id\0\u{3}this_device_name\0\u{1}capturing\0\u{1}permissions\0\u{3}secure_input\0\u{3}control_returns\0\u{3}last_return\0\u{3}last_return_device_id\0\u{3}clipboard_sync\0\u{3}last_clipboard\0\u{1}locked\0\u{3}edge_dwell_ms\0\u{3}default_dwell_ms\0\u{3}preview_sharing\0\u{3}desktop_pictures_available\0\u{1}dragging\0\u{1}hotkeys\0\u{3}switch_modifier\0\u{3}screen_locked\0\u{3}lock_screen_input\0\u{3}login_window_access\0\u{3}drags_carried\0\u{3}relative_mouse\0\u{3}relative_mouse_automatic\0\u{3}relative_auto\0\u{3}pointer_captured\0\u{3}relative_ends\0\u{3}last_relative_end\0\u{3}relative_supported\0\u{3}folder_access\0\u{3}folder_access_asked\0\u{3}folder_access_round\0\u{1}session\0\u{3}cursor_leaves_at_edges_only\0\u{1}firewall\0\u{1}license\0\u{3}wake_supported\0\u{3}wake_on_push\0")
+  static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}sharing\0\u{3}this_device_id\0\u{3}active_device_id\0\u{1}devices\0\u{3}controlled_by_device_id\0\u{3}this_device_name\0\u{1}capturing\0\u{1}permissions\0\u{3}secure_input\0\u{3}control_returns\0\u{3}last_return\0\u{3}last_return_device_id\0\u{3}clipboard_sync\0\u{3}last_clipboard\0\u{1}locked\0\u{3}edge_dwell_ms\0\u{3}default_dwell_ms\0\u{3}preview_sharing\0\u{3}desktop_pictures_available\0\u{1}dragging\0\u{1}hotkeys\0\u{3}switch_modifier\0\u{3}screen_locked\0\u{3}lock_screen_input\0\u{3}login_window_access\0\u{3}drags_carried\0\u{3}relative_mouse\0\u{3}relative_mouse_automatic\0\u{3}relative_auto\0\u{3}pointer_captured\0\u{3}relative_ends\0\u{3}last_relative_end\0\u{3}relative_supported\0\u{3}folder_access\0\u{3}folder_access_asked\0\u{3}folder_access_round\0\u{1}session\0\u{3}cursor_leaves_at_edges_only\0\u{1}firewall\0\u{1}license\0\u{3}wake_supported\0\u{3}wake_on_push\0\u{3}offline_for_now\0\u{3}offline_by_device_id\0\u{3}offline_by_name\0\u{3}offline_changes\0\u{3}last_offline_change\0\u{3}offline_supported\0")
 
   fileprivate class _StorageClass {
     var _sharing: Bool = false
@@ -7495,6 +7738,12 @@ nonisolated extension Inputweave_App_V1_Status: SwiftProtobuf.Message, SwiftProt
     var _license: Inputweave_App_V1_License? = nil
     var _wakeSupported: Bool = false
     var _wakeOnPush: Bool = false
+    var _offlineForNow: Bool = false
+    var _offlineByDeviceID: String = String()
+    var _offlineByName: String = String()
+    var _offlineChanges: UInt64 = 0
+    var _lastOfflineChange: Inputweave_App_V1_OfflineChange? = nil
+    var _offlineSupported: Bool = false
 
       // This property is used as the initial default value for new instances of the type.
       // The type itself is protecting the reference to its storage via CoW semantics.
@@ -7547,6 +7796,12 @@ nonisolated extension Inputweave_App_V1_Status: SwiftProtobuf.Message, SwiftProt
       _license = source._license
       _wakeSupported = source._wakeSupported
       _wakeOnPush = source._wakeOnPush
+      _offlineForNow = source._offlineForNow
+      _offlineByDeviceID = source._offlineByDeviceID
+      _offlineByName = source._offlineByName
+      _offlineChanges = source._offlineChanges
+      _lastOfflineChange = source._lastOfflineChange
+      _offlineSupported = source._offlineSupported
     }
   }
 
@@ -7607,6 +7862,12 @@ nonisolated extension Inputweave_App_V1_Status: SwiftProtobuf.Message, SwiftProt
         case 40: try { try decoder.decodeSingularMessageField(value: &_storage._license) }()
         case 41: try { try decoder.decodeSingularBoolField(value: &_storage._wakeSupported) }()
         case 42: try { try decoder.decodeSingularBoolField(value: &_storage._wakeOnPush) }()
+        case 43: try { try decoder.decodeSingularBoolField(value: &_storage._offlineForNow) }()
+        case 44: try { try decoder.decodeSingularStringField(value: &_storage._offlineByDeviceID) }()
+        case 45: try { try decoder.decodeSingularStringField(value: &_storage._offlineByName) }()
+        case 46: try { try decoder.decodeSingularUInt64Field(value: &_storage._offlineChanges) }()
+        case 47: try { try decoder.decodeSingularMessageField(value: &_storage._lastOfflineChange) }()
+        case 48: try { try decoder.decodeSingularBoolField(value: &_storage._offlineSupported) }()
         default: break
         }
       }
@@ -7745,6 +8006,24 @@ nonisolated extension Inputweave_App_V1_Status: SwiftProtobuf.Message, SwiftProt
       if _storage._wakeOnPush != false {
         try visitor.visitSingularBoolField(value: _storage._wakeOnPush, fieldNumber: 42)
       }
+      if _storage._offlineForNow != false {
+        try visitor.visitSingularBoolField(value: _storage._offlineForNow, fieldNumber: 43)
+      }
+      if !_storage._offlineByDeviceID.isEmpty {
+        try visitor.visitSingularStringField(value: _storage._offlineByDeviceID, fieldNumber: 44)
+      }
+      if !_storage._offlineByName.isEmpty {
+        try visitor.visitSingularStringField(value: _storage._offlineByName, fieldNumber: 45)
+      }
+      if _storage._offlineChanges != 0 {
+        try visitor.visitSingularUInt64Field(value: _storage._offlineChanges, fieldNumber: 46)
+      }
+      try { if let v = _storage._lastOfflineChange {
+        try visitor.visitSingularMessageField(value: v, fieldNumber: 47)
+      } }()
+      if _storage._offlineSupported != false {
+        try visitor.visitSingularBoolField(value: _storage._offlineSupported, fieldNumber: 48)
+      }
     }
     try unknownFields.traverse(visitor: &visitor)
   }
@@ -7796,10 +8075,61 @@ nonisolated extension Inputweave_App_V1_Status: SwiftProtobuf.Message, SwiftProt
         if _storage._license != rhs_storage._license {return false}
         if _storage._wakeSupported != rhs_storage._wakeSupported {return false}
         if _storage._wakeOnPush != rhs_storage._wakeOnPush {return false}
+        if _storage._offlineForNow != rhs_storage._offlineForNow {return false}
+        if _storage._offlineByDeviceID != rhs_storage._offlineByDeviceID {return false}
+        if _storage._offlineByName != rhs_storage._offlineByName {return false}
+        if _storage._offlineChanges != rhs_storage._offlineChanges {return false}
+        if _storage._lastOfflineChange != rhs_storage._lastOfflineChange {return false}
+        if _storage._offlineSupported != rhs_storage._offlineSupported {return false}
         return true
       }
       if !storagesAreEqual {return false}
     }
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
+nonisolated extension Inputweave_App_V1_OfflineChange: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  static let protoMessageName: String = _protobuf_package + ".OfflineChange"
+  static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}device_id\0\u{1}offline\0\u{3}by_device_id\0\u{3}by_name\0")
+
+  mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeSingularStringField(value: &self.deviceID) }()
+      case 2: try { try decoder.decodeSingularBoolField(value: &self.offline) }()
+      case 3: try { try decoder.decodeSingularStringField(value: &self.byDeviceID) }()
+      case 4: try { try decoder.decodeSingularStringField(value: &self.byName) }()
+      default: break
+      }
+    }
+  }
+
+  func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    if !self.deviceID.isEmpty {
+      try visitor.visitSingularStringField(value: self.deviceID, fieldNumber: 1)
+    }
+    if self.offline != false {
+      try visitor.visitSingularBoolField(value: self.offline, fieldNumber: 2)
+    }
+    if !self.byDeviceID.isEmpty {
+      try visitor.visitSingularStringField(value: self.byDeviceID, fieldNumber: 3)
+    }
+    if !self.byName.isEmpty {
+      try visitor.visitSingularStringField(value: self.byName, fieldNumber: 4)
+    }
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  static func ==(lhs: Inputweave_App_V1_OfflineChange, rhs: Inputweave_App_V1_OfflineChange) -> Bool {
+    if lhs.deviceID != rhs.deviceID {return false}
+    if lhs.offline != rhs.offline {return false}
+    if lhs.byDeviceID != rhs.byDeviceID {return false}
+    if lhs.byName != rhs.byName {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }

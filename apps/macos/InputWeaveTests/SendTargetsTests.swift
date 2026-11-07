@@ -12,7 +12,8 @@ private func language(_ code: String) throws -> Bundle {
 @MainActor
 final class SendTargetsTests: XCTestCase {
     private func device(
-        _ id: String, _ state: Inputweave_App_V1_ConnectionState = .connected, filesOff: Bool = false, rtt: UInt32 = 0
+        _ id: String, _ state: Inputweave_App_V1_ConnectionState = .connected, filesOff: Bool = false, rtt: UInt32 = 0,
+        offlineForNow: Bool = false
     ) -> DeviceStatus {
         var device = DeviceStatus()
         device.id = id
@@ -21,6 +22,7 @@ final class SendTargetsTests: XCTestCase {
         device.state = state
         device.filesOff = filesOff
         device.rttMs = rtt
+        device.offlineForNow = offlineForNow
         return device
     }
 
@@ -30,6 +32,9 @@ final class SendTargetsTests: XCTestCase {
         XCTAssertEqual(SendTargets.unavailable(device("a", .offline)), .offline)
         XCTAssertEqual(SendTargets.unavailable(device("a", .incompatible)), .offline, "a version that can't connect")
         XCTAssertEqual(SendTargets.unavailable(device("a", .offline, filesOff: true)), .offline, "offline before files off")
+        XCTAssertEqual(
+            SendTargets.unavailable(device("a", .offline, filesOff: true, offlineForNow: true)), .offlineForNow,
+            "offline for now before offline and files off")
 
         let en = try language("en")
         let zh = try language("zh-Hant")
@@ -37,6 +42,22 @@ final class SendTargetsTests: XCTestCase {
         XCTAssertEqual(SendTargets.reason(.filesOff, bundle: en), "File transfer with this computer is off")
         XCTAssertEqual(SendTargets.reason(.offline, bundle: zh), "離線")
         XCTAssertEqual(SendTargets.reason(.filesOff, bundle: zh), "沒有和這台互傳檔案")
+        XCTAssertEqual(SendTargets.reason(.offlineForNow, bundle: en), "Offline for now")
+        XCTAssertEqual(SendTargets.reason(.offlineForNow, bundle: zh), "暫時離線")
+    }
+
+    func testAComputerOfflineForNowSaysSo() throws {
+        let zh = try language("zh-Hant")
+        let group = [device("mini", .offline, offlineForNow: true), device("pc", rtt: 3), device("off", .offline)]
+        XCTAssertEqual(SendTargets.choice(group), .only("pc"))
+        XCTAssertEqual(
+            SendTargets.targets(group, bundle: zh).map { [$0.id, $0.status, "\($0.available)"] },
+            [["pc", "已連線・3 ms", "true"], ["mini", "暫時離線", "false"], ["off", "離線", "false"]])
+        // This Mac offline for now: the service reports every other computer
+        // just offline, so there is nowhere to send.
+        let apart = [device("mini", .offline), device("pc", .offline)]
+        XCTAssertEqual(SendTargets.choice(apart), .nowhere)
+        XCTAssertEqual(SendTargets.targets(apart, bundle: zh).map(\.status), ["離線", "離線"])
     }
 
     func testTheFileReceiversAreThoseWithoutAReason() {

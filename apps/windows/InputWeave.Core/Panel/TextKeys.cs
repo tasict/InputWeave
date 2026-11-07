@@ -42,6 +42,7 @@ public static class TextKeys
     public const string TrayControlled = "TrayControlled";
     public const string TrayPaused = "TrayPaused";
     public const string TrayAttention = "TrayAttention";
+    public const string TrayOfflineForNow = "TrayOfflineForNow";
 
     // The menu shared by the tray icon and the panel's More button.
     public const string MenuPauseSharing = "MenuPauseSharing";
@@ -316,6 +317,26 @@ public static class TextKeys
     public const string WakeNotTold = "WakeNotTold";
     public const string HudWaking = "HudWaking";
     public const string HudAwake = "HudAwake";
+
+    // Computers taken offline for now.
+    public const string ConnectionOfflineForNow = "ConnectionOfflineForNow";
+    public const string OfflineSetBy = "OfflineSetBy";
+    public const string OfflineSetHere = "OfflineSetHere";
+    public const string OfflineSetByAnother = "OfflineSetByAnother";
+    public const string OfflineUnaware = "OfflineUnaware";
+    public const string OfflineTake = "OfflineTake";
+    public const string OfflineBringBack = "OfflineBringBack";
+    public const string OfflineHint = "OfflineHint";
+    public const string MenuTakeThisOffline = "MenuTakeThisOffline";
+    public const string TitleThisOffline = "TitleThisOffline";
+    public const string SubtitleThisOfflineBy = "SubtitleThisOfflineBy";
+    public const string SubtitleThisOfflineHere = "SubtitleThisOfflineHere";
+    public const string SubtitleThisOfflineByAnother = "SubtitleThisOfflineByAnother";
+    public const string HudOfflineForNow = "HudOfflineForNow";
+    public const string HudBackOnline = "HudBackOnline";
+    public const string HudOfflineReturned = "HudOfflineReturned";
+    public const string HudTookThisOffline = "HudTookThisOffline";
+    public const string HudTookThisOfflineAnother = "HudTookThisOfflineAnother";
     public const string DeviceFilesOff = "DeviceFilesOff";
     public const string DeviceFilesOffShort = "DeviceFilesOffShort";
     public const string TroubleProblems = "TroubleProblems";

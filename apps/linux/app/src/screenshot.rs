@@ -512,6 +512,40 @@ pub fn run(ui: Rc<Ui>, dir: PathBuf) {
         gtk::glib::timeout_future(SETTLE).await;
         shot("arrangement-asleep", &window.widget());
         window.devices().select("mac");
+        ui.agent.show_fixed(base.clone());
+        window.update(&ui.snapshot(), ServiceState::Running);
+
+        // Offline for now: the Mac mini taken offline by the ThinkPad (with
+        // the Studio PC on 1.0) and Take Offline for the Studio PC, on the
+        // devices page and the arrangement; this computer offline for now,
+        // on General and the arrangement.
+        let away = with_pictures(sample::offline_for_now(SystemTime::now(), false));
+        window.show_page(Page::Devices);
+        for (name, id) in [
+            ("devices-offline-for-now", "mac"),
+            ("devices-take-offline", "pc"),
+        ] {
+            window.devices().select(id);
+            ui.agent.show_fixed(away.clone());
+            window.update(&ui.snapshot(), ServiceState::Running);
+            gtk::glib::timeout_future(SETTLE).await;
+            shot(name, &window.widget());
+        }
+        window.show_page(Page::Arrangement);
+        window.arrangement().select("mac");
+        window.update(&ui.snapshot(), ServiceState::Running);
+        gtk::glib::timeout_future(SETTLE).await;
+        shot("arrangement-offline-for-now", &window.widget());
+        ui.agent
+            .show_fixed(with_pictures(sample::this_offline(SystemTime::now())));
+        window.update(&ui.snapshot(), ServiceState::Running);
+        gtk::glib::timeout_future(SETTLE).await;
+        shot("arrangement-this-offline", &window.widget());
+        window.show_page(Page::General);
+        window.update(&ui.snapshot(), ServiceState::Running);
+        gtk::glib::timeout_future(SETTLE).await;
+        shot("general-this-offline", &window.widget());
+        window.devices().select("mac");
         ui.agent.show_fixed(base);
         window.update(&ui.snapshot(), ServiceState::Running);
 
@@ -552,6 +586,10 @@ pub fn run(ui: Rc<Ui>, dir: PathBuf) {
                 )),
             ),
             ("hud-waking", tr(&ui!(keys::HUD_WAKING, "Mac mini"))),
+            (
+                "hud-offline-for-now",
+                tr(&ui!(keys::HUD_OFFLINE_RETURNED, "Studio PC")),
+            ),
         ] {
             let path = dir.join(format!("{language}-{name}.png"));
             match paint::hud(&text, &brand, 1)

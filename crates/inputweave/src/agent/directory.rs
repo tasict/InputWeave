@@ -26,6 +26,7 @@ use tracing::warn;
 use super::folder_access::{Access, UserFolder};
 use super::wake::WakeData;
 use crate::config::{Config, PlacementConfig};
+use crate::offline_file::{Full, Merged, OfflineDoc, TakenBy};
 use crate::store::{
     DeviceSharing, DevicesFile, FolderAccessFile, HotkeysFile, KnownDisplays, PairedDevice, Side,
 };
@@ -135,7 +136,17 @@ impl DeviceError {
     }
 }
 
-/// A change to the devices file or the wake file made without writing it:
+/// What taking a device offline for now, or bringing it back, did
+/// (`Directory::take_offline`).
+pub(crate) enum OfflineTaken {
+    /// It was so already: nothing changed.
+    Unchanged,
+    /// Its entry changed; what to write, if there is a file.
+    Changed(Option<Unsaved>),
+}
+
+/// A change to the devices file, the wake file or the offline file made
+/// without writing it:
 /// the file as it was then, numbered among that file's changes
 /// (`Directory::save`).
 #[must_use = "the change is not in the file until it is saved"]
@@ -148,6 +159,7 @@ pub(crate) struct Unsaved {
 enum Contents {
     Devices(Box<DevicesFile>),
     Wake(WakeFile),
+    Offline(OfflineDoc),
 }
 
 pub(crate) struct Directory {
@@ -168,6 +180,13 @@ pub(crate) struct Directory {
     wake: Mutex<WakeFile>,
     wake_changes: AtomicU64,
     wake_written: Mutex<u64>,
+    /// The group's document of the devices taken offline for now, kept in a
+    /// file of its own (`offline_file`), with its changes counted and
+    /// written the same way. Never taken with another of these locks held.
+    offline_path: Option<PathBuf>,
+    offline: Mutex<OfflineDoc>,
+    offline_changes: AtomicU64,
+    offline_written: Mutex<u64>,
     peers: watch::Sender<TrustedDevices>,
     nearby: watch::Sender<Arc<Vec<Found>>>,
     /// Saved hotkeys from before relative mode left its hotkey off; said
@@ -230,6 +249,10 @@ impl Directory {
             wake: Mutex::new(WakeFile::default()),
             wake_changes: AtomicU64::new(0),
             wake_written: Mutex::new(0),
+            offline_path: None,
+            offline: Mutex::new(OfflineDoc::default()),
+            offline_changes: AtomicU64::new(0),
+            offline_written: Mutex::new(0),
             peers: watch::Sender::new(TrustedDevices::default()),
             nearby: watch::Sender::new(Arc::new(Vec::new())),
             relative_left_off_told: AtomicBool::new(false),
@@ -252,6 +275,16 @@ impl Directory {
             directory.publish(&stored);
         }
         directory
+    }
+
+    /// Keeps the group's document of the devices taken offline for now,
+    /// `doc`, in the offline file at `path`; with no file, in memory only.
+    /// The document is the group's, so it is kept whole, devices not trusted
+    /// here included.
+    pub(crate) fn with_offline(mut self, path: Option<PathBuf>, doc: OfflineDoc) -> Self {
+        self.offline_path = path;
+        *self.offline.get_mut().unwrap() = doc;
+        self
     }
 
     pub(crate) fn peers(&self) -> Arc<Vec<Peer>> {
@@ -958,6 +991,62 @@ impl Directory {
         self.layout()
     }
 
+    /// The group's document of the devices taken offline for now, as this
+    /// device has it.
+    pub(crate) fn offline(&self) -> OfflineDoc {
+        self.offline.lock().unwrap().clone()
+    }
+
+    /// This device's id.
+    pub(crate) fn this_device(&self) -> &str {
+        &self.this_device
+    }
+
+    /// Merges another device's document of the devices taken offline for
+    /// now into this one, entry by entry (`OfflineDoc::merge`); leaves the
+    /// write to the caller (`save`). What merging did, and what to write
+    /// when anything changed and there is a file.
+    pub(crate) fn merge_offline(&self, doc: &OfflineDoc) -> (Merged, Option<Unsaved>) {
+        let mut offline = self.offline.lock().unwrap();
+        let merged = offline.merge(doc);
+        let unsaved = if merged.changed {
+            self.offline_unsaved(&offline)
+        } else {
+            None
+        };
+        (merged, unsaved)
+    }
+
+    /// Takes `device` offline for now (`offline`) or brings it back, by
+    /// `by`, in a change of its entry alone made by this device
+    /// (`OfflineDoc::changed`); leaves the write to the caller (`save`).
+    /// Refused when as many devices are offline as that allows.
+    pub(crate) fn take_offline(
+        &self,
+        device: &str,
+        offline: bool,
+        by: TakenBy,
+    ) -> Result<OfflineTaken, Full> {
+        let mut doc = self.offline.lock().unwrap();
+        let Some(next) = doc.changed(device, offline, by, &self.this_device)? else {
+            return Ok(OfflineTaken::Unchanged);
+        };
+        *doc = next;
+        Ok(OfflineTaken::Changed(self.offline_unsaved(&doc)))
+    }
+
+    /// The offline file to write with `doc` in it, numbered among its
+    /// changes, if there is a file. Called with the document's lock held,
+    /// so the numbers follow the changes.
+    fn offline_unsaved(&self, doc: &OfflineDoc) -> Option<Unsaved> {
+        let path = self.offline_path.clone()?;
+        Some(Unsaved {
+            path,
+            file: Contents::Offline(doc.clone()),
+            number: self.offline_changes.fetch_add(1, Ordering::Relaxed) + 1,
+        })
+    }
+
     /// The displays `device` last reported.
     pub(crate) fn known_displays(&self, device: &str) -> Option<Vec<Display>> {
         let stored = self.stored.lock().unwrap();
@@ -1074,6 +1163,7 @@ impl Directory {
         let written = match &file {
             Contents::Devices(_) => &self.written,
             Contents::Wake(_) => &self.wake_written,
+            Contents::Offline(_) => &self.offline_written,
         };
         off_async_threads(|| {
             let mut written = written.lock().unwrap();
@@ -1085,9 +1175,10 @@ impl Directory {
             let saved = match &file {
                 Contents::Devices(file) => file.save(&path),
                 Contents::Wake(file) => file.save(&path),
+                Contents::Offline(file) => file.save(&path),
             };
             saved.map(|()| *written = number).inspect_err(|e| {
-                warn!(path = %path.display(), error = %e, "cannot save the devices or wake file");
+                warn!(path = %path.display(), error = %e, "cannot save the devices, wake or offline file");
             })
         })
     }

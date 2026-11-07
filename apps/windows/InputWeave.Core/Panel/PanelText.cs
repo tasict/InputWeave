@@ -1,4 +1,5 @@
 using InputWeave.Agent;
+using InputWeave.Settings;
 using InputWeave.Support;
 
 namespace InputWeave.Panel;
@@ -27,6 +28,11 @@ public static class PanelText
                     : new(TextKeys.TitleStarting);
         }
         var status = model.Status;
+        // Offline for now, nothing crosses whatever the sharing switch says.
+        if (OfflineForNow.ThisOffline(model))
+        {
+            return new(TextKeys.TitleThisOffline);
+        }
         // Pausing keeps the lock, but nothing crosses while paused anyway;
         // and this device's own lock means nothing while another controls it.
         if (!status.Sharing)
@@ -59,6 +65,10 @@ public static class PanelText
             return null;
         }
         var status = model.Status;
+        if (OfflineForNow.PanelSubtitle(model) is { } offline)
+        {
+            return offline;
+        }
         if (model.ControlledFromElsewhere)
         {
             return new(TextKeys.SubtitleControlled);

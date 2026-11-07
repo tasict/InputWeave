@@ -1,19 +1,21 @@
 //! What the HUD says, as the macOS
 //! app's `HUDController` and the Windows app's `HudWatch`: why the keyboard
 //! and mouse came back, the cursor being locked or unlocked, relative mode
-//! starting and ending, a computer being woken and waking up, and the
-//! take-back hint the first three times this computer takes control of
-//! another. It compares each state with the one before, so only a change is
-//! news; the first state seen after the app starts is only remembered, and
-//! so are relative mode and waking in the first state after the service is
-//! reached again. Where the HUD shows (an overlay, or a notification) is
-//! the app's.
+//! starting and ending, a computer taken offline for now or brought back,
+//! a computer being woken and waking up, and the take-back hint the first
+//! three times this computer takes control of another. It compares each
+//! state with the one before, so only a change is news; the first state
+//! seen after the app starts is only remembered, and so are relative mode,
+//! computers offline for now and waking in the first state after the
+//! service is reached again. Where the HUD shows (an overlay, or a
+//! notification) is the app's.
 
 use std::collections::HashMap;
 use std::time::{Duration, SystemTime};
 
 use iw_proto::app::v1::{ConnectionState, RelativeEndReason, ReturnReason, WakeState};
 
+use crate::offline;
 use crate::snapshot::{Link, Snapshot};
 use crate::text::{UiText, keys};
 use crate::ui;
@@ -50,6 +52,9 @@ pub struct HudWatch {
     wake_primed: bool,
     /// Each other device's wake state as last seen.
     wakes: HashMap<String, WakeState>,
+    offline_primed: bool,
+    /// Status.offline_changes as last seen.
+    offline_changes: u64,
 }
 
 impl HudWatch {
@@ -66,6 +71,7 @@ impl HudWatch {
             // A restarted service starts over; what it says first is no news.
             self.relative_primed = false;
             self.wake_primed = false;
+            self.offline_primed = false;
             return None;
         }
         let status = &snapshot.status;
@@ -86,6 +92,7 @@ impl HudWatch {
         self.relative_device = status.relative_mouse.clone();
         self.relative_ends = status.relative_ends;
         self.seen_refusal = snapshot.relative_refusals;
+        let offline = self.offline_message(snapshot);
         let wake = self.wake_message(snapshot);
         if first {
             return None;
@@ -122,6 +129,9 @@ impl HudWatch {
         }
         if status.locked != locked_before {
             return Some(lock_message(snapshot));
+        }
+        if offline.is_some() {
+            return offline;
         }
         if wake.is_some() {
             return wake;
@@ -177,6 +187,47 @@ impl HudWatch {
                 snapshot.name_of(&end.device_id)
             )),
             _ => None,
+        }
+    }
+
+    /// A computer taken offline for now or brought back, from a service
+    /// that knows it, as `Status.offline_changes` grows (fewer than before,
+    /// from a restarted service, is only remembered, as is the first state
+    /// after the service is reached): from here, "Mac mini is offline for
+    /// now." (this computer's own name when it took itself offline) or "Mac
+    /// mini is back online." (nothing when it brought itself back); from
+    /// another computer, only that it took this one offline for now, by the
+    /// name the change came with (not what the status says by now), or as
+    /// one this computer does not know. The keyboard and mouse coming back
+    /// because of it says so instead.
+    fn offline_message(&mut self, snapshot: &Snapshot) -> Option<UiText> {
+        let status = &snapshot.status;
+        let primed = std::mem::replace(&mut self.offline_primed, true);
+        let before = std::mem::replace(&mut self.offline_changes, status.offline_changes);
+        if !primed || !status.offline_supported || status.offline_changes <= before {
+            return None;
+        }
+        let change = status.last_offline_change.as_ref()?;
+        let this = status.this_device_id.as_str();
+        if offline::by_this(snapshot, &change.by_device_id) {
+            if change.offline {
+                Some(ui!(keys::HUD_OFFLINE, snapshot.name_of(&change.device_id)))
+            } else if change.device_id == this {
+                None
+            } else {
+                Some(ui!(
+                    keys::HUD_BACK_ONLINE,
+                    snapshot.name_of(&change.device_id)
+                ))
+            }
+        } else if change.device_id == this && change.offline {
+            Some(if change.by_name.is_empty() {
+                ui!(keys::HUD_TOOK_THIS_OFFLINE_UNKNOWN)
+            } else {
+                ui!(keys::HUD_TOOK_THIS_OFFLINE, change.by_name.clone())
+            })
+        } else {
+            None
         }
     }
 
@@ -257,8 +308,9 @@ fn lock_message(snapshot: &Snapshot) -> UiText {
 }
 
 fn return_message(snapshot: &Snapshot) -> Option<UiText> {
-    let name = snapshot.name_of(&snapshot.status.last_return_device_id);
-    match snapshot.status.last_return() {
+    let status = &snapshot.status;
+    let name = snapshot.name_of(&status.last_return_device_id);
+    match status.last_return() {
         ReturnReason::PeerLost => Some(ui!(keys::HUD_PEER_LOST, name)),
         ReturnReason::RemoteActivity => Some(ui!(keys::HUD_REMOTE_ACTIVITY, name)),
         ReturnReason::Hotkey => Some(ui!(keys::HUD_BACK_HERE)),
@@ -267,6 +319,11 @@ fn return_message(snapshot: &Snapshot) -> Option<UiText> {
         ReturnReason::InputUnavailable => Some(ui!(keys::HUD_INPUT_UNAVAILABLE, name)),
         ReturnReason::PeerPaused => Some(ui!(keys::HUD_PEER_PAUSED, name)),
         ReturnReason::CaptureEnded => Some(ui!(keys::HUD_CAPTURE_ENDED)),
+        // This computer itself taken offline while it controlled another:
+        // what was taken offline says so (`offline_message`).
+        ReturnReason::OfflineForNow if status.last_return_device_id != status.this_device_id => {
+            Some(ui!(keys::HUD_OFFLINE_RETURNED, name))
+        }
         _ => None,
     }
 }
@@ -275,7 +332,9 @@ fn return_message(snapshot: &Snapshot) -> Option<UiText> {
 mod tests {
     use super::*;
     use crate::shortcut;
-    use iw_proto::app::v1::{ConnectionState, DeviceStatus, Hotkeys, RelativeEnd, Status};
+    use iw_proto::app::v1::{
+        ConnectionState, DeviceStatus, Hotkeys, OfflineChange, RelativeEnd, Status,
+    };
 
     #[derive(Default)]
     struct Model {
@@ -1273,5 +1332,269 @@ mod tests {
                 "{named}"
             );
         }
+    }
+
+    /// The sample from a service that knows computers offline for now,
+    /// having counted `changes`, the last of them `device` taken offline
+    /// (`offline`) or brought back by `by`.
+    fn offline_change(changes: u64, device: &str, offline: bool, by: &str) -> Snapshot {
+        let mut m = model(Model::default());
+        m.status.offline_supported = true;
+        m.status.offline_changes = changes;
+        m.status.last_offline_change = Some(OfflineChange {
+            device_id: device.into(),
+            offline,
+            by_device_id: by.into(),
+            by_name: match by {
+                "" => String::new(),
+                "me" => "ubuntu-desk".into(),
+                _ => "MacBook Pro".into(),
+            },
+        });
+        if device == "me" && offline {
+            m.status.offline_for_now = true;
+            m.status.offline_by_device_id = by.into();
+            m.status.offline_by_name = if by == "me" {
+                "ubuntu-desk".into()
+            } else {
+                "MacBook Pro".into()
+            };
+        }
+        m
+    }
+
+    #[test]
+    fn says_computers_taken_offline_for_now_and_brought_back() {
+        let mut watch = HudWatch::default();
+        let mut hints = 3;
+        assert_eq!(
+            watch.update(&offline_change(0, "", false, ""), &mut hints, start()),
+            None
+        );
+        // From here.
+        let offline = Some(ui!(keys::HUD_OFFLINE, "MacBook Pro"));
+        assert_eq!(
+            watch.update(&offline_change(1, "mac", true, "me"), &mut hints, start()),
+            offline
+        );
+        assert_eq!(
+            watch.update(&offline_change(1, "mac", true, "me"), &mut hints, start()),
+            None,
+            "said once"
+        );
+        let back = Some(ui!(keys::HUD_BACK_ONLINE, "MacBook Pro"));
+        assert_eq!(
+            watch.update(&offline_change(2, "mac", false, "me"), &mut hints, start()),
+            back
+        );
+        // This computer, from here: its own name; back, nothing.
+        assert_eq!(
+            watch.update(&offline_change(3, "me", true, "me"), &mut hints, start()),
+            Some(ui!(keys::HUD_OFFLINE, "ubuntu-desk"))
+        );
+        assert_eq!(
+            watch.update(&offline_change(4, "me", false, "me"), &mut hints, start()),
+            None
+        );
+        // This computer, from another: who did it; back, nothing.
+        let took = Some(ui!(keys::HUD_TOOK_THIS_OFFLINE, "MacBook Pro"));
+        assert_eq!(
+            watch.update(&offline_change(5, "me", true, "mac"), &mut hints, start()),
+            took
+        );
+        assert_eq!(
+            watch.update(&offline_change(6, "me", false, "mac"), &mut hints, start()),
+            None
+        );
+        // In both languages.
+        let zh = crate::text::Catalog::for_language(crate::text::Language::ChineseTaiwan);
+        let both = |text: Option<UiText>| text.map(|t| (t.to_string(), zh.render(&t)));
+        assert_eq!(
+            both(offline),
+            Some((
+                "MacBook Pro is offline for now.".into(),
+                "「MacBook Pro」暫時離線。".into()
+            ))
+        );
+        assert_eq!(
+            both(back),
+            Some((
+                "MacBook Pro is back online.".into(),
+                "「MacBook Pro」已恢復連線。".into()
+            ))
+        );
+        assert_eq!(
+            both(took),
+            Some((
+                "MacBook Pro took this computer offline for now.".into(),
+                "「MacBook Pro」把這台設為暫時離線。".into()
+            ))
+        );
+    }
+
+    #[test]
+    fn the_keyboard_and_mouse_coming_back_says_it_went_offline() {
+        let mut watch = HudWatch::default();
+        let mut hints = 3;
+        let mut there = offline_change(0, "", false, "");
+        there.status.active_device_id = "mac".into();
+        watch.update(&there, &mut hints, start());
+        // The Mac taken offline from here while this computer controlled
+        // it: the return says it, not the change.
+        let mut both = offline_change(1, "mac", true, "me");
+        both.status.control_returns = 1;
+        both.status.last_return = ReturnReason::OfflineForNow as i32;
+        let returned = Some(ui!(keys::HUD_OFFLINE_RETURNED, "MacBook Pro"));
+        assert_eq!(watch.update(&both, &mut hints, start()), returned);
+        // The change was seen all the same: not said later.
+        assert_eq!(watch.update(&both, &mut hints, start()), None);
+        let zh = crate::text::Catalog::for_language(crate::text::Language::ChineseTaiwan);
+        assert_eq!(
+            returned.map(|t| (t.to_string(), zh.render(&t))),
+            Some((
+                "MacBook Pro went offline for now. The keyboard and mouse are back on this computer."
+                    .into(),
+                "「MacBook Pro」暫時離線，鍵鼠已回到這台。".into()
+            ))
+        );
+        // Taken offline by another computer: no change counted here, the
+        // return alone.
+        watch.update(&there, &mut hints, start());
+        let mut elsewhere = offline_change(0, "", false, "");
+        elsewhere.status.control_returns = 2;
+        elsewhere.status.last_return = ReturnReason::OfflineForNow as i32;
+        assert_eq!(
+            watch.update(&elsewhere, &mut hints, start()),
+            Some(ui!(keys::HUD_OFFLINE_RETURNED, "MacBook Pro"))
+        );
+
+        // This computer taken offline by the Mac while it controlled
+        // another: nothing for the return itself, who did it instead.
+        let mut watch = HudWatch::default();
+        watch.update(&there, &mut hints, start());
+        let mut me = offline_change(1, "me", true, "mac");
+        me.status.control_returns = 1;
+        me.status.last_return = ReturnReason::OfflineForNow as i32;
+        me.status.last_return_device_id = "me".into();
+        assert_eq!(
+            watch.update(&me, &mut hints, start()),
+            Some(ui!(keys::HUD_TOOK_THIS_OFFLINE, "MacBook Pro"))
+        );
+        // Taken offline from here: its own name.
+        let mut watch = HudWatch::default();
+        watch.update(&there, &mut hints, start());
+        let mut me = offline_change(1, "me", true, "me");
+        me.status.control_returns = 1;
+        me.status.last_return = ReturnReason::OfflineForNow as i32;
+        me.status.last_return_device_id = "me".into();
+        assert_eq!(
+            watch.update(&me, &mut hints, start()),
+            Some(ui!(keys::HUD_OFFLINE, "ubuntu-desk"))
+        );
+    }
+
+    #[test]
+    fn a_computer_this_one_does_not_know_took_it_offline() {
+        let mut watch = HudWatch::default();
+        let mut hints = 3;
+        watch.update(&offline_change(0, "", false, ""), &mut hints, start());
+        // Neither its id nor its name.
+        let mut unknown = offline_change(1, "me", true, "");
+        unknown.status.offline_by_name.clear();
+        let said = watch.update(&unknown, &mut hints, start());
+        assert_eq!(said, Some(ui!(keys::HUD_TOOK_THIS_OFFLINE_UNKNOWN)));
+        let zh = crate::text::Catalog::for_language(crate::text::Language::ChineseTaiwan);
+        assert_eq!(
+            said.map(|t| (t.to_string(), zh.render(&t))),
+            Some((
+                "Another computer took this computer offline for now.".into(),
+                "另一台電腦把這台設為暫時離線。".into()
+            ))
+        );
+        // A name with no id: the name.
+        let mut named = offline_change(2, "me", true, "");
+        if let Some(change) = named.status.last_offline_change.as_mut() {
+            change.by_name = "Old iMac".into();
+        }
+        assert_eq!(
+            watch.update(&named, &mut hints, start()),
+            Some(ui!(keys::HUD_TOOK_THIS_OFFLINE, "Old iMac"))
+        );
+        // An id, even one this computer lists, with no name: another
+        // computer, whatever the status names by now.
+        let mut nameless = offline_change(3, "me", true, "mac");
+        if let Some(change) = nameless.status.last_offline_change.as_mut() {
+            change.by_name.clear();
+        }
+        assert_eq!(nameless.status.offline_by_name, "MacBook Pro");
+        assert_eq!(
+            watch.update(&nameless, &mut hints, start()),
+            Some(ui!(keys::HUD_TOOK_THIS_OFFLINE_UNKNOWN))
+        );
+        // The name the change came with, not what the status says by the
+        // time it is told: none, or another.
+        for now in ["", "Renamed Mac"] {
+            let mut renamed = offline_change(4, "me", true, "mac");
+            renamed.status.offline_by_name = now.into();
+            let mut watch = HudWatch::default();
+            watch.update(&offline_change(0, "", false, ""), &mut hints, start());
+            assert_eq!(
+                watch.update(&renamed, &mut hints, start()),
+                Some(ui!(keys::HUD_TOOK_THIS_OFFLINE, "MacBook Pro")),
+                "{now:?}"
+            );
+        }
+        // An empty id is never this computer's, even taking another
+        // computer offline.
+        assert_eq!(
+            watch.update(&offline_change(5, "mac", true, ""), &mut hints, start()),
+            None
+        );
+    }
+
+    #[test]
+    fn changes_already_made_are_only_remembered() {
+        // When the app starts.
+        let mut watch = HudWatch::default();
+        let mut hints = 3;
+        assert_eq!(
+            watch.update(&offline_change(3, "mac", true, "me"), &mut hints, start()),
+            None
+        );
+        // When the service is reached again.
+        let mut away = offline_change(3, "mac", true, "me");
+        away.link = Link::Connecting;
+        assert_eq!(watch.update(&away, &mut hints, start()), None);
+        assert_eq!(
+            watch.update(&offline_change(5, "mac", false, "me"), &mut hints, start()),
+            None
+        );
+        assert_eq!(
+            watch.update(&offline_change(6, "mac", true, "me"), &mut hints, start()),
+            Some(ui!(keys::HUD_OFFLINE, "MacBook Pro"))
+        );
+        // A restarted service the app did not see go counts from 0: fewer
+        // than before is only remembered.
+        assert_eq!(
+            watch.update(&offline_change(1, "mac", false, "me"), &mut hints, start()),
+            None
+        );
+        assert_eq!(
+            watch.update(&offline_change(2, "mac", true, "me"), &mut hints, start()),
+            Some(ui!(keys::HUD_OFFLINE, "MacBook Pro"))
+        );
+    }
+
+    #[test]
+    fn nothing_of_offline_for_now_from_a_service_before_it() {
+        let old = |changes| {
+            let mut m = offline_change(changes, "mac", true, "me");
+            m.status.offline_supported = false;
+            m
+        };
+        let mut watch = HudWatch::default();
+        let mut hints = 3;
+        watch.update(&old(0), &mut hints, start());
+        assert_eq!(watch.update(&old(1), &mut hints, start()), None);
     }
 }

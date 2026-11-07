@@ -1,5 +1,6 @@
 using Inputweave.App.V1;
 using InputWeave.Agent;
+using InputWeave.Panel;
 using InputWeave.Settings;
 using InputWeave.Support;
 using Xunit;
@@ -411,6 +412,47 @@ public class AgentModelTests
         gate.SetResult();
         await waking;
         Assert.Empty(model.Snapshot.WakesSent);
+    }
+
+    [Fact]
+    public async Task TakesComputersOfflineForNowAndBringsThemBack()
+    {
+        var agent = new FakeAgent();
+        agent.Status.OfflineSupported = true;
+        await using var model = agent.Model();
+        model.Start();
+        await Eventually("a connection", () => model.Snapshot.Link == AgentLink.Connected);
+        Assert.True(OfflineForNow.Offered(model.Snapshot, "mac"));
+
+        await model.SetOfflineForNowAsync("mac", true);
+        var sent = agent.Received[^1].SetOfflineForNow;
+        Assert.Equal(("mac", true), (sent.DeviceId, sent.Offline));
+        Assert.True(OfflineForNow.IsOffline(model.Snapshot, "mac"));
+        Assert.Equal(TextKeys.OfflineBringBack, OfflineForNow.ActionKey(model.Snapshot, "mac"));
+        Assert.Equal(1ul, model.Snapshot.Status.OfflineChanges);
+        // Again: nothing changes.
+        await model.SetOfflineForNowAsync("mac", true);
+        Assert.Equal(1ul, model.Snapshot.Status.OfflineChanges);
+        await model.SetOfflineForNowAsync("mac", false);
+        Assert.False(OfflineForNow.IsOffline(model.Snapshot, "mac"));
+        Assert.Equal("unknown_device", (await Assert.ThrowsAsync<AgentRefusal>(() => model.SetOfflineForNowAsync("ghost", true))).Code);
+
+        // This computer: every other one shows offline, and only it can be brought back.
+        await model.SetOfflineForNowAsync("pc", true);
+        Assert.True(OfflineForNow.ThisOffline(model.Snapshot));
+        Assert.Equal(ConnectionState.Offline, model.Snapshot.Device("mac")!.State);
+        Assert.False(OfflineForNow.Offered(model.Snapshot, "mac"));
+        Assert.Equal("offline_for_now", (await Assert.ThrowsAsync<AgentRefusal>(() => model.SetOfflineForNowAsync("mac", true))).Code);
+        await model.SetOfflineForNowAsync("pc", false);
+        Assert.False(OfflineForNow.ThisOffline(model.Snapshot));
+        Assert.Equal(ConnectionState.Connected, model.Snapshot.Device("mac")!.State);
+
+        // A refusal of any kind, as too many computers offline for now,
+        // leaves things as they were.
+        agent.OfflineFull = true;
+        Assert.Equal("too_many", (await Assert.ThrowsAsync<AgentRefusal>(() => model.SetOfflineForNowAsync("mac", true))).Code);
+        Assert.False(OfflineForNow.IsOffline(model.Snapshot, "mac"));
+        Assert.Equal(TextKeys.OfflineTake, OfflineForNow.ActionKey(model.Snapshot, "mac"));
     }
 
     [Fact]

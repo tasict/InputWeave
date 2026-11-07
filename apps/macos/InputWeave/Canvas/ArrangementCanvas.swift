@@ -108,6 +108,7 @@ struct ArrangementCanvas: View {
     private func deviceView(_ device: CanvasDevice, fit: CanvasGeometry.Fit, all: [CanvasDevice]) -> some View {
         let info = model.arrangement.devices.first { $0.id == device.id }
         let frame = fit.toView(device.bounds)
+        let offline = model.offlineOffer(device.id)
         DeviceGroup(
             device: device, info: info, fit: fit,
             selected: interactive && selection == device.id,
@@ -115,6 +116,7 @@ struct ArrangementCanvas: View {
             compact: !interactive,
             jump: model.jumpShortcut(slot: info?.jumpSlot ?? 0),
             nameSymbol: ConnectionText.nameSymbol(
+                offlineForNow: model.showsOfflineForNow(device.id),
                 screenLocked: screenLocked(device.id),
                 wakeable: WakeText.showsMoon(model.device(device.id), supported: model.wakeSupported))
         )
@@ -139,10 +141,17 @@ struct ArrangementCanvas: View {
             }
         }
         .modifier(JumpMenu(
-            shown: interactive, enabled: model.canJump(to: device.id), jump: { jump(to: device.id) },
+            shown: interactive,
+            // While this computer is offline for now, another computer's
+            // menu has only Rename….
+            jumps: device.id == model.thisDeviceID || !model.offlineHere,
+            enabled: model.canJump(to: device.id), jump: { jump(to: device.id) },
             rename: model.device(device.id) == nil ? nil : { rename(device.id) },
             wake: model.wakeOffer(device.id) == .hidden ? nil : { model.wake(device.id) },
-            wakeEnabled: model.wakeOffer(device.id) == .enabled))
+            wakeEnabled: model.wakeOffer(device.id) == .enabled,
+            offline: OfflineText.label(offline).map { label in
+                (label, { model.setOffline(device.id, offline == .takeOffline) })
+            }))
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(accessibilityLabel(device, info: info, all: all))
         .accessibilityValue(accessibilityValue(device.id))
@@ -249,9 +258,12 @@ struct ArrangementCanvas: View {
         model.device(id).map { $0.state == .connected && $0.screenLocked } ?? false
     }
 
-    /// What VoiceOver says of a computer's state: its screen locked, the
-    /// keyboard and mouse on it.
+    /// What VoiceOver says of a computer's state: taken offline for now,
+    /// its screen locked, the keyboard and mouse on it.
     private func accessibilityValue(_ id: String) -> Text {
+        if model.showsOfflineForNow(id) {
+            return Text(OfflineText.status())
+        }
         let here = model.cursorDeviceID == id
         if screenLocked(id) && model.outOfReach(id) {
             return Text("Screen locked, can't take input")
@@ -273,6 +285,7 @@ struct ArrangementCanvas: View {
 
     /// Why files dropped on another computer would not go there.
     private func unavailableReason(_ id: String) -> String {
+        if model.showsOfflineForNow(id) { return OfflineText.status() }
         guard model.filesOff(id) else { return String(localized: "Offline") }
         return interactive ? DeviceSharingText.filesOff(model.name(of: id)) : DeviceSharingText.filesOffShort
     }
@@ -329,8 +342,8 @@ private enum NameCapsule {
     /// The mini map's name runs this narrow at least before the jump
     /// shortcut beside it is left out.
     static let compactNameWidth: CGFloat = 24
-    /// What the symbol beside the name (a lock, a moon) takes on the mini
-    /// map, with the gap before it.
+    /// What the symbol beside the name (a slashed network, a lock, a moon)
+    /// takes on the mini map, with the gap before it.
     static let symbolWidth: CGFloat = 12
 
     /// Whether the mini map has room for the symbol beside the name on a
@@ -377,9 +390,9 @@ private struct DeviceGroup: View {
     let compact: Bool
     /// The shortcut that moves the cursor here, if any.
     let jump: String?
-    /// The symbol beside the name, if any: a lock while its screen is
-    /// locked, a moon while it is asleep and can be woken
-    /// (`ConnectionText.nameSymbol`).
+    /// The symbol beside the name, if any: a slashed network while it is
+    /// taken offline for now, a lock while its screen is locked, a moon
+    /// while it is asleep and can be woken (`ConnectionText.nameSymbol`).
     let nameSymbol: String?
 
     var body: some View {
@@ -479,27 +492,41 @@ private struct DeviceGroup: View {
 
 /// "Move Cursor Here", and "Rename…" for another computer, in a computer's
 /// context menu on the arrangement page; then "Wake" for another computer
-/// that can be woken.
+/// that can be woken, and "Take Offline" or "Bring Back Online" for
+/// another computer.
 private struct JumpMenu: ViewModifier {
     let shown: Bool
+    /// "Move Cursor Here" is offered: not for another computer while this
+    /// one is offline for now.
+    var jumps = true
     let enabled: Bool
     let jump: () -> Void
     let rename: (() -> Void)?
     var wake: (() -> Void)?
     var wakeEnabled = false
+    /// The words for taking it offline for now or bringing it back, and
+    /// doing it.
+    var offline: (label: String, action: () -> Void)?
 
     func body(content: Content) -> some View {
         if shown {
             content.contextMenu {
-                Button("Move Cursor Here", action: jump)
-                    .disabled(!enabled)
+                if jumps {
+                    Button("Move Cursor Here", action: jump)
+                        .disabled(!enabled)
+                }
                 if let rename {
                     Button("Rename…", action: rename)
                 }
-                if let wake {
+                if wake != nil || offline != nil {
                     Divider()
+                }
+                if let wake {
                     Button("Wake", action: wake)
                         .disabled(!wakeEnabled)
+                }
+                if let offline {
+                    Button(offline.label, action: offline.action)
                 }
             }
         } else {

@@ -211,9 +211,12 @@ pub mod service {
 /// relative mode (`Input.relative`, `RelativeMotion`, `PointerCaptured`); a
 /// device in a session below it cannot be put in relative mode. Version 6
 /// adds licenses passed between paired devices (`LicenseInfo`); a session
-/// below it gets none.
+/// below it gets none. Version 7 adds the devices taken offline for now
+/// (`OfflineDevices`); a session below it gets none, and is told instead
+/// that sharing is paused (`SessionState.sharing_paused`) while either end
+/// is taken offline, the only thing such a device understands of it.
 pub const PEER_PROTOCOL_MIN: u32 = 1;
-pub const PEER_PROTOCOL_MAX: u32 = 6;
+pub const PEER_PROTOCOL_MAX: u32 = 7;
 
 /// IPC version exchanged in `app::v1::ClientHello` / `AgentHello`.
 pub const IPC_VERSION: u32 = 1;

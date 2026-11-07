@@ -1,5 +1,6 @@
 using InputWeave.Agent;
 using InputWeave.Panel;
+using InputWeave.Settings;
 using InputWeave.Support;
 
 namespace InputWeave.Tray;
@@ -15,7 +16,7 @@ public enum TrayIconState
     Controlling,
     /// <summary>Controlled from elsewhere: the whole icon knocked out of a tile.</summary>
     Controlled,
-    /// <summary>Sharing paused: the stitches are gone.</summary>
+    /// <summary>Sharing paused, or this computer offline for now: the stitches are gone.</summary>
     Paused,
     /// <summary>Something needs the user: a dot in the corner.</summary>
     Attention,
@@ -44,7 +45,9 @@ public static class TrayIcons
         {
             return TrayIconState.Attention;
         }
-        if (!model.Status.Sharing)
+        // Offline for now, this computer neither controls another nor is
+        // controlled, as when paused; the panel's title says which it is.
+        if (!model.Status.Sharing || OfflineForNow.ThisOffline(model))
         {
             return TrayIconState.Paused;
         }
@@ -55,9 +58,14 @@ public static class TrayIcons
         return model.ControllingOther ? TrayIconState.Controlling : TrayIconState.Normal;
     }
 
-    /// <summary>The tooltip, which is also what screen readers say for the icon.</summary>
-    public static UiText Description(TrayIconState state) => state switch
+    /// <summary>
+    /// The tooltip, which is also what screen readers say for the icon: with
+    /// <paramref name="model"/>, the paused icon of a computer offline for
+    /// now says so rather than that sharing is paused.
+    /// </summary>
+    public static UiText Description(TrayIconState state, AgentSnapshot? model = null) => state switch
     {
+        TrayIconState.Paused when model is not null && OfflineForNow.ThisOffline(model) => new(TextKeys.TrayOfflineForNow),
         TrayIconState.Controlling => new(TextKeys.TrayControlling),
         TrayIconState.Controlled => new(TextKeys.TrayControlled),
         TrayIconState.Paused => new(TextKeys.TrayPaused),

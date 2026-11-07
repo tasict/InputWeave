@@ -41,7 +41,9 @@ struct ExceptionList: View {
                 if model.status.secureInput {
                     row("A password field is active, so keystrokes can't reach other computers right now.")
                 }
-                ForEach(model.offlineDevices, id: \.id) { device in
+                // Not a computer taken offline for now, which is meant to
+                // be, nor any while this one is.
+                ForEach(model.unreachableDevices, id: \.id) { device in
                     row("\(device.name) can't be reached.", action: compact ? "Troubleshoot" : nil) {
                         AppActions.showMain(openWindow, page: .troubleshooting)
                     }

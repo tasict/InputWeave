@@ -13,8 +13,9 @@ namespace InputWeave.Tests;
 /// </summary>
 public class SendTargetsTests
 {
-    private static DeviceStatus Device(string id, ConnectionState state = ConnectionState.Connected, bool filesOff = false, uint rtt = 0) =>
-        new() { Id = id, Name = id.ToUpperInvariant(), Os = "macos", State = state, FilesOff = filesOff, RttMs = rtt };
+    private static DeviceStatus Device(
+        string id, ConnectionState state = ConnectionState.Connected, bool filesOff = false, uint rtt = 0, bool offlineForNow = false) =>
+        new() { Id = id, Name = id.ToUpperInvariant(), Os = "macos", State = state, FilesOff = filesOff, RttMs = rtt, OfflineForNow = offlineForNow };
 
     private static AgentSnapshot Model(params DeviceStatus[] devices)
     {
@@ -32,8 +33,37 @@ public class SendTargetsTests
         Assert.Equal(SendUnavailable.Offline, SendTargets.Unavailable(Device("a", ConnectionState.Incompatible)));
         // Offline before files off.
         Assert.Equal(SendUnavailable.Offline, SendTargets.Unavailable(Device("a", ConnectionState.Offline, filesOff: true)));
+        // Offline for now before offline and files off.
+        Assert.Equal(
+            SendUnavailable.OfflineForNow,
+            SendTargets.Unavailable(Device("a", ConnectionState.Offline, filesOff: true, offlineForNow: true)));
         Assert.Equal(new UiText(TextKeys.ConnectionOffline), SendTargets.Reason(SendUnavailable.Offline));
         Assert.Equal(new UiText(TextKeys.SendReasonFilesOff), SendTargets.Reason(SendUnavailable.FilesOff));
+        Assert.Equal(new UiText(TextKeys.ConnectionOfflineForNow), SendTargets.Reason(SendUnavailable.OfflineForNow));
+    }
+
+    [Fact]
+    public void AComputerOfflineForNowSaysSo()
+    {
+        var group = Model(
+            Device("mini", ConnectionState.Offline, offlineForNow: true), Device("pc", rtt: 3), Device("off", ConnectionState.Offline));
+        Assert.Equal(new SendChoice.Only("pc"), SendTargets.Choose(group));
+        var targets = SendTargets.Targets(group);
+        Assert.Equal(["pc", "mini", "off"], targets.Select(t => t.Id));
+        Assert.Equal([true, false, false], targets.Select(t => t.Available));
+        Assert.Equal(
+            [
+                new UiText(TextKeys.ConnectionConnectedRtt, "3"),
+                new UiText(TextKeys.ConnectionOfflineForNow),
+                new UiText(TextKeys.ConnectionOffline),
+            ],
+            targets.Select(t => t.Status));
+        // This computer offline for now: the service reports every other one
+        // just offline, so there is nowhere to send.
+        var apart = Model(Device("mini", ConnectionState.Offline), Device("pc", ConnectionState.Offline));
+        apart.Status.OfflineForNow = true;
+        Assert.IsType<SendChoice.Nowhere>(SendTargets.Choose(apart));
+        Assert.All(SendTargets.Targets(apart), t => Assert.Equal(new UiText(TextKeys.ConnectionOffline), t.Status));
     }
 
     [Fact]

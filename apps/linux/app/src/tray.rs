@@ -36,6 +36,8 @@ pub enum TrayAction {
     Open,
     SendFiles,
     ToggleSharing,
+    /// Takes this computer offline for now, or brings it back.
+    ToggleOffline,
     ToggleLock,
     IdentifyScreens,
     AddDevice,

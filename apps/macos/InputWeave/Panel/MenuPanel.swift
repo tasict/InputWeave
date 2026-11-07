@@ -1,7 +1,8 @@
 import SwiftUI
 
 /// The menu bar panel: state and the sharing
-/// switch, the mini map (click a computer to move the cursor there, drop
+/// switch (and while this computer is offline for now, bringing it back),
+/// the mini map (click a computer to move the cursor there, drop
 /// files on one to send them), exceptions, transfers, then settings.
 struct MenuPanel: View {
     @Environment(AgentModel.self) private var model
@@ -12,6 +13,9 @@ struct MenuPanel: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             header
+            if model.link == .connected && model.offlineHere {
+                Button(OfflineText.bringBack()) { model.setOffline(model.thisDeviceID, false) }
+            }
             if model.link == .connected {
                 ArrangementCanvas(interactive: false, selection: .constant(nil), padding: 12)
                     .frame(height: 118)
@@ -45,7 +49,10 @@ struct MenuPanel: View {
             VStack(alignment: .leading, spacing: 2) {
                 Text(PanelText.title(model)).font(.headline)
                 if let subtitle = PanelText.subtitle(model) {
-                    Text(subtitle).font(.callout).foregroundStyle(.secondary)
+                    Text(subtitle)
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
             }
             Spacer()
@@ -78,6 +85,12 @@ struct MenuPanel: View {
                     Task { try? await model.setSharing(!model.status.sharing) }
                 }
                 .disabled(model.link != .connected)
+                // Taking this computer offline for now, or bringing it back;
+                // the whole group then leaves it be.
+                if let item = OfflineText.thisComputerItem(model.status) {
+                    Button(item) { model.setOffline(model.thisDeviceID, !model.status.offlineForNow) }
+                        .disabled(model.link != .connected)
+                }
                 // The service handles the lock hotkey itself, so the item has no
                 // shortcut of its own: with the panel open, both would act.
                 // The header and General › Shortcuts teach the key. While
@@ -86,9 +99,7 @@ struct MenuPanel: View {
                 Button(model.status.locked ? "Unlock" : "Lock to This Computer") {
                     Task { try? await model.setLocked(!model.status.locked) }
                 }
-                .disabled(
-                    model.link != .connected || !model.status.sharing
-                        || !model.status.controlledByDeviceID.isEmpty)
+                .disabled(!model.canToggleLock)
                 IdentifyScreensButton()
                 Button("Add Device…") { AppActions.showMain(openWindow, page: .devices, addDevice: true) }
                 if let updater = AppActions.updater {

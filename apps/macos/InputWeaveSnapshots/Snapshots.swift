@@ -318,6 +318,69 @@ final class Snapshots: XCTestCase {
         }
     }
 
+    /// The sample with a computer taken offline for now: the Windows
+    /// computer, by this Mac, with it and the Mac mini, connected, still on
+    /// InputWeave 1.0; or (`here`) this Mac, by the Windows computer, every
+    /// other computer then offline.
+    static func offlineModel(here: Bool = false) -> AgentModel {
+        let sample = sampleModel(pictures: true)
+        var status = sample.status
+        var arrangement = sample.arrangement
+        status.offlineSupported = true
+        // As the service lists them: offline, nothing measured.
+        status.devices[0].state = .offline
+        status.devices[0].rttMs = 0
+        if here {
+            status.offlineForNow = true
+            status.offlineByDeviceID = "pc"
+            status.offlineByName = status.devices[0].name
+        } else {
+            status.devices[0].offlineForNow = true
+            status.devices[0].offlineByDeviceID = "mac"
+            status.devices[0].offlineByName = "MacBook Pro"
+            status.devices[0].offlineUnaware = true
+            status.devices[1].state = .connected
+            status.devices[1].rttMs = 4
+            status.devices[1].offlineUnaware = true
+        }
+        for index in arrangement.devices.indices where !arrangement.devices[index].thisDevice {
+            let id = arrangement.devices[index].id
+            arrangement.devices[index].connected = status.devices.first { $0.id == id }?.state == .connected
+        }
+        return AgentModel.sample(status: status, arrangement: arrangement)
+    }
+
+    /// The Windows computer taken offline for now here, which like the Mac
+    /// mini still runs InputWeave 1.0: its inspector, with who did it, the
+    /// warning about the Mac mini and Bring Back Online; the Mac mini's,
+    /// with Take Offline; the slashed network after its name on the canvas,
+    /// the mini map and the devices list. And this Mac taken offline for
+    /// now: its panel, and another computer's inspector, plainly offline.
+    func testOfflineForNow() throws {
+        let service = BackgroundService()
+        for dark in [false, true] {
+            let suffix = dark ? "-dark" : ""
+            try render("arrangement-offline\(suffix)", size: CGSize(width: 900, height: 1000), dark: dark) {
+                ArrangementPage(selection: "pc").environment(Self.offlineModel()).environment(service)
+            }
+            try render("arrangement-offline-mini\(suffix)", size: CGSize(width: 900, height: 900), dark: dark) {
+                ArrangementPage(selection: "mini").environment(Self.offlineModel()).environment(service)
+            }
+            try render("devices-offline\(suffix)", size: CGSize(width: 730, height: 1000), dark: dark) {
+                DevicesPage().environment(Self.offlineModel()).environment(service)
+            }
+            try render("panel-offline\(suffix)", size: CGSize(width: 340, height: 330), dark: dark) {
+                MenuPanel().environment(Self.offlineModel()).environment(service)
+            }
+            try render("panel-offline-here\(suffix)", size: CGSize(width: 340, height: 400), dark: dark) {
+                MenuPanel().environment(Self.offlineModel(here: true)).environment(service)
+            }
+            try render("arrangement-offline-here\(suffix)", size: CGSize(width: 900, height: 900), dark: dark) {
+                ArrangementPage(selection: "mini").environment(Self.offlineModel(here: true)).environment(service)
+            }
+        }
+    }
+
     /// The Mac mini offline and asleep: in the inspector, as it can be woken,
     /// is being woken, didn't wake up, and can't be woken yet; the moon after
     /// its name on the canvas, the mini map and the devices list.
@@ -364,7 +427,8 @@ final class Snapshots: XCTestCase {
     /// Finder's Services › Send with InputWeave: the panel asking where two
     /// items go, with the Mac mini offline and a computer files are turned
     /// off with listed but off; the panel when the only computer connected
-    /// can't take them; and the notice when none is connected.
+    /// can't take them; the panel with a computer offline for now; and the
+    /// notice when none is connected.
     func testSendChooser() throws {
         let model = Self.sampleModel()
         var status = model.status
@@ -387,6 +451,9 @@ final class Snapshots: XCTestCase {
         let noneCan = AgentModel.sample(status: status)
         try render("send-chooser-none-can", size: CGSize(width: 320, height: 300)) {
             SendChooserView(model: noneCan, items: SendItems(urls), icon: icon, cancel: {}, send: { _ in })
+        }
+        try render("send-chooser-offline", size: CGSize(width: 320, height: 300)) {
+            SendChooserView(model: Self.offlineModel(), items: SendItems(urls), icon: icon, cancel: {}, send: { _ in })
         }
         for dark in [false, true] {
             try render("send-chooser\(dark ? "-dark" : "")", size: CGSize(width: 320, height: 300), dark: dark) {

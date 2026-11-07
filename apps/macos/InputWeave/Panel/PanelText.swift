@@ -16,6 +16,11 @@ enum PanelText {
             break
         }
         let status = model.status
+        // Offline for now, this computer neither controls another nor is
+        // controlled, whatever sharing says.
+        if model.offlineHere {
+            return OfflineText.panelTitle()
+        }
         // Pausing keeps the lock, but nothing crosses while paused anyway;
         // and this device's own lock means nothing while another controls it.
         if !status.sharing {
@@ -39,6 +44,9 @@ enum PanelText {
     @MainActor
     static func subtitle(_ model: AgentModel) -> String? {
         guard model.link == .connected else { return nil }
+        if model.offlineHere {
+            return OfflineText.panelSubtitle(model.status)
+        }
         if !model.status.controlledByDeviceID.isEmpty {
             return String(localized: "Move this computer's mouse to take it back.")
         }

@@ -7,6 +7,9 @@ namespace InputWeave.Settings;
 /// <summary>Why files can't go to a computer now.</summary>
 public enum SendUnavailable
 {
+    /// <summary>It was taken offline for now, here or anywhere in the group.</summary>
+    OfflineForNow,
+
     /// <summary>It is not connected.</summary>
     Offline,
 
@@ -44,15 +47,22 @@ public abstract record SendChoice
 /// </summary>
 public static class SendTargets
 {
-    /// <summary>Why files can't go to <paramref name="device"/> now, the first reason that applies; null when they can.</summary>
+    /// <summary>
+    /// Why files can't go to <paramref name="device"/> now, the first reason
+    /// that applies; null when they can. Offline for now comes before
+    /// offline, which the service reports it as too; while this computer is
+    /// offline for now, every other one is just offline.
+    /// </summary>
     public static SendUnavailable? Unavailable(DeviceStatus device) =>
-        device.State != ConnectionState.Connected ? SendUnavailable.Offline
+        device.OfflineForNow ? SendUnavailable.OfflineForNow
+        : device.State != ConnectionState.Connected ? SendUnavailable.Offline
         : device.FilesOff ? SendUnavailable.FilesOff
         : null;
 
     /// <summary>What the picker says under a computer files can't go to.</summary>
     public static UiText Reason(SendUnavailable why) => why switch
     {
+        SendUnavailable.OfflineForNow => new(TextKeys.ConnectionOfflineForNow),
         SendUnavailable.FilesOff => new(TextKeys.SendReasonFilesOff),
         _ => new(TextKeys.ConnectionOffline),
     };

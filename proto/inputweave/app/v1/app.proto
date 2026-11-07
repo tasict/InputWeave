@@ -82,9 +82,10 @@ message SetDeviceName {
 // folder's failures; the rest goes. Refused: "unknown_device";
 // "no_broker" on Windows while nobody is logged on; "too_many_items" over
 // 1,000 items, counting those still going from this device; "too_large"
-// over 10,000 files and folders or 100 GiB in all; and, when every item
-// is one that cannot be sent, the first one's reason ("not_a_file",
-// "unreadable", "symlink").
+// over 10,000 files and folders or 100 GiB in all; "offline_for_now"
+// while the device, or this one, is offline for now (SetOfflineForNow);
+// and, when every item is one that cannot be sent, the first one's reason
+// ("not_a_file", "unreadable", "symlink").
 message SendFiles {
   string device_id = 1;
   // Absolute paths of files and folders on this computer.
@@ -220,7 +221,9 @@ message SetLocked {
 // the cursor is locked, with "screen_locked" for a device whose screen is
 // locked where input from here cannot reach it, and with
 // "input_unavailable" for one no input from here reaches now
-// (DeviceStatus.input_unavailable).
+// (DeviceStatus.input_unavailable), and with "offline_for_now" for a
+// device taken offline for now, or any while this one is
+// (SetOfflineForNow).
 message JumpTo {
   string device_id = 1;
 }
@@ -372,8 +375,10 @@ message SetDeviceSpeed {
 // minutes over. Answered with Status once sent. Refused with
 // "unknown_device" for a device not trusted here (this one included),
 // "connected" while it is connected, "no_wake_data" for one that never told
-// this one how to wake it, and "not_sent" when no packet could be sent, as
-// without a network (its wake state is then WAKE_STATE_NOT_WOKEN).
+// this one how to wake it, "not_sent" when no packet could be sent, as
+// without a network (its wake state is then WAKE_STATE_NOT_WOKEN), and
+// "offline_for_now" while it, or this device, is offline for now
+// (SetOfflineForNow).
 message WakeDevice {
   string device_id = 1;
 }
@@ -387,6 +392,31 @@ message WakeDevice {
 // with Status.
 message SetWakeOnPush {
   bool on = 1;
+}
+
+// Takes a device offline for now, or brings it back: this device, or a
+// trusted one. A device taken offline for now is neither controlled by nor
+// controls any device of the group, and the clipboard and files go neither
+// to it nor from it, until someone brings it back; meanwhile every device
+// shows it offline (DeviceStatus.offline_for_now, Status.offline_for_now).
+// It holds for the whole group, which every device tells the others of, and
+// is remembered across restarts. Devices of the group still on InputWeave
+// 1.0 do not know of it (DeviceStatus.offline_unaware). Taking offline a
+// device already offline, or bringing back one that is not, changes
+// nothing. A device the group lists offline can be brought back from here
+// even when this device does not trust it. Answered with Status once it has
+// the change. Refused with "unknown_device" for a device to take offline
+// that is neither this one nor trusted here (or one to bring back that is
+// none of these nor listed offline), with "offline_for_now" for another
+// device while this one is offline for now (it can only bring itself back),
+// with "too_many" to take another device offline while 256 are offline for
+// now already, and with "list_full" when the group's list holds no room for
+// one more (devices offline merged from elsewhere fill it), and with
+// "exhausted" should no change be able to come after those listed, which
+// only entries no device takes in could bring about.
+message SetOfflineForNow {
+  string device_id = 1;
+  bool offline = 2;
 }
 
 // Lets other devices control this Mac at the login window, or stops them;
@@ -667,6 +697,7 @@ message ClientMessage {
     SetDeviceSpeed set_device_speed = 50;
     WakeDevice wake_device = 51;
     SetWakeOnPush set_wake_on_push = 52;
+    SetOfflineForNow set_offline_for_now = 53;
   }
 }
 
@@ -784,6 +815,24 @@ message DeviceStatus {
   // go; 0 while it is connected, and when not known: kept only for a device
   // that told this one how to wake it, and only from when it did.
   uint64 offline_since_unix_ms = 20;
+  // It is taken offline for now (SetOfflineForNow). Its state is then
+  // CONNECTION_STATE_OFFLINE whether or not it is connected, as is every
+  // device's while this one is (Status.offline_for_now); it cannot be woken,
+  // and the fields that hold only while connected are as for an offline
+  // device.
+  bool offline_for_now = 21;
+  // The device that took it offline for now, this one or another, and what
+  // this device calls it: the name this device's user gave it, or else the
+  // name it gave itself; empty when no name is known (never the id). Both
+  // empty when no device knows who did; the name alone when only it is
+  // known.
+  string offline_by_device_id = 22;
+  string offline_by_name = 23;
+  // It is connected and runs an InputWeave from before devices taken
+  // offline for now (1.0), so it knows nothing of them: it still controls
+  // them and is controlled by them, and shares the clipboard and files with
+  // them, where they let it.
+  bool offline_unaware = 24;
 }
 
 // Whether a device is being woken (DeviceStatus.wake).
@@ -822,6 +871,10 @@ enum ReturnReason {
   RETURN_REASON_CAPTURE_ENDED = 8;
   // The controlled device paused sharing (DeviceStatus.sharing_paused).
   RETURN_REASON_PEER_PAUSED = 9;
+  // The controlled device was taken offline for now
+  // (DeviceStatus.offline_for_now), or this one was, while it controlled
+  // another: last_return_device_id is then this device.
+  RETURN_REASON_OFFLINE_FOR_NOW = 10;
 }
 
 message Status {
@@ -844,7 +897,8 @@ message Status {
   // UI shows why whenever it increases.
   uint64 control_returns = 10;
   ReturnReason last_return = 11;
-  // The device involved, for PEER_LOST and REMOTE_ACTIVITY.
+  // The device involved, for PEER_LOST, REMOTE_ACTIVITY, SCREEN_LOCKED,
+  // INPUT_UNAVAILABLE, PEER_PAUSED and OFFLINE_FOR_NOW.
   string last_return_device_id = 12;
   bool clipboard_sync = 13;
   // The last time a clipboard moved, or was held back, through this device.
@@ -941,6 +995,39 @@ message Status {
   bool wake_supported = 41;
   // See SetWakeOnPush.
   bool wake_on_push = 42;
+  // This device is taken offline for now (SetOfflineForNow): it neither
+  // controls other devices nor is controlled by them, and shares neither the
+  // clipboard nor files with them, whatever `sharing` says; every other
+  // device's state is CONNECTION_STATE_OFFLINE meanwhile.
+  bool offline_for_now = 43;
+  // The device that took it offline, this one or another, and what this
+  // device calls it, as in DeviceStatus (both may be empty).
+  string offline_by_device_id = 44;
+  string offline_by_name = 45;
+  // Counts the devices taken offline for now or brought back from here, and
+  // the times another device took this one offline for now; the UI tells
+  // the user of last_offline_change whenever it increases. Changes other
+  // devices made to devices other than this one are not counted.
+  uint64 offline_changes = 46;
+  OfflineChange last_offline_change = 47;
+  // This agent knows devices taken offline for now: SetOfflineForNow and the
+  // offline fields of Status and DeviceStatus. Agents from before leave it
+  // false, and the apps then show nothing of it.
+  bool offline_supported = 48;
+}
+
+// A device taken offline for now or brought back (Status.offline_changes).
+message OfflineChange {
+  string device_id = 1;
+  // Taken offline; false: brought back.
+  bool offline = 2;
+  // The device that did it: this one, or another that took this one offline
+  // (empty when not known).
+  string by_device_id = 3;
+  // What this device called that device as the change came (empty when not
+  // known): an app telling of the change uses it, whatever the status says
+  // by the time it does.
+  string by_name = 4;
 }
 
 // Where a license stands on this computer. The agent keeps it; the app

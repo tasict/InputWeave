@@ -62,6 +62,8 @@ fn gtk_behaviour() {
     waking_is_offered_sent_and_said(&ui);
     the_wake_on_push_switch_follows_the_agent(&ui);
     the_send_picker_lists_every_computer_and_sends_to_the_one_chosen(&ui);
+    offline_for_now_is_offered_sent_and_shown(&ui);
+    this_computer_offline_for_now_comes_back_from_general_and_the_tray(&ui);
     synced_is_said_only_for_changes_while_shown(&ui);
     rows_show_ampersands_and_angle_brackets_as_they_are(&ui);
     the_license_page_follows_the_agent_and_sends_keys(&ui);
@@ -951,9 +953,11 @@ fn the_send_picker_lists_every_computer_and_sends_to_the_one_chosen(ui: &Rc<Ui>)
 }
 
 /// The sample with the ThinkPad (asleep two hours) in `wake`, said to be
-/// wakeable or not.
+/// wakeable or not, from a service that knows nothing of computers offline
+/// for now, so the menus hold waking alone.
 fn thinkpad(wake: inputweave_app_core::proto::WakeState, can_wake: bool) -> Snapshot {
     let mut model = sample::snapshot(SystemTime::now());
+    model.status.offline_supported = false;
     let laptop = model
         .status
         .devices
@@ -1267,6 +1271,358 @@ fn the_wake_on_push_switch_follows_the_agent(ui: &Rc<Ui>) {
     show(&model);
     assert!(!switch.is_visible());
     window.destroy();
+    ui.agent.show_fixed(sample::snapshot(SystemTime::now()));
+}
+
+/// A computer offline for now: its status, icon, who set it and the
+/// warnings in the inspector, Take Offline and Bring Back Online sent from
+/// it and from the arrangement's menu, the devices list's icon; none of it
+/// for this computer, while this one is offline for now, or from a service
+/// before it.
+fn offline_for_now_is_offered_sent_and_shown(ui: &Rc<Ui>) {
+    use crate::strings::t;
+    use inputweave_app_core::proto::SetOfflineForNow;
+    use inputweave_app_core::text::keys;
+    use std::sync::Arc;
+    ui.agent.record_fixed();
+    let inspector = Inspector::new(ui);
+    let window = window_with(inspector.widget());
+    let show = |model: &Snapshot, id: &str| {
+        ui.agent.show_fixed(model.clone());
+        inspector.update(model, Some(id));
+    };
+    let set = |id: &str, offline: bool| {
+        Command::SetOfflineForNow(SetOfflineForNow {
+            device_id: id.into(),
+            offline,
+        })
+    };
+    let older = "Studio PC runs an older InputWeave that doesn’t know about this and still controls it. Update Studio PC to 1.1.";
+
+    // The Mac mini, taken offline by the ThinkPad, with it and the Studio
+    // PC still on 1.0: the Studio PC still controls it.
+    // The rows are made again for each computer.
+    let status = || {
+        inspector
+            .status_row()
+            .and_then(|r| r.subtitle())
+            .map(|s| s.to_string())
+            .unwrap_or_default()
+    };
+    let model = sample::offline_for_now(SystemTime::now(), false);
+    show(&model, "mac");
+    settle();
+    let row = inspector.offline_widgets().expect("another computer's");
+    assert_eq!(status(), "Offline for now");
+    assert!(row.icon.is_visible());
+    assert!(row.set_by.is_visible());
+    assert_eq!(row.set_by.text(), "Set by ThinkPad.");
+    assert_eq!(inspector.offline_warnings(), [older.to_owned()]);
+    assert!(row.group.is_visible());
+    assert_eq!(
+        row.button.label().as_deref(),
+        Some(t(keys::OFFLINE_BRING_BACK).as_str())
+    );
+    let shown = labels(&inspector.widget().clone().upcast());
+    assert!(shown.contains(&t(keys::OFFLINE_EXPLAIN)), "{shown:?}");
+    assert!(shown.iter().any(|l| l == older), "{shown:?}");
+    // The Studio PC updated: its warning goes, and comes back with it.
+    let mut updated = model.clone();
+    for device in &mut updated.status.devices {
+        if device.id == "pc" {
+            device.offline_unaware = false;
+        }
+    }
+    show(&updated, "mac");
+    assert!(inspector.offline_warnings().is_empty());
+    // The Mac mini updated instead: it keeps the Studio PC away itself.
+    let mut updated = model.clone();
+    for device in &mut updated.status.devices {
+        if device.id == "mac" {
+            device.offline_unaware = false;
+        }
+    }
+    show(&updated, "mac");
+    assert!(inspector.offline_warnings().is_empty());
+    let shown = labels(&inspector.widget().clone().upcast());
+    assert!(!shown.iter().any(|l| l == older), "{shown:?}");
+    show(&model, "mac");
+    assert_eq!(inspector.offline_warnings(), [older.to_owned()]);
+    let shown = labels(&inspector.widget().clone().upcast());
+    assert_eq!(shown.iter().filter(|l| *l == older).count(), 1);
+    // No waking for it.
+    let wake = inspector.wake_widgets().expect("another computer's");
+    assert!(!wake.moon.is_visible() && !wake.button.is_visible());
+    assert!(!wake.not_told.is_visible() && !wake.not_woken.is_visible());
+    // Brought back at once, no question asked.
+    let before = ui.agent.sent().len();
+    row.button.emit_clicked();
+    settle();
+    assert_eq!(ui.agent.sent()[before..], [set("mac", false)]);
+    // Set from here.
+    show(&sample::offline_for_now(SystemTime::now(), true), "mac");
+    assert_eq!(row.set_by.text(), "Set on this computer.");
+
+    // Another computer, connected: Take Offline, and no lines under its
+    // status (the warnings are about a computer offline for now).
+    show(&model, "pc");
+    let row = inspector.offline_widgets().expect("another computer's");
+    assert!(status().starts_with("Connected"), "{}", status());
+    assert!(!row.icon.is_visible() && !row.set_by.is_visible());
+    assert!(inspector.offline_warnings().is_empty());
+    assert!(row.group.is_visible());
+    assert_eq!(
+        row.button.label().as_deref(),
+        Some(t(keys::OFFLINE_TAKE).as_str())
+    );
+    let before = ui.agent.sent().len();
+    row.button.emit_clicked();
+    settle();
+    assert_eq!(ui.agent.sent()[before..], [set("pc", true)]);
+    // Refused, as with too many computers offline for now already: as any
+    // refusal (a toast where a window shows), the button as the service
+    // says, and pressed again it asks again.
+    ui.agent.refuse_next("too_many");
+    let before = ui.agent.sent().len();
+    row.button.emit_clicked();
+    settle();
+    show(&model, "pc");
+    assert_eq!(ui.agent.sent()[before..], [set("pc", true)]);
+    assert!(row.group.is_visible() && row.button.is_sensitive());
+    assert_eq!(
+        row.button.label().as_deref(),
+        Some(t(keys::OFFLINE_TAKE).as_str())
+    );
+    let before = ui.agent.sent().len();
+    row.button.emit_clicked();
+    settle();
+    assert_eq!(ui.agent.sent()[before..], [set("pc", true)]);
+    // The ThinkPad, asleep: it can be taken offline for now too.
+    show(&model, "laptop");
+    let row = inspector.offline_widgets().expect("another computer's");
+    assert!(row.group.is_visible());
+    assert_eq!(
+        row.button.label().as_deref(),
+        Some(t(keys::OFFLINE_TAKE).as_str())
+    );
+
+    // This computer: none of it.
+    show(&model, "me");
+    assert!(inspector.offline_widgets().is_none());
+
+    // While this computer is offline for now, every other one is just
+    // offline, and can be neither taken offline nor brought back from here.
+    let away = sample::this_offline(SystemTime::now());
+    show(&away, "mac");
+    let row = inspector.offline_widgets().expect("another computer's");
+    assert_eq!(status(), "Offline");
+    assert!(!row.icon.is_visible() && !row.set_by.is_visible());
+    assert!(!row.group.is_visible());
+    let wake = inspector.wake_widgets().expect("another computer's");
+    assert!(!wake.button.is_visible() && !wake.not_told.is_visible());
+
+    // A service before it.
+    let mut old = model.clone();
+    old.status.offline_supported = false;
+    show(&old, "mac");
+    let row = inspector.offline_widgets().expect("another computer's");
+    assert_eq!(status(), "Offline");
+    assert!(!row.icon.is_visible() && !row.set_by.is_visible());
+    assert!(inspector.offline_warnings().is_empty());
+    assert!(!row.group.is_visible());
+    window.destroy();
+
+    // The devices list: the icon at the end of its row, its status.
+    let devices = crate::pages::devices::Devices::new(ui);
+    let window = window_with(devices.widget());
+    devices.update(&model);
+    assert_eq!(devices.list().offline_shown("mac"), Some(true));
+    assert_eq!(devices.list().offline_shown("pc"), Some(false));
+    assert_eq!(devices.list().moon_shown("mac"), Some(false));
+    assert_eq!(
+        devices.list().status_of("mac").as_deref(),
+        Some("Offline for now")
+    );
+    devices.update(&away);
+    assert_eq!(devices.list().offline_shown("mac"), Some(false));
+    assert_eq!(devices.list().status_of("mac").as_deref(), Some("Offline"));
+    devices.update(&old);
+    assert_eq!(devices.list().offline_shown("mac"), Some(false));
+    window.destroy();
+
+    // The arrangement's menu: after a separator, Wake where it is offered,
+    // then Take Offline or Bring Back Online; only Rename… while this
+    // computer is offline for now; this computer's as ever.
+    let canvas = ArrangementCanvas::new(ui);
+    canvas.connect_rename(|_| {});
+    let window = window_with(canvas.widget());
+    let menu = |model: &Snapshot, id: &str| {
+        ui.agent.show_fixed(model.clone());
+        canvas.update(&Arc::new(model.clone()));
+        menu_entries(canvas.menu_for_tests(id).expect("a model").upcast_ref())
+    };
+    let entry = |label: &str, action: &str| (label.to_owned(), action.to_owned());
+    let here = t(keys::CANVAS_MOVE_CURSOR_HERE);
+    let rename = t(keys::CANVAS_RENAME);
+    let take = t(keys::OFFLINE_TAKE);
+    let back = t(keys::OFFLINE_BRING_BACK);
+    assert_eq!(
+        menu(&model, "mac"),
+        [
+            entry(&here, "canvas.none"),
+            entry(&rename, "canvas.rename"),
+            entry("—", ""),
+            entry(&back, "canvas.offline")
+        ]
+    );
+    assert_eq!(
+        menu(&model, "pc"),
+        [
+            entry(&here, "canvas.jump"),
+            entry(&rename, "canvas.rename"),
+            entry("—", ""),
+            entry(&take, "canvas.offline")
+        ]
+    );
+    assert_eq!(
+        menu(&model, "laptop"),
+        [
+            entry(&here, "canvas.none"),
+            entry(&rename, "canvas.rename"),
+            entry("—", ""),
+            entry(&t(keys::WAKE), "canvas.wake"),
+            entry(&take, "canvas.offline")
+        ]
+    );
+    assert_eq!(menu(&model, "me"), [entry(&here, "canvas.none")]);
+    // Chosen: sent as the service says it is now.
+    menu(&model, "mac");
+    let before = ui.agent.sent().len();
+    canvas
+        .widget()
+        .activate_action("canvas.offline", Some(&"mac".to_variant()))
+        .expect("the canvas's offline");
+    canvas
+        .widget()
+        .activate_action("canvas.offline", Some(&"pc".to_variant()))
+        .expect("the canvas's offline");
+    settle();
+    assert_eq!(
+        ui.agent.sent()[before..],
+        [set("mac", false), set("pc", true)]
+    );
+    assert_eq!(menu(&away, "mac"), [entry(&rename, "canvas.rename")]);
+    assert_eq!(menu(&away, "laptop"), [entry(&rename, "canvas.rename")]);
+    assert_eq!(menu(&away, "me"), [entry(&here, "canvas.none")]);
+    let before = ui.agent.sent().len();
+    canvas
+        .widget()
+        .activate_action("canvas.offline", Some(&"mac".to_variant()))
+        .expect("the canvas's offline");
+    settle();
+    assert_eq!(
+        ui.agent.sent().len(),
+        before,
+        "not while this one is offline"
+    );
+    assert_eq!(
+        menu(&old, "mac"),
+        [entry(&here, "canvas.none"), entry(&rename, "canvas.rename")]
+    );
+    window.destroy();
+    ui.agent.show_fixed(sample::snapshot(SystemTime::now()));
+}
+
+/// This computer offline for now: General says so, who set it and what it
+/// means, with Bring Back Online; the tray menu takes this computer offline
+/// and brings it back, after Pause Sharing, with Lock off meanwhile and the
+/// paused icon saying why.
+fn this_computer_offline_for_now_comes_back_from_general_and_the_tray(ui: &Rc<Ui>) {
+    use crate::strings::t;
+    use crate::tray::TrayAction;
+    use inputweave_app_core::proto::SetOfflineForNow;
+    use inputweave_app_core::service::ServiceState;
+    use inputweave_app_core::status_text::TrayState;
+    use inputweave_app_core::text::keys;
+    ui.agent.record_fixed();
+    let general = crate::pages::general::General::new(ui);
+    let window = window_with(general.widget());
+    let show = |model: &Snapshot| {
+        ui.agent.show_fixed(model.clone());
+        general.update(model, ServiceState::Running);
+    };
+    let base = sample::snapshot(SystemTime::now());
+    show(&base);
+    let button = general.bring_back_button().clone();
+    assert!(!button.is_visible());
+
+    let away = sample::this_offline(SystemTime::now());
+    show(&away);
+    let status = general.status_row();
+    assert_eq!(status.title().as_str(), "This computer is offline for now");
+    assert_eq!(
+        status.subtitle().as_deref(),
+        Some(
+            "Set by Mac mini. Your other computers don’t control this one or share the clipboard and files with it."
+        )
+    );
+    assert!(button.is_visible() && button.is_sensitive());
+    assert_eq!(
+        button.label().as_deref(),
+        Some(t(keys::OFFLINE_BRING_BACK).as_str())
+    );
+    let before = ui.agent.sent().len();
+    button.emit_clicked();
+    settle();
+    assert_eq!(
+        ui.agent.sent()[before..],
+        [Command::SetOfflineForNow(SetOfflineForNow {
+            device_id: "me".into(),
+            offline: false,
+        })]
+    );
+    // From a service before it: as ever.
+    let mut old = away.clone();
+    old.status.offline_supported = false;
+    show(&old);
+    assert!(!button.is_visible());
+    assert_eq!(status.title().as_str(), t(keys::TITLE_SHARING));
+    window.destroy();
+
+    // The tray: the item after Pause Sharing, which keeps its place.
+    let items_of = |model: &Snapshot| -> Vec<(String, bool)> {
+        ui.tray_model_for_tests(model)
+            .menu
+            .iter()
+            .map(|i| (i.label.clone(), i.enabled))
+            .collect()
+    };
+    let tray = ui.tray_model_for_tests(&base);
+    assert_eq!(tray.menu[4].action, Some(TrayAction::ToggleSharing));
+    assert_eq!(tray.menu[5].action, Some(TrayAction::ToggleOffline));
+    let items = items_of(&base);
+    assert_eq!(items[5], (t(keys::MENU_TAKE_THIS_OFFLINE), true));
+    assert_eq!(items[6], (t(keys::MENU_LOCK), true));
+    let tray = ui.tray_model_for_tests(&away);
+    assert_eq!(tray.state, TrayState::Paused);
+    assert_eq!(
+        tray.description,
+        "InputWeave, this computer is offline for now"
+    );
+    assert_eq!(tray.detail, "This computer is offline for now");
+    let items = items_of(&away);
+    assert_eq!(items[0].0, "This computer is offline for now");
+    assert_eq!(items[4], (t(keys::MENU_PAUSE_SHARING), true));
+    assert_eq!(items[5], (t(keys::OFFLINE_BRING_BACK), true));
+    assert_eq!(items[6], (t(keys::MENU_LOCK), false), "nowhere to lock to");
+    // A service before it: no item.
+    let tray = ui.tray_model_for_tests(&old);
+    assert!(
+        tray.menu
+            .iter()
+            .all(|i| i.action != Some(TrayAction::ToggleOffline))
+    );
+    assert_eq!(tray.menu[5].action, Some(TrayAction::ToggleLock));
     ui.agent.show_fixed(sample::snapshot(SystemTime::now()));
 }
 

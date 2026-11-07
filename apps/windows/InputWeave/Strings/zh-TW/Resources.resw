@@ -1492,4 +1492,61 @@
   <data name="UpdateRestartNeeded" xml:space="preserve">
     <value>已安裝 InputWeave {0}，重新啟動 Windows 後就會完成更新。</value>
   </data>
+  <data name="TrayOfflineForNow" xml:space="preserve">
+    <value>InputWeave，這台暫時離線</value>
+  </data>
+  <data name="ConnectionOfflineForNow" xml:space="preserve">
+    <value>暫時離線</value>
+  </data>
+  <data name="OfflineSetBy" xml:space="preserve">
+    <value>由「{0}」設定。</value>
+  </data>
+  <data name="OfflineSetHere" xml:space="preserve">
+    <value>由這台設定。</value>
+  </data>
+  <data name="OfflineUnaware" xml:space="preserve">
+    <value>「{0}」的 InputWeave 是舊版，不認得暫時離線，仍會控制它。請把「{0}」更新到 1.1。</value>
+  </data>
+  <data name="OfflineTake" xml:space="preserve">
+    <value>暫時離線</value>
+  </data>
+  <data name="OfflineBringBack" xml:space="preserve">
+    <value>恢復連線</value>
+  </data>
+  <data name="OfflineHint" xml:space="preserve">
+    <value>所有電腦都不會控制它，也不會和它同步剪貼簿或互傳檔案，直到有人恢復連線。它自己也能恢復。</value>
+  </data>
+  <data name="MenuTakeThisOffline" xml:space="preserve">
+    <value>讓這台暫時離線</value>
+  </data>
+  <data name="TitleThisOffline" xml:space="preserve">
+    <value>這台暫時離線</value>
+  </data>
+  <data name="SubtitleThisOfflineBy" xml:space="preserve">
+    <value>由「{0}」設定。其他電腦不會控制這台，也不會和它同步剪貼簿或互傳檔案。</value>
+  </data>
+  <data name="SubtitleThisOfflineHere" xml:space="preserve">
+    <value>由這台設定。其他電腦不會控制這台，也不會和它同步剪貼簿或互傳檔案。</value>
+  </data>
+  <data name="HudOfflineForNow" xml:space="preserve">
+    <value>「{0}」暫時離線。</value>
+  </data>
+  <data name="HudBackOnline" xml:space="preserve">
+    <value>「{0}」已恢復連線。</value>
+  </data>
+  <data name="HudOfflineReturned" xml:space="preserve">
+    <value>「{0}」暫時離線，鍵鼠已回到這台。</value>
+  </data>
+  <data name="HudTookThisOffline" xml:space="preserve">
+    <value>「{0}」把這台設為暫時離線。</value>
+  </data>
+  <data name="OfflineSetByAnother" xml:space="preserve">
+    <value>由另一台電腦設定。</value>
+  </data>
+  <data name="SubtitleThisOfflineByAnother" xml:space="preserve">
+    <value>由另一台電腦設定。其他電腦不會控制這台，也不會和它同步剪貼簿或互傳檔案。</value>
+  </data>
+  <data name="HudTookThisOfflineAnother" xml:space="preserve">
+    <value>另一台電腦把這台設為暫時離線。</value>
+  </data>
 </root>

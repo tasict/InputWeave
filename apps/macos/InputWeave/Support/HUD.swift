@@ -5,7 +5,8 @@ import SwiftUI
 /// why the keyboard and mouse came back,
 /// the cursor being locked or unlocked, relative mode starting and ending,
 /// the take-back hint after the first crossings, files being dragged
-/// to another computer, and another computer being woken and waking up.
+/// to another computer, another computer being woken and waking up, and
+/// computers taken offline for now or brought back.
 /// One at a time; a new note replaces the shown one.
 @MainActor
 final class HUDController {
@@ -19,6 +20,7 @@ final class HUDController {
     private var wasLocked: Bool?
     private var relative = RelativeText.News()
     private var wake = WakeText.Watch()
+    private var offline = OfflineText.Watch()
     private var seenRefusal: UInt64?
     /// The device files from here were last seen dragged over.
     private var draggedOver = ""
@@ -48,6 +50,7 @@ final class HUDController {
             // A restarted service starts over; what it says first is no news.
             _ = relative.update(nil, at: now, preempted: true)
             _ = wake.update(nil)
+            _ = offline.update(nil)
             return nil
         }
         let dragging = status.hasDragging ? status.dragging : Inputweave_App_V1_Dragging()
@@ -76,6 +79,9 @@ final class HUDController {
         // Followed with every status, told or not: pressing Wake tells of it
         // here too, from the status the service answers with.
         let wakeNews = wake.update(status)
+        // Likewise; the keyboard and mouse coming back from a computer taken
+        // offline for now says it instead.
+        let offlineNews = offline.update(status)
         if let message = back ?? refused {
             return message
         }
@@ -94,6 +100,9 @@ final class HUDController {
         }
         if let wasLocked, status.locked != wasLocked {
             return lockMessage(status, model: model)
+        }
+        if let offlineNews {
+            return OfflineText.message(offlineNews, name: model.name(of: offlineNews))
         }
         if let wakeNews {
             return WakeText.message(wakeNews, name: model.name(of: wakeNews.device))
@@ -137,6 +146,9 @@ final class HUDController {
         case .inputUnavailable: String(localized: "“\(name)” can't take input from here right now, so the keyboard and mouse are back on this computer.")
         case .peerPaused: String(localized: "“\(name)” paused sharing, so the keyboard and mouse are back on this computer.")
         case .captureEnded: String(localized: "The desktop took the keyboard and mouse back to this computer.")
+        // This computer taken offline for now while it controlled another:
+        // what took it offline says so.
+        case .offlineForNow: status.lastReturnDeviceID == status.thisDeviceID ? nil : OfflineText.wentOffline(name)
         default: nil
         }
     }

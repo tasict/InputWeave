@@ -14,6 +14,9 @@ enum StatusIcon {
         case controlled
         /// Sharing paused: the stitches are gone.
         case paused
+        /// This computer is offline for now: drawn as paused, as it neither
+        /// controls nor is controlled then either; only the words differ.
+        case offlineForNow
         /// Something needs the user: a dot in the corner.
         case attention
     }
@@ -35,6 +38,7 @@ enum StatusIcon {
         case .controlling: String(localized: "InputWeave, controlling another computer")
         case .controlled: String(localized: "InputWeave, controlled by another computer")
         case .paused: String(localized: "InputWeave, sharing paused")
+        case .offlineForNow: String(localized: "InputWeave, this computer is offline for now")
         case .attention: String(localized: "InputWeave, needs attention")
         }
     }
@@ -59,7 +63,7 @@ enum StatusIcon {
         ink.setFill()
         screen(left, lit: false)
         screen(right, lit: state == .controlling)
-        if state != .paused {
+        if state != .paused && state != .offlineForNow {
             for y in stitchYs {
                 let stitch = NSBezierPath()
                 stitch.move(to: NSPoint(x: 9, y: y))
@@ -110,6 +114,8 @@ extension StatusIcon.State {
         let status = model.status
         if !model.missingPermissions.isEmpty {
             self = .attention
+        } else if model.offlineHere {
+            self = .offlineForNow
         } else if !status.sharing {
             self = .paused
         } else if !status.controlledByDeviceID.isEmpty {

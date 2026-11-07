@@ -121,6 +121,26 @@
         }
       }
     },
+    "%@ is back online.": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "「%@」已恢復連線。"
+          }
+        }
+      }
+    },
+    "%@ is offline for now.": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "「%@」暫時離線。"
+          }
+        }
+      }
+    },
     "%@ is pairing with another computer. Try again in a moment.": {
       "localizations": {
         "zh-Hant": {
@@ -157,6 +177,26 @@
           "stringUnit": {
             "state": "translated",
             "value": "「%@」的 InputWeave 版本無法和這台配對，請將兩台都更新。"
+          }
+        }
+      }
+    },
+    "%@ runs an older InputWeave that doesn’t know about this and still controls it. Update %@ to 1.1.": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "「%1$@」的 InputWeave 是舊版，不認得暫時離線，仍會控制它。請把「%2$@」更新到 1.1。"
+          }
+        }
+      }
+    },
+    "%@ took this computer offline for now.": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "「%@」把這台設為暫時離線。"
           }
         }
       }
@@ -615,6 +655,16 @@
         }
       }
     },
+    "Another computer took this computer offline for now.": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "另一台電腦把這台設為暫時離線。"
+          }
+        }
+      }
+    },
     "Another pairing is in progress.": {
       "localizations": {
         "zh-Hant": {
@@ -681,6 +731,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "背景服務"
+          }
+        }
+      }
+    },
+    "Bring Back Online": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "恢復連線"
           }
         }
       }
@@ -1615,6 +1675,16 @@
         }
       }
     },
+    "InputWeave, this computer is offline for now": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "InputWeave，這台暫時離線"
+          }
+        }
+      }
+    },
     "Install InputWeave on another computer on this network, then add it here.": {
       "localizations": {
         "zh-Hant": {
@@ -1691,6 +1761,116 @@
           "stringUnit": {
             "state": "translated",
             "value": "跳到第 N 台電腦"
+          }
+        }
+      }
+    },
+    "None of your computers control it or share the clipboard and files with it until someone brings it back. It can bring itself back too.": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "所有電腦都不會控制它，也不會和它同步剪貼簿或互傳檔案，直到有人恢復連線。它自己也能恢復。"
+          }
+        }
+      }
+    },
+    "Offline for now": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "暫時離線"
+          }
+        }
+      }
+    },
+    "Set by %@.": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "由「%@」設定。"
+          }
+        }
+      }
+    },
+    "Set by %@. Your other computers don’t control this one or share the clipboard and files with it.": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "由「%@」設定。其他電腦不會控制這台，也不會和它同步剪貼簿或互傳檔案。"
+          }
+        }
+      }
+    },
+    "Set by another computer.": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "由另一台電腦設定。"
+          }
+        }
+      }
+    },
+    "Set by another computer. Your other computers don’t control this one or share the clipboard and files with it.": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "由另一台電腦設定。其他電腦不會控制這台，也不會和它同步剪貼簿或互傳檔案。"
+          }
+        }
+      }
+    },
+    "Set on this computer.": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "由這台設定。"
+          }
+        }
+      }
+    },
+    "Set on this computer. Your other computers don’t control this one or share the clipboard and files with it.": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "由這台設定。其他電腦不會控制這台，也不會和它同步剪貼簿或互傳檔案。"
+          }
+        }
+      }
+    },
+    "Take Offline": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "暫時離線"
+          }
+        }
+      }
+    },
+    "Take This Computer Offline": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "讓這台暫時離線"
+          }
+        }
+      }
+    },
+    "This computer is offline for now": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "這台暫時離線"
           }
         }
       }
@@ -4741,6 +4921,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "InputWeave 無法在這台電腦移除授權。"
+          }
+        }
+      }
+    },
+    "“%@” went offline for now. The keyboard and mouse are back on this computer.": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "「%@」暫時離線，鍵鼠已回到這台。"
           }
         }
       }

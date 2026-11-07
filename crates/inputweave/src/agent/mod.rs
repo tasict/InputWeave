@@ -72,7 +72,9 @@ pub(crate) use diagnostics::utc;
 pub use digest::executable_digest;
 pub use directory::DeviceError;
 pub use drag::{ArrivedDrag, DragEnd, DragEvent, DraggedItem, Dragging, EndedDrag};
-pub use engine::{DragError, HotkeysError, JumpError, RearrangeError, RelativeError, WakeError};
+pub use engine::{
+    DragError, HotkeysError, JumpError, OfflineError, RearrangeError, RelativeError, WakeError,
+};
 pub use files::{
     BatchInfo, Direction, FailedEntry, FileSettings, FolderProgress, RemoveError, SendError,
     TransferState, TransferStatus,
@@ -86,13 +88,14 @@ pub use listing::{MAX_BYTES, MAX_FILES, MAX_ITEMS};
 pub use pairing::{Failure, NotWaiting, PairingPeer, PairingStatus};
 pub use previews::{Pictures, Preview};
 pub use status::{
-    ArrangedDevice, Arrangement, CursorCrossed, DeviceState, RelativeEnded, RelativeMode, Status,
-    hotkeys_to_proto,
+    ArrangedDevice, Arrangement, CursorCrossed, DeviceState, OfflineChange, RelativeEnded,
+    RelativeMode, Status, hotkeys_to_proto,
 };
 pub use wake::{WakeData, WakeState};
 
 use crate::config::{Config, ConfigError};
 use crate::convert;
+use crate::offline_file::OfflineDoc;
 use crate::store::DevicesFile;
 use directory::Directory;
 use engine::{Engine, EngineEvent, EngineParts, HotkeysChange, PlatformState};
@@ -142,6 +145,9 @@ pub struct Options {
     /// memory only: the login window's agent reads them from the user's
     /// folder, which it must never write (`login_window`).
     pub devices: Option<DevicesFile>,
+    /// The devices taken offline for now to start from when there is no
+    /// `devices_file`, kept in memory only, as `devices` is.
+    pub offline: Option<OfflineDoc>,
     /// Tell other devices this agent cannot read its desktop pictures, so
     /// they keep the ones they have of it: the login window's agent runs as
     /// a user's device without that user's desktop.
@@ -326,13 +332,21 @@ pub async fn start(
         .as_deref()
         .map(crate::wake_file::WakeFile::load)
         .unwrap_or_default();
-    let directory = Arc::new(Directory::with_wake(
-        &config,
-        options.devices_file,
-        stored,
-        wake_path,
-        wake,
-    ));
+    // The devices of the group taken offline for now, in a file of their
+    // own beside the devices file, read as leniently.
+    let offline_path = options
+        .devices_file
+        .as_deref()
+        .map(crate::paths::offline_file);
+    let offline = match (&offline_path, &options.offline) {
+        (Some(path), _) => OfflineDoc::load(path),
+        (None, Some(doc)) => doc.clone(),
+        (None, None) => OfflineDoc::default(),
+    };
+    let directory = Arc::new(
+        Directory::with_wake(&config, options.devices_file, stored, wake_path, wake)
+            .with_offline(offline_path, offline),
+    );
     // A damaged license file never keeps the agent from starting. One that
     // cannot be read makes the license unavailable, and is never saved
     // over, until the engine can read it.
@@ -847,6 +861,29 @@ async fn set_wake_on_push(engine: &mpsc::UnboundedSender<EngineEvent>, on: bool)
     true
 }
 
+/// Takes `device` offline for now or brings it back; returns once the
+/// status shows it and it is in the offline file, or could not be written
+/// there (logged), waiting for the file [`APPLY_TIMEOUT`] at most.
+async fn set_offline_for_now(
+    engine: &mpsc::UnboundedSender<EngineEvent>,
+    device: &str,
+    offline: bool,
+) -> Result<(), OfflineError> {
+    let (reply, rx) = oneshot::channel();
+    engine
+        .send(EngineEvent::SetOfflineForNow {
+            device: device.to_owned(),
+            offline,
+            reply,
+        })
+        .map_err(|_| OfflineError::Stopping)?;
+    let saved = rx.await.map_err(|_| OfflineError::Stopping)??;
+    if let Some(saved) = saved {
+        let _ = tokio::time::timeout(APPLY_TIMEOUT, saved).await;
+    }
+    Ok(())
+}
+
 /// A diagnostics report of the agent as it is now.
 async fn diagnostics_report(
     fixed: &Arc<diagnostics::Fixed>,
@@ -862,6 +899,7 @@ async fn diagnostics_report(
         transfers: files.transfers(),
         pacing: files.pacing(),
         receive_folder: files.settings().folder,
+        offline: directory.offline(),
     };
     let fixed = fixed.clone();
     tokio::task::spawn_blocking(move || {
@@ -1467,6 +1505,16 @@ impl AgentHandle {
     /// (`SetWakeOnPush`).
     pub async fn set_wake_on_push(&self, on: bool) {
         set_wake_on_push(&self.engine_tx, on).await;
+    }
+
+    /// Takes a device, this one or a trusted one, offline for now, or
+    /// brings it back (`SetOfflineForNow`).
+    pub async fn set_offline_for_now(
+        &self,
+        device: &str,
+        offline: bool,
+    ) -> Result<(), OfflineError> {
+        set_offline_for_now(&self.engine_tx, device, offline).await
     }
 
     /// Enters a license key here, for the app to activate (`SetLicenseKey`).

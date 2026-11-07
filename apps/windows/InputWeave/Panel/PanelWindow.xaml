@@ -5,7 +5,8 @@
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     Title="InputWeave">
 
-    <!-- State and the sharing switch, the mini map,
+    <!-- State and the sharing switch (and Bring Back Online while this
+         computer is offline for now), the mini map,
          exceptions, then the footer. 340 wide, as tall as its content. -->
     <StackPanel x:Name="Root" Width="340" VerticalAlignment="Top" Padding="16,14,16,12" Spacing="12">
         <StackPanel.KeyboardAccelerators>
@@ -35,6 +36,14 @@
                 OnContent=""
                 Toggled="OnSharingToggled" />
         </Grid>
+
+        <!-- While this computer is offline for now: brings it back. -->
+        <Button
+            x:Name="BringBackButton"
+            HorizontalAlignment="Left"
+            Style="{StaticResource AccentButtonStyle}"
+            Visibility="Collapsed"
+            Click="OnBringBack" />
 
         <!-- The mini map: the arranged computers, their desktop pictures, the
              seams and the keyboard-and-mouse badge. A click on a computer

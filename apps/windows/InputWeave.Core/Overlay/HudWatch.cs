@@ -9,12 +9,14 @@ namespace InputWeave.Overlay;
 /// macOS app's HUDController: why the keyboard and mouse came back, the
 /// cursor being locked or unlocked, relative mode starting and ending,
 /// the take-back hint the first three
-/// times this computer takes control of another, and another computer
-/// being woken and waking up. It compares each state
+/// times this computer takes control of another, another computer
+/// being woken and waking up, and computers taken offline for now or
+/// brought back. It compares each state
 /// with the one before, so only a change is news; the first state seen
-/// after the app starts is only remembered, and so are relative mode and
-/// waking in the first state after the service is reached again. Windows
-/// has no secure keyboard entry, so there is no note for it.
+/// after the app starts is only remembered, and so are relative mode,
+/// waking and computers taken offline in the first state after the service
+/// is reached again. Windows has no secure keyboard entry, so there is no
+/// note for it.
 /// </summary>
 public sealed class HudWatch
 {
@@ -40,6 +42,8 @@ public sealed class HudWatch
     private bool wakePrimed;
     /// <summary>How far waking each other computer was in the last state; a connected one counts as not being woken.</summary>
     private readonly Dictionary<string, WakeState> wakes = [];
+    private bool offlinePrimed;
+    private ulong offlineChanges;
 
     /// <summary>What was told about relative mode beginning or ending by itself on a computer.</summary>
     private sealed class Told
@@ -61,6 +65,7 @@ public sealed class HudWatch
             // A restarted service starts over; what it says first is no news.
             relativePrimed = false;
             wakePrimed = false;
+            offlinePrimed = false;
             return null;
         }
         var status = snapshot.Status;
@@ -81,12 +86,16 @@ public sealed class HudWatch
         relativeDevice = status.RelativeMouse;
         relativeEnds = status.RelativeEnds;
         seenRefusal = snapshot.RelativeRefusal?.Serial ?? 0;
-        // Taken in now, so a note told below does not leave waking behind.
+        // Taken in now, so a note told below does not leave waking or a
+        // computer taken offline behind.
         var woken = WakeMessage(snapshot);
+        var offline = OfflineMessage(snapshot);
         if (first)
         {
             return null;
         }
+        // The keyboard and mouse coming back from a computer taken offline
+        // for now says so, rather than that it was taken offline.
         if (status.ControlReturns > returnsBefore && ReturnMessage(snapshot) is { } back)
         {
             return back;
@@ -112,7 +121,12 @@ public sealed class HudWatch
         {
             return LockMessage(snapshot);
         }
-        // Waking before the take-back hint, as the other apps have it.
+        // Then a computer taken offline for now or brought back, then
+        // waking, both before the take-back hint, as the other apps have it.
+        if (offline is not null)
+        {
+            return offline;
+        }
         if (woken is not null)
         {
             return woken;
@@ -173,6 +187,50 @@ public sealed class HudWatch
             wakes.Remove(gone);
         }
         return message;
+    }
+
+    /// <summary>
+    /// A computer taken offline for now or brought back since the last
+    /// state, as the service counts them (Status.offline_changes) and says
+    /// which (Status.last_offline_change): taken offline or brought back
+    /// from here, this one included ("X is offline for now.", "X is back
+    /// online."; nothing as this one brings itself back), or this one taken
+    /// offline by another ("X took this computer offline for now.", by the
+    /// name this computer gave that one as the change came, whatever the
+    /// status says by now, or "Another computer…" without one). Only from a
+    /// service that knows
+    /// it; the first state after it is reached again is only remembered, and
+    /// so is a count lower than before, as from a service started again.
+    /// </summary>
+    private UiText? OfflineMessage(AgentSnapshot snapshot)
+    {
+        var status = snapshot.Status;
+        bool primed = offlinePrimed;
+        ulong before = offlineChanges;
+        offlinePrimed = true;
+        offlineChanges = status.OfflineChanges;
+        if (!snapshot.OfflineSupported || !primed || status.OfflineChanges <= before
+            || status.LastOfflineChange is not { } change)
+        {
+            return null;
+        }
+        var self = status.ThisDeviceId;
+        // An unknown computer did it when the id is empty, never this one.
+        if (change.ByDeviceId.Length != 0 && change.ByDeviceId == self)
+        {
+            if (change.Offline)
+            {
+                return new UiText(TextKeys.HudOfflineForNow, snapshot.NameOf(change.DeviceId));
+            }
+            return change.DeviceId == self ? null : new UiText(TextKeys.HudBackOnline, snapshot.NameOf(change.DeviceId));
+        }
+        if (change.DeviceId == self && change.Offline)
+        {
+            return change.ByName.Length != 0
+                ? new UiText(TextKeys.HudTookThisOffline, change.ByName)
+                : new UiText(TextKeys.HudTookThisOfflineAnother);
+        }
+        return null;
     }
 
     /// <summary>
@@ -261,6 +319,10 @@ public sealed class HudWatch
         var name = snapshot.NameOf(snapshot.Status.LastReturnDeviceId);
         return snapshot.Status.LastReturn switch
         {
+            // This computer taken offline while it controlled another: what
+            // happened to it says enough (OfflineMessage).
+            ReturnReason.OfflineForNow when snapshot.Status.LastReturnDeviceId == snapshot.ThisDeviceId => null,
+            ReturnReason.OfflineForNow => new UiText(TextKeys.HudOfflineReturned, name),
             ReturnReason.PeerLost => new UiText(TextKeys.HudPeerLost, name),
             ReturnReason.RemoteActivity => new UiText(TextKeys.HudRemoteActivity, name),
             ReturnReason.Hotkey => new UiText(TextKeys.HudBackHere),

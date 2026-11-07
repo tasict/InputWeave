@@ -2,7 +2,9 @@ import SwiftUI
 
 /// The inspector's status row: how the computer is connected; while
 /// another computer is offline, how long it has been, Wake when it can be
-/// woken, and a note on waking it (`WakeText`).
+/// woken, and a note on waking it (`WakeText`); while it is taken offline
+/// for now, which computer did it, and the computers that still control it
+/// (`OfflineText`).
 struct DeviceStatusRow: View {
     @Environment(AgentModel.self) private var model
     let deviceID: String
@@ -12,7 +14,9 @@ struct DeviceStatusRow: View {
         if thisDevice {
             LabeledContent("Status") { Text("This computer") }
         } else if let device = model.device(deviceID) {
-            if device.state == .connected {
+            if OfflineText.shows(device, status: model.status) {
+                OfflineForNowStatus(device: device)
+            } else if device.state == .connected {
                 LabeledContent("Status") {
                     Text(ConnectionText.connected(
                         rttMs: device.rttMs, screenLocked: device.screenLocked,
@@ -32,6 +36,9 @@ struct DeviceStatusRow: View {
     private func offline(_ device: DeviceStatus) -> some View {
         let supported = model.wakeSupported
         let offer = model.wakeOffer(deviceID)
+        // While this computer is offline for now, every other one is
+        // plainly offline, and none can be woken from here.
+        let note = model.offlineHere ? nil : WakeText.note(device, supported: supported)
         return TimelineView(.periodic(from: .now, by: 30)) { context in
             let text = WakeText.offlineStatus(device, supported: supported, now: context.date)
             let waking = WakeText.waking(device, supported: supported)
@@ -64,9 +71,49 @@ struct DeviceStatusRow: View {
                     }
                     .accessibilityElement(children: .contain)
                 }
-                if let note = WakeText.note(device, supported: supported) {
+                if let note {
                     WakeNote(note: note, name: device.name)
                 }
+            }
+        }
+    }
+}
+
+/// The status of another computer taken offline for now: the slashed
+/// network and "Offline for now", with which computer took it offline
+/// beneath; then, while it runs InputWeave 1.0 itself, a warning for each
+/// other computer of the group still on 1.0, which knows nothing of it and
+/// still controls it.
+private struct OfflineForNowStatus: View {
+    @Environment(AgentModel.self) private var model
+    let device: DeviceStatus
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            LabeledContent("Status") {
+                VStack(alignment: .trailing, spacing: 2) {
+                    HStack(spacing: 6) {
+                        // The words say it.
+                        Image(systemName: OfflineText.symbol)
+                            .accessibilityHidden(true)
+                        Text(OfflineText.status())
+                    }
+                    Text(OfflineText.setBy(device, thisDeviceID: model.thisDeviceID))
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                        .multilineTextAlignment(.trailing)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+            ForEach(OfflineText.unaware(for: device, status: model.status), id: \.id) { older in
+                HStack(alignment: .firstTextBaseline, spacing: 6) {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .foregroundStyle(.orange)
+                        .accessibilityHidden(true)
+                    Text(OfflineText.unawareWarning(name: older.name))
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                .font(.callout)
             }
         }
     }

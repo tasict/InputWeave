@@ -14,6 +14,7 @@ use super::files::TransferStatus;
 use super::peers::HEARTBEAT;
 use super::status::{Arrangement, Status};
 use super::throttle::{PacingStatus, THRESHOLD};
+use crate::offline_file::describe_setter;
 
 /// The whole report stays under this, well inside an IPC frame.
 pub(crate) const MAX_REPORT: usize = 1024 * 1024;
@@ -44,6 +45,8 @@ pub(crate) struct Snapshot {
     /// How fast files may go to each device.
     pub(crate) pacing: Vec<PacingStatus>,
     pub(crate) receive_folder: Option<PathBuf>,
+    /// The group's document of the devices taken offline for now.
+    pub(crate) offline: crate::offline_file::OfflineDoc,
 }
 
 /// Builds the report. Reads the logs, so call it off the async runtime.
@@ -172,6 +175,30 @@ pub(crate) fn report(fixed: &Fixed, snapshot: &Snapshot, now: SystemTime) -> Str
         }
     );
 
+    // Every device the group lists offline, those not trusted here too:
+    // they can be brought back from here by id.
+    let listed: Vec<String> = snapshot
+        .offline
+        .offline()
+        .map(|(id, e)| {
+            let by = describe_setter(
+                &snapshot.status.this_device,
+                e.by.as_deref().unwrap_or_default(),
+                &e.by_name,
+            );
+            format!("{id} ({by})")
+        })
+        .collect();
+    let _ = writeln!(
+        out,
+        "Offline for now: {}",
+        if listed.is_empty() {
+            "none".to_owned()
+        } else {
+            listed.join(", ")
+        }
+    );
+
     section(&mut out, "Connections");
     if snapshot.status.devices.is_empty() {
         let _ = writeln!(out, "none");
@@ -202,10 +229,18 @@ pub(crate) fn report(fixed: &Fixed, snapshot: &Snapshot, now: SystemTime) -> Str
                 "connected, round trip {} ms{locked}{held}{unavailable}{paused}",
                 d.rtt_ms
             )
+        } else if let Some((by, name)) = &d.offline_by {
+            let by = describe_setter(&snapshot.status.this_device, by, name);
+            format!("offline for now, {by}")
         } else {
             "offline".to_owned()
         };
-        let _ = writeln!(out, "{} ({}): {state}", d.id, d.name);
+        let unaware = if d.offline_unaware {
+            "; knows nothing of devices taken offline for now"
+        } else {
+            ""
+        };
+        let _ = writeln!(out, "{} ({}): {state}{unaware}", d.id, d.name);
     }
     section(&mut out, "Clipboard offers");
     let lazy = &snapshot.status.lazy_clipboard;
@@ -494,6 +529,95 @@ mod tests {
     }
 
     #[test]
+    fn the_report_says_who_took_devices_offline_as_ctl_does() {
+        use super::super::directory::Peer;
+        use super::super::folder_access::FolderAccess;
+        use super::super::status::DeviceState;
+        use crate::config::Config;
+        use crate::offline_file::{Entry, OfflineDoc};
+        use iw_core::hotkey::Hotkeys;
+
+        let mut status = Status::initial(
+            &Config::default(),
+            &[],
+            true,
+            false,
+            Hotkeys::default(),
+            false,
+            FolderAccess::default(),
+        );
+        let peer = Peer {
+            id: "x".to_owned(),
+            name: "x".to_owned(),
+            reported_name: "x".to_owned(),
+            fingerprint: iw_net::Fingerprint::from_bytes([1; 32]),
+            os: iw_proto::peer::v1::Os::Linux,
+            origin: super::super::directory::Origin::Paired,
+            address: None,
+            last_address: None,
+            swap_gui_and_control: false,
+            side: crate::store::Side::Right,
+            clipboard_off: false,
+            files_off: false,
+            cursor_speed: iw_core::speed::CursorSpeed::NORMAL,
+            wake: None,
+        };
+        let shown = |id: &str, by: Option<(&str, &str)>| DeviceState {
+            id: id.to_owned(),
+            name: id.to_owned(),
+            offline_for_now: by.is_some(),
+            offline_by: by.map(|(id, name)| (id.to_owned(), name.to_owned())),
+            ..DeviceState::of(&peer)
+        };
+        status.devices = vec![
+            shown("a", Some(("", ""))),
+            shown("b", Some(("", "Studio PC"))),
+        ];
+        let entry = |by: Option<&str>, name: &str| Entry {
+            version: 1,
+            author: String::new(),
+            offline: true,
+            by: by.map(str::to_owned),
+            by_name: name.to_owned(),
+        };
+        let offline = OfflineDoc {
+            devices: [
+                ("a".to_owned(), entry(None, "")),
+                ("b".to_owned(), entry(None, "Studio PC")),
+                ("ghost".to_owned(), entry(Some("zed"), "")),
+            ]
+            .into(),
+        };
+        let fixed = Fixed {
+            fingerprint: String::new(),
+            listen: String::new(),
+            config: String::new(),
+            devices_file: None,
+            log_files: Vec::new(),
+            journal_unit: None,
+            agent_digest: String::new(),
+        };
+        let snapshot = Snapshot {
+            status,
+            arrangement: Arrangement::default(),
+            peers: Vec::new(),
+            transfers: Vec::new(),
+            pacing: Vec::new(),
+            receive_folder: None,
+            offline,
+        };
+        let out = report(&fixed, &snapshot, UNIX_EPOCH);
+        for expected in [
+            "Offline for now: a (set by another computer), b (set by Studio PC), ghost (set by zed)\n",
+            "a (a): offline for now, set by another computer\n",
+            "b (b): offline for now, set by Studio PC\n",
+        ] {
+            assert!(out.contains(expected), "no {expected:?} in\n{out}");
+        }
+        assert!(!out.contains("set by \n") && !out.contains("()"), "{out}");
+    }
+
+    #[test]
     fn the_report_never_holds_the_license_key_or_whose_it_is() {
         use super::super::folder_access::FolderAccess;
         use super::super::license::{LicenseState, LicenseStatus, LicensedDevice};
@@ -545,6 +669,7 @@ mod tests {
             transfers: Vec::new(),
             pacing: Vec::new(),
             receive_folder: None,
+            offline: Default::default(),
         };
         let out = report(&fixed, &snapshot, UNIX_EPOCH);
         for secret in [KEY, ACTIVATION, EMAIL, "SECRET-KEY"] {

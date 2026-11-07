@@ -145,6 +145,7 @@ targets:
       - path: InputWeave/Settings/WakeText.swift
       - path: InputWeave/Support/SendTargets.swift
       - path: InputWeave/Support/SendChooser.swift
+      - path: InputWeave/Settings/OfflineText.swift
       - path: InputWeave/Support/AgoText.swift
       - path: InputWeave/Support/ProblemWatch.swift
       - path: InputWeave/Support/LaunchReveal.swift

@@ -1602,4 +1602,61 @@
   <data name="UpdateRestartNeeded" xml:space="preserve">
     <value>InputWeave {0} is installed. Restart Windows to finish updating.</value>
   </data>
+  <data name="TrayOfflineForNow" xml:space="preserve">
+    <value>InputWeave, this computer is offline for now</value>
+  </data>
+  <data name="ConnectionOfflineForNow" xml:space="preserve">
+    <value>Offline for now</value>
+  </data>
+  <data name="OfflineSetBy" xml:space="preserve">
+    <value>Set by {0}.</value>
+  </data>
+  <data name="OfflineSetHere" xml:space="preserve">
+    <value>Set on this computer.</value>
+  </data>
+  <data name="OfflineUnaware" xml:space="preserve">
+    <value>{0} runs an older InputWeave that doesn’t know about this and still controls it. Update {0} to 1.1.</value>
+  </data>
+  <data name="OfflineTake" xml:space="preserve">
+    <value>Take Offline</value>
+  </data>
+  <data name="OfflineBringBack" xml:space="preserve">
+    <value>Bring Back Online</value>
+  </data>
+  <data name="OfflineHint" xml:space="preserve">
+    <value>None of your computers control it or share the clipboard and files with it until someone brings it back. It can bring itself back too.</value>
+  </data>
+  <data name="MenuTakeThisOffline" xml:space="preserve">
+    <value>Take This Computer Offline</value>
+  </data>
+  <data name="TitleThisOffline" xml:space="preserve">
+    <value>This computer is offline for now</value>
+  </data>
+  <data name="SubtitleThisOfflineBy" xml:space="preserve">
+    <value>Set by {0}. Your other computers don’t control this one or share the clipboard and files with it.</value>
+  </data>
+  <data name="SubtitleThisOfflineHere" xml:space="preserve">
+    <value>Set on this computer. Your other computers don’t control this one or share the clipboard and files with it.</value>
+  </data>
+  <data name="HudOfflineForNow" xml:space="preserve">
+    <value>{0} is offline for now.</value>
+  </data>
+  <data name="HudBackOnline" xml:space="preserve">
+    <value>{0} is back online.</value>
+  </data>
+  <data name="HudOfflineReturned" xml:space="preserve">
+    <value>{0} went offline for now. The keyboard and mouse are back on this computer.</value>
+  </data>
+  <data name="HudTookThisOffline" xml:space="preserve">
+    <value>{0} took this computer offline for now.</value>
+  </data>
+  <data name="OfflineSetByAnother" xml:space="preserve">
+    <value>Set by another computer.</value>
+  </data>
+  <data name="SubtitleThisOfflineByAnother" xml:space="preserve">
+    <value>Set by another computer. Your other computers don’t control this one or share the clipboard and files with it.</value>
+  </data>
+  <data name="HudTookThisOfflineAnother" xml:space="preserve">
+    <value>Another computer took this computer offline for now.</value>
+  </data>
 </root>

@@ -486,6 +486,25 @@ pub const UPDATES_VERSION: &str = "UpdatesVersion";
 pub const UPDATES_BODY: &str = "UpdatesBody";
 pub const UPDATES_SOURCE: &str = "UpdatesSource";
 pub const UPDATES_NOTE: &str = "UpdatesNote";
+pub const CONNECTION_OFFLINE_FOR_NOW: &str = "ConnectionOfflineForNow";
+pub const OFFLINE_SET_BY: &str = "OfflineSetBy";
+pub const OFFLINE_SET_HERE: &str = "OfflineSetHere";
+pub const OFFLINE_UNAWARE: &str = "OfflineUnaware";
+pub const OFFLINE_TAKE: &str = "OfflineTake";
+pub const OFFLINE_BRING_BACK: &str = "OfflineBringBack";
+pub const OFFLINE_EXPLAIN: &str = "OfflineExplain";
+pub const MENU_TAKE_THIS_OFFLINE: &str = "MenuTakeThisOffline";
+pub const TITLE_THIS_OFFLINE: &str = "TitleThisOffline";
+pub const SUBTITLE_THIS_OFFLINE_BY: &str = "SubtitleThisOfflineBy";
+pub const SUBTITLE_THIS_OFFLINE_HERE: &str = "SubtitleThisOfflineHere";
+pub const TRAY_THIS_OFFLINE: &str = "TrayThisOffline";
+pub const HUD_OFFLINE: &str = "HudOffline";
+pub const HUD_BACK_ONLINE: &str = "HudBackOnline";
+pub const HUD_OFFLINE_RETURNED: &str = "HudOfflineReturned";
+pub const HUD_TOOK_THIS_OFFLINE: &str = "HudTookThisOffline";
+pub const OFFLINE_SET_BY_UNKNOWN: &str = "OfflineSetByUnknown";
+pub const SUBTITLE_THIS_OFFLINE_BY_UNKNOWN: &str = "SubtitleThisOfflineByUnknown";
+pub const HUD_TOOK_THIS_OFFLINE_UNKNOWN: &str = "HudTookThisOfflineUnknown";
 
 pub const ALL: &[&str] = &[
     TITLE_UPDATING,
@@ -969,4 +988,23 @@ pub const ALL: &[&str] = &[
     UPDATES_BODY,
     UPDATES_SOURCE,
     UPDATES_NOTE,
+    CONNECTION_OFFLINE_FOR_NOW,
+    OFFLINE_SET_BY,
+    OFFLINE_SET_HERE,
+    OFFLINE_UNAWARE,
+    OFFLINE_TAKE,
+    OFFLINE_BRING_BACK,
+    OFFLINE_EXPLAIN,
+    MENU_TAKE_THIS_OFFLINE,
+    TITLE_THIS_OFFLINE,
+    SUBTITLE_THIS_OFFLINE_BY,
+    SUBTITLE_THIS_OFFLINE_HERE,
+    TRAY_THIS_OFFLINE,
+    HUD_OFFLINE,
+    HUD_BACK_ONLINE,
+    HUD_OFFLINE_RETURNED,
+    HUD_TOOK_THIS_OFFLINE,
+    OFFLINE_SET_BY_UNKNOWN,
+    SUBTITLE_THIS_OFFLINE_BY_UNKNOWN,
+    HUD_TOOK_THIS_OFFLINE_UNKNOWN,
 ];

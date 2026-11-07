@@ -546,6 +546,22 @@ final class AgentModel {
         }
     }
 
+    /// Takes a computer offline for now, this one or another, or brings it
+    /// back: the whole group then neither controls it nor shares the
+    /// clipboard or files with it, until someone brings it back. Answered
+    /// once the service has the change. A refusal's code says why
+    /// ("unknown_device"; "offline_for_now" for another computer while
+    /// this one is offline for now, as it can only bring itself back;
+    /// "too_many" or "exhausted" when the group can list no more).
+    func setOfflineForNow(_ deviceID: String, _ offline: Bool) async throws {
+        var set = Inputweave_App_V1_SetOfflineForNow()
+        set.deviceID = deviceID
+        set.offline = offline
+        if case .status(let status) = try await request(.setOfflineForNow(set)) {
+            self.status = status
+        }
+    }
+
     /// Moves devices' desktop origins on the shared canvas.
     func move(_ positions: [(id: String, x: Double, y: Double)]) async throws {
         var set = Inputweave_App_V1_SetArrangement()
@@ -767,10 +783,6 @@ final class AgentModel {
     /// Some folder was never asked about on this Mac.
     var foldersToAsk: Bool {
         asksForFolders && (!status.folderAccessAsked || status.folderAccess.contains { $0.state == .unknown })
-    }
-
-    var offlineDevices: [DeviceStatus] {
-        status.devices.filter { $0.state != .connected }
     }
 
     /// Devices files can be sent to right now: those without a reason they

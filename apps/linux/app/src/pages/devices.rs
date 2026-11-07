@@ -1,6 +1,7 @@
 //! Devices: the other computers, with their status, latency and jump
-//! shortcut (and the moon of one that can be woken), and the inspector for
-//! the one selected; an empty state while there are none.
+//! shortcut (and the icon of one offline for now, or the moon of one that
+//! can be woken), and the inspector for the one selected; an empty state
+//! while there are none.
 
 use std::cell::RefCell;
 use std::rc::Rc;
@@ -9,7 +10,7 @@ use std::time::SystemTime;
 use adw::prelude::*;
 use inputweave_app_core::snapshot::Snapshot;
 use inputweave_app_core::text::keys;
-use inputweave_app_core::{device_text, wake};
+use inputweave_app_core::{device_text, offline, wake};
 
 use super::inspector::Inspector;
 use super::{set_subtitle, set_title};
@@ -23,15 +24,17 @@ pub struct DeviceList {
     pub selected: RefCell<Option<String>>,
 }
 
-/// One computer's row: its name and status, then at its end the moon while
-/// it can be woken, the keyboard and mouse while they are on it, and its
-/// jump shortcut.
+/// One computer's row: its name and status, then at its end the network
+/// struck through while it is offline for now, the moon while it can be
+/// woken, the keyboard and mouse while they are on it, and its jump
+/// shortcut.
 struct ListRow {
     id: String,
     row: adw::ActionRow,
     shortcut: gtk::Label,
     here: gtk::Image,
     moon: gtk::Image,
+    offline_icon: gtk::Image,
 }
 
 impl DeviceList {
@@ -76,6 +79,13 @@ impl DeviceList {
                     .accessible_role(gtk::AccessibleRole::Presentation)
                     .css_classes(["dim-label"])
                     .build();
+                // So does the status for a computer offline for now.
+                let offline_icon = gtk::Image::builder()
+                    .icon_name(offline::ICON)
+                    .accessible_role(gtk::AccessibleRole::Presentation)
+                    .css_classes(["dim-label"])
+                    .build();
+                row.add_suffix(&offline_icon);
                 row.add_suffix(&moon);
                 row.add_suffix(&here);
                 row.add_suffix(&shortcut);
@@ -86,6 +96,7 @@ impl DeviceList {
                     shortcut,
                     here,
                     moon,
+                    offline_icon,
                 });
             }
         }
@@ -97,6 +108,7 @@ impl DeviceList {
             shortcut,
             here,
             moon,
+            offline_icon,
         } in self.rows.borrow().iter()
         {
             set_title(row, &model.name_of(id));
@@ -110,6 +122,7 @@ impl DeviceList {
             here.set_visible(*id == cursor);
             here.set_tooltip_text(Some(&t(keys::KEYBOARD_MOUSE_HERE)));
             moon.set_visible(wake::shows_moon(model, id));
+            offline_icon.set_visible(offline::is_offline(model, id));
             if selected.as_deref() == Some(id.as_str())
                 && self.list.selected_row().as_ref() != Some(row.upcast_ref())
             {
@@ -154,6 +167,17 @@ impl DeviceList {
             .iter()
             .find(|r| r.id == id)
             .map(|r| r.moon.is_visible())
+    }
+
+    /// Whether the icon of a computer offline for now shows after `id`'s
+    /// name.
+    #[cfg(test)]
+    pub fn offline_shown(&self, id: &str) -> Option<bool> {
+        self.rows
+            .borrow()
+            .iter()
+            .find(|r| r.id == id)
+            .map(|r| r.offline_icon.is_visible())
     }
 
     /// `id`'s status, as its row says it.

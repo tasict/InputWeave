@@ -14,6 +14,8 @@ use crate::ui;
 /// Why files can't go to a computer now.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Unavailable {
+    /// It was taken offline for now, here or anywhere in the group.
+    OfflineForNow,
     /// It is not connected.
     Offline,
     /// File transfer with it is turned off on this computer
@@ -24,6 +26,11 @@ pub enum Unavailable {
 /// Why files can't go to `device` now, the first reason that applies;
 /// `None` when they can.
 pub fn unavailable(device: &DeviceStatus) -> Option<Unavailable> {
+    // Before offline: the service reports it offline as well. While this
+    // computer is offline for now, every other one is just offline.
+    if device.offline_for_now {
+        return Some(Unavailable::OfflineForNow);
+    }
     if device.state() != ConnectionState::Connected {
         return Some(Unavailable::Offline);
     }
@@ -36,6 +43,7 @@ pub fn unavailable(device: &DeviceStatus) -> Option<Unavailable> {
 /// What the picker says under a computer files can't go to.
 pub fn reason(why: Unavailable) -> UiText {
     match why {
+        Unavailable::OfflineForNow => ui!(keys::CONNECTION_OFFLINE_FOR_NOW),
         Unavailable::Offline => ui!(keys::CONNECTION_OFFLINE),
         Unavailable::FilesOff => ui!(keys::SEND_REASON_FILES_OFF),
     }
@@ -263,7 +271,15 @@ mod tests {
             Some(Unavailable::Offline),
             "offline before files off"
         );
+        let mut taken = device("a", Offline, true, 0);
+        taken.offline_for_now = true;
+        assert_eq!(
+            unavailable(&taken),
+            Some(Unavailable::OfflineForNow),
+            "offline for now before offline and files off"
+        );
         for (why, en, zh) in [
+            (Unavailable::OfflineForNow, "Offline for now", "暫時離線"),
             (Unavailable::Offline, "Offline", "離線"),
             (
                 Unavailable::FilesOff,
@@ -356,6 +372,58 @@ mod tests {
                     "File transfer with this computer is off".to_owned()
                 ),
             ]
+        );
+    }
+
+    #[test]
+    fn a_computer_offline_for_now_says_so() {
+        use ConnectionState::{Connected, Offline};
+        let mut taken = device("mini", Offline, false, 0);
+        taken.offline_for_now = true;
+        let rows = |model: &Snapshot| -> Vec<(String, bool, String)> {
+            targets(model)
+                .iter()
+                .map(|t| {
+                    (
+                        t.id.clone(),
+                        t.available,
+                        render(&t.status, Language::ChineseTaiwan),
+                    )
+                })
+                .collect()
+        };
+        let group = model(vec![
+            taken,
+            device("pc", Connected, false, 3),
+            device("off", Offline, false, 0),
+        ]);
+        assert_eq!(
+            choice(&group),
+            Choice::Only {
+                id: "pc".into(),
+                name: "PC".into()
+            }
+        );
+        assert_eq!(
+            rows(&group),
+            [
+                ("pc".to_owned(), true, "已連線・3 ms".to_owned()),
+                ("mini".to_owned(), false, "暫時離線".to_owned()),
+                ("off".to_owned(), false, "離線".to_owned()),
+            ]
+        );
+        // This computer offline for now: the service reports every other
+        // one just offline, so there is nowhere to send.
+        let mut apart = model(vec![
+            device("mini", Offline, false, 0),
+            device("pc", Offline, false, 0),
+        ]);
+        apart.status.offline_for_now = true;
+        assert_eq!(choice(&apart), Choice::Nowhere);
+        assert!(
+            rows(&apart)
+                .iter()
+                .all(|(_, available, status)| !available && status == "離線")
         );
     }
 

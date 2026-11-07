@@ -1,4 +1,5 @@
-//! General: what sharing is doing, this computer's name, opening at login,
+//! General: what sharing is doing (with bringing this computer back while
+//! it is offline for now), this computer's name, opening at login,
 //! the clipboard, desktop pictures, switching (with the edge glow, the
 //! app's own setting, and waking a computer the cursor pushes toward) and
 //! the shortcuts.
@@ -17,7 +18,7 @@ use inputweave_app_core::service::ServiceState;
 use inputweave_app_core::snapshot::Snapshot;
 use inputweave_app_core::status_text::{self, ProblemAction};
 use inputweave_app_core::text::keys;
-use inputweave_app_core::{autostart, clipboard_text, edge_glow, log, paths, wake};
+use inputweave_app_core::{autostart, clipboard_text, edge_glow, log, offline, paths, wake};
 
 use super::{EntrySync, Quiet, set_subtitle, set_switch, set_title};
 use crate::strings::{t, tr};
@@ -37,6 +38,9 @@ pub struct General {
     page: adw::PreferencesPage,
     quiet: Quiet,
     status: adw::ActionRow,
+    /// Bring Back Online, at the end of the status while this computer is
+    /// offline for now: the panel's button on the other two apps.
+    bring_back: gtk::Button,
     sharing: adw::SwitchRow,
     problems: adw::PreferencesGroup,
     problem_rows: RefCell<Vec<gtk::Widget>>,
@@ -77,6 +81,9 @@ impl General {
             .title(t(keys::STATUS_HEADER))
             .build();
         let status = adw::ActionRow::builder().use_markup(false).build();
+        let bring_back = super::row_button(&t(keys::OFFLINE_BRING_BACK));
+        bring_back.set_visible(false);
+        status.add_suffix(&bring_back);
         let sharing = adw::SwitchRow::builder()
             .use_markup(false)
             .title(t(keys::GENERAL_SHARING))
@@ -211,6 +218,7 @@ impl General {
             page,
             quiet,
             status,
+            bring_back,
             sharing,
             problems,
             problem_rows: RefCell::new(Vec::new()),
@@ -255,6 +263,13 @@ impl General {
             .connect_active_notify(on(&self.quiet, |enabled| {
                 Command::SetSharing(SetSharing { enabled })
             }));
+        let weak = Rc::downgrade(ui);
+        self.bring_back.connect_clicked(move |_| {
+            if let Some(ui) = weak.upgrade() {
+                let this = ui.snapshot().this_device_id().to_owned();
+                ui.set_offline(&this, false);
+            }
+        });
         self.clipboard
             .connect_active_notify(on(&self.quiet, |enabled| {
                 Command::SetClipboardSync(SetClipboardSync { enabled })
@@ -420,6 +435,10 @@ impl General {
             .map(|s| tr(&s))
             .unwrap_or_default();
         set_subtitle(&self.status, &subtitle);
+        // Sharing keeps the user's own choice, and can be changed, while
+        // this computer is offline for now.
+        self.bring_back
+            .set_visible(model.connected() && offline::this_offline(model));
         set_switch(&self.quiet, &self.sharing, status.sharing);
         match clipboard_text::line(model, now) {
             Some(line) => {
@@ -536,6 +555,16 @@ impl General {
     #[cfg(test)]
     pub fn wake_on_push_row(&self) -> &adw::SwitchRow {
         &self.wake_on_push
+    }
+
+    #[cfg(test)]
+    pub fn status_row(&self) -> &adw::ActionRow {
+        &self.status
+    }
+
+    #[cfg(test)]
+    pub fn bring_back_button(&self) -> &gtk::Button {
+        &self.bring_back
     }
 
     pub fn shortcuts(&self) -> &Rc<super::shortcuts::Shortcuts> {

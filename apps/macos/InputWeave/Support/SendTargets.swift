@@ -9,6 +9,8 @@ import Foundation
 enum SendTargets {
     /// Why files can't go to a computer now.
     enum Unavailable: Equatable {
+        /// It was taken offline for now, here or anywhere in the group.
+        case offlineForNow
         /// It is not connected.
         case offline
         /// File transfer with it is turned off on this Mac
@@ -19,6 +21,9 @@ enum SendTargets {
     /// Why files can't go to `device` now, the first reason that applies;
     /// nil when they can.
     static func unavailable(_ device: DeviceStatus) -> Unavailable? {
+        // Before offline: the service reports it offline as well. While this
+        // Mac is offline for now, every other computer is just offline.
+        if device.offlineForNow { return .offlineForNow }
         if device.state != .connected { return .offline }
         if device.filesOff { return .filesOff }
         return nil
@@ -27,6 +32,7 @@ enum SendTargets {
     /// What the chooser says under a computer files can't go to.
     static func reason(_ why: Unavailable, bundle: Bundle = .main) -> String {
         switch why {
+        case .offlineForNow: OfflineText.status(bundle: bundle)
         case .offline: String(localized: "Offline", bundle: bundle)
         case .filesOff: String(localized: "File transfer with this computer is off", bundle: bundle)
         }

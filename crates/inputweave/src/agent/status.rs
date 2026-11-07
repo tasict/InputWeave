@@ -141,6 +141,28 @@ pub struct Status {
     pub license: Option<LicenseStatus>,
     /// Pushing the cursor toward an offline device wakes it.
     pub wake_on_push: bool,
+    /// This device is taken offline for now, by this device or another,
+    /// and what this device calls it.
+    pub offline_by: Option<(String, String)>,
+    /// How many devices were taken offline or brought back from here, and
+    /// times another device took this one offline, so a client can tell
+    /// each time apart.
+    pub offline_changes: u64,
+    /// The last of those.
+    pub last_offline_change: Option<OfflineChange>,
+}
+
+/// A device taken offline for now, or brought back, from this device; or
+/// this device taken offline by another (`Status::offline_changes`).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct OfflineChange {
+    pub device: String,
+    /// Taken offline; false: brought back.
+    pub offline: bool,
+    /// The device that did it, and what this device calls it then (empty
+    /// when not known).
+    pub by: String,
+    pub by_name: String,
 }
 
 /// Relative mode while it is on: the device and how it started.
@@ -236,6 +258,14 @@ pub struct DeviceState {
     pub wake: WakeState,
     /// When it went offline, while it is, if it told how to wake it.
     pub offline_since: Option<SystemTime>,
+    /// It is taken offline for now; it shows as offline then (`connected`
+    /// is false), as every device does while this one is.
+    pub offline_for_now: bool,
+    /// The device that took it offline, and what this device calls it.
+    pub offline_by: Option<(String, String)>,
+    /// It is connected, and knows nothing of devices taken offline for now
+    /// (InputWeave 1.0).
+    pub offline_unaware: bool,
 }
 
 impl DeviceState {
@@ -263,6 +293,9 @@ impl DeviceState {
             can_wake: false,
             wake: WakeState::None,
             offline_since: None,
+            offline_for_now: false,
+            offline_by: None,
+            offline_unaware: false,
         }
     }
 }
@@ -316,6 +349,9 @@ impl Status {
             firewall: (Firewall::Unknown, 0),
             license: None,
             wake_on_push: false,
+            offline_by: None,
+            offline_changes: 0,
+            last_offline_change: None,
         }
     }
 
@@ -367,7 +403,8 @@ impl Status {
                     | ReturnReason::RemoteActivity(d)
                     | ReturnReason::ScreenLocked(d)
                     | ReturnReason::InputUnavailable(d)
-                    | ReturnReason::PeerPaused(d),
+                    | ReturnReason::PeerPaused(d)
+                    | ReturnReason::OfflineForNow(d),
                 ) => d.to_string(),
                 _ => String::new(),
             },
@@ -400,6 +437,18 @@ impl Status {
                     can_wake: d.can_wake,
                     wake: wake_state_to_proto(d.wake).into(),
                     offline_since_unix_ms: d.offline_since.map_or(0, unix_ms),
+                    offline_for_now: d.offline_for_now,
+                    offline_by_device_id: d
+                        .offline_by
+                        .as_ref()
+                        .map(|(id, _)| id.clone())
+                        .unwrap_or_default(),
+                    offline_by_name: d
+                        .offline_by
+                        .as_ref()
+                        .map(|(_, name)| name.clone())
+                        .unwrap_or_default(),
+                    offline_unaware: d.offline_unaware,
                 })
                 .collect(),
             locked: self.locked,
@@ -441,6 +490,27 @@ impl Status {
             license: self.license.as_ref().map(license_to_proto),
             wake_supported: true,
             wake_on_push: self.wake_on_push,
+            offline_for_now: self.offline_by.is_some(),
+            offline_by_device_id: self
+                .offline_by
+                .as_ref()
+                .map(|(id, _)| id.clone())
+                .unwrap_or_default(),
+            offline_by_name: self
+                .offline_by
+                .as_ref()
+                .map(|(_, name)| name.clone())
+                .unwrap_or_default(),
+            offline_changes: self.offline_changes,
+            last_offline_change: self.last_offline_change.as_ref().map(|change| {
+                app::OfflineChange {
+                    device_id: change.device.clone(),
+                    offline: change.offline,
+                    by_device_id: change.by.clone(),
+                    by_name: change.by_name.clone(),
+                }
+            }),
+            offline_supported: true,
         }
     }
 }
@@ -747,6 +817,7 @@ fn return_reason_to_proto(reason: &ReturnReason) -> app::ReturnReason {
         ReturnReason::ScreenLocked(_) => app::ReturnReason::ScreenLocked,
         ReturnReason::InputUnavailable(_) => app::ReturnReason::InputUnavailable,
         ReturnReason::PeerPaused(_) => app::ReturnReason::PeerPaused,
+        ReturnReason::OfflineForNow(_) => app::ReturnReason::OfflineForNow,
         ReturnReason::CaptureEnded => app::ReturnReason::CaptureEnded,
     }
 }

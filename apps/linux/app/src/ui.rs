@@ -22,7 +22,7 @@ use inputweave_app_core::snapshot::Link;
 use inputweave_app_core::snapshot::Snapshot;
 use inputweave_app_core::status_text::{self, MenuState, TrayState};
 use inputweave_app_core::text::keys;
-use inputweave_app_core::{log, paths, sample, wake};
+use inputweave_app_core::{log, offline, paths, sample, wake};
 
 use crate::overlay::Overlay;
 use crate::setup::Setup;
@@ -347,6 +347,12 @@ impl Ui {
         });
     }
 
+    /// What the tray shows for `model`.
+    #[cfg(test)]
+    pub fn tray_model_for_tests(&self, model: &Snapshot) -> TrayModel {
+        self.tray_model(model)
+    }
+
     fn tray_shown(&self) -> bool {
         self.tray.borrow().as_ref().is_some_and(Tray::shown)
     }
@@ -362,42 +368,50 @@ impl Ui {
             action: Some(action),
         };
         let title = tr(&status_text::title(model, service, now));
+        let mut menu_items = vec![
+            MenuItem {
+                label: title.clone(),
+                enabled: false,
+                action: Some(TrayAction::Open),
+            },
+            MenuItem::separator(),
+            item(
+                keys::MENU_SEND_FILES,
+                menu.send_enabled,
+                TrayAction::SendFiles,
+            ),
+            MenuItem::separator(),
+            item(
+                menu.pause_key,
+                menu.pause_enabled,
+                TrayAction::ToggleSharing,
+            ),
+        ];
+        // Taking this computer offline for now, or bringing it back, after
+        // Pause Sharing, as on Windows.
+        if let Some((key, _)) = menu.offline {
+            menu_items.push(item(key, menu.offline_enabled, TrayAction::ToggleOffline));
+        }
+        menu_items.extend([
+            item(menu.lock_key, menu.lock_enabled, TrayAction::ToggleLock),
+            item(
+                keys::IDENTIFY_SCREENS,
+                menu.identify_enabled,
+                TrayAction::IdentifyScreens,
+            ),
+            MenuItem::separator(),
+            item(keys::MENU_ADD_DEVICE, true, TrayAction::AddDevice),
+            item(keys::MENU_SETTINGS, true, TrayAction::Settings),
+            item(keys::MENU_RUN_SETUP, true, TrayAction::RunSetup),
+            item(keys::MENU_ABOUT, true, TrayAction::About),
+            MenuItem::separator(),
+            item(keys::MENU_QUIT, true, TrayAction::Quit),
+        ]);
         TrayModel {
             state,
-            description: tr(&state.description()),
-            detail: title.clone(),
-            menu: vec![
-                MenuItem {
-                    label: title,
-                    enabled: false,
-                    action: Some(TrayAction::Open),
-                },
-                MenuItem::separator(),
-                item(
-                    keys::MENU_SEND_FILES,
-                    menu.send_enabled,
-                    TrayAction::SendFiles,
-                ),
-                MenuItem::separator(),
-                item(
-                    menu.pause_key,
-                    menu.pause_enabled,
-                    TrayAction::ToggleSharing,
-                ),
-                item(menu.lock_key, menu.lock_enabled, TrayAction::ToggleLock),
-                item(
-                    keys::IDENTIFY_SCREENS,
-                    menu.identify_enabled,
-                    TrayAction::IdentifyScreens,
-                ),
-                MenuItem::separator(),
-                item(keys::MENU_ADD_DEVICE, true, TrayAction::AddDevice),
-                item(keys::MENU_SETTINGS, true, TrayAction::Settings),
-                item(keys::MENU_RUN_SETUP, true, TrayAction::RunSetup),
-                item(keys::MENU_ABOUT, true, TrayAction::About),
-                MenuItem::separator(),
-                item(keys::MENU_QUIT, true, TrayAction::Quit),
-            ],
+            description: tr(&state.description_of(model)),
+            detail: title,
+            menu: menu_items,
         }
     }
 
@@ -412,6 +426,12 @@ impl Ui {
             TrayAction::ToggleLock => self.command(Command::SetLocked(SetLocked {
                 locked: !model.status.locked,
             })),
+            TrayAction::ToggleOffline => {
+                if let Some((_, offline)) = offline::this_item(&model) {
+                    let this = model.this_device_id().to_owned();
+                    self.set_offline(&this, offline);
+                }
+            }
             TrayAction::IdentifyScreens => {
                 self.command(Command::IdentifyScreens(IdentifyScreens {}))
             }
@@ -674,6 +694,14 @@ impl Ui {
         );
         // Wake goes off at once.
         self.refresh();
+    }
+
+    /// Takes `id` offline for now (`offline`), or brings it back: another
+    /// computer from the inspector or the arrangement's menu, this one from
+    /// the tray menu or General. No question first: it is undone as easily,
+    /// and the HUD says what happened; a refusal shows as a toast.
+    pub fn set_offline(self: &Rc<Self>, id: &str, offline: bool) {
+        self.command(offline::command(id, offline));
     }
 
     /// Whether this app asked the service to wake `id` and has no answer

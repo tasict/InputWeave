@@ -29,8 +29,10 @@ namespace InputWeave.Canvas;
 /// they are on. Interactive, the user drags whole computers, which snap to
 /// each other's edges and spring back if they would overlap; arrow keys
 /// nudge the selected one and Ctrl+Z undoes a move; its context menu moves
-/// the cursor there, renames another computer and wakes one that can be
-/// woken, which has a moon after its name. Compact, it is the
+/// the cursor there, renames another computer, wakes one that can be
+/// woken, which has a moon after its name, and takes another offline for
+/// now or brings it back, which has a network with a slash after its name
+/// while it is (only Rename… while this one is). Compact, it is the
 /// panel's mini map, where a click moves the cursor. Files dropped on a
 /// connected computer go to it, unless files are turned off with it. Beside
 /// each name is the shortcut that jumps there, where there is room.
@@ -304,7 +306,14 @@ internal sealed partial class ArrangementCanvas : Grid
         }
         var jump = current.JumpShortcut(info?.JumpSlot ?? 0);
         bool screenLocked = DeviceText.ScreenLocked(current, device.Id);
-        if (NameLabel(name, jump, screenLocked, Wake.Offered(current, device.Id), tiles, device.MainScreen) is { } label)
+        bool offlineForNow = OfflineForNow.IsOffline(current, device.Id);
+        // By the status's order: offline for now, a locked screen (only
+        // while connected), or a computer that can be woken (only offline).
+        string? glyph = offlineForNow ? OfflineForNow.Glyph
+            : screenLocked ? DeviceText.LockedGlyph
+            : Wake.Offered(current, device.Id) ? Wake.MoonGlyph
+            : null;
+        if (NameLabel(name, jump, glyph, screenLocked, tiles, device.MainScreen) is { } label)
         {
             content.Children.Add(label);
         }
@@ -389,6 +398,7 @@ internal sealed partial class ArrangementCanvas : Grid
         bool here = current.CursorDeviceId == device.Id;
         string? status = (screenLocked, here) switch
         {
+            _ when offlineForNow => Strings.Get(TextKeys.ConnectionOfflineForNow),
             (true, _) when current.OutOfReach(device.Id) => Strings.Get(TextKeys.ConnectionScreenLockedNoInput),
             (false, _) when current.OutOfReach(device.Id) => Strings.Get(TextKeys.ConnectionNoInput),
             (true, true) => Strings.Get(TextKeys.CanvasScreenLockedKeyboardMouseHere),
@@ -470,8 +480,9 @@ internal sealed partial class ArrangementCanvas : Grid
     }
 
     /// <summary>
-    /// The computer's name, a padlock while its screen is locked or a moon
-    /// while it can be woken (one is connected, the other offline), and,
+    /// The computer's name, <paramref name="glyph"/> after it (a network
+    /// with a slash while it is offline for now, a padlock while its screen
+    /// is locked or a moon while it can be woken), and,
     /// beside them in the secondary color, the shortcut that jumps there
     /// (<paramref name="jump"/>, when it has one): on the arrangement page
     /// with a display glyph in the main screen's corner; on the mini map
@@ -479,7 +490,7 @@ internal sealed partial class ArrangementCanvas : Grid
     /// the name would have too little room (<see cref="CanvasGeometry.NameBeside"/>).
     /// </summary>
     private FrameworkElement? NameLabel(
-        string name, string? jump, bool screenLocked, bool canWake, IReadOnlyList<CanvasRect> tiles, int main)
+        string name, string? jump, string? glyph, bool screenLocked, IReadOnlyList<CanvasRect> tiles, int main)
     {
         int index;
         if (Interactive)
@@ -522,21 +533,22 @@ internal sealed partial class ArrangementCanvas : Grid
         };
         row.Children.Add(nameText);
         // On a narrow mini map tile the name keeps its least width and the
-        // padlock or the moon is left out.
-        if ((screenLocked || canWake) && (Interactive || room - (fontSize + spacing) >= CompactLeastName))
+        // glyph is left out.
+        if (glyph is not null && (Interactive || room - (fontSize + spacing) >= CompactLeastName))
         {
-            var glyph = new FontIcon
+            var icon = new FontIcon
             {
-                Glyph = screenLocked ? "\uE72E" : Wake.MoonGlyph,
+                Glyph = glyph,
                 FontSize = fontSize,
                 VerticalAlignment = VerticalAlignment.Center,
             };
             if (!screenLocked)
             {
-                // The status says it can be woken; the moon only shows it.
-                AutomationProperties.SetAccessibilityView(glyph, Microsoft.UI.Xaml.Automation.Peers.AccessibilityView.Raw);
+                // The status says it is offline for now or can be woken;
+                // the glyph only shows it.
+                AutomationProperties.SetAccessibilityView(icon, Microsoft.UI.Xaml.Automation.Peers.AccessibilityView.Raw);
             }
-            row.Children.Add(glyph);
+            row.Children.Add(icon);
             room -= fontSize + spacing;
         }
         TextBlock? shortcut = null;
@@ -974,15 +986,20 @@ internal sealed partial class ArrangementCanvas : Grid
         }
         e.Handled = true;
         Selection = id;
-        var item = new MenuFlyoutItem
-        {
-            Text = Strings.Get(TextKeys.CanvasMoveCursorHere),
-            Icon = new FontIcon { Glyph = "" },
-            IsEnabled = model.CanJump(id),
-        };
-        item.Click += (_, _) => Jump(id);
         var menu = new MenuFlyout();
-        menu.Items.Add(item);
+        // While this computer is offline for now, nothing but a name can be
+        // given to the others.
+        if (!OfflineForNow.OnlyRename(model, id))
+        {
+            var item = new MenuFlyoutItem
+            {
+                Text = Strings.Get(TextKeys.CanvasMoveCursorHere),
+                Icon = new FontIcon { Glyph = "" },
+                IsEnabled = model.CanJump(id),
+            };
+            item.Click += (_, _) => Jump(id);
+            menu.Items.Add(item);
+        }
         // Another computer this one trusts can be given a name here; this
         // one is renamed in General.
         if (id != model.ThisDeviceId && model.Device(id) is not null)
@@ -991,11 +1008,17 @@ internal sealed partial class ArrangementCanvas : Grid
             rename.Click += (_, _) => RenameRequested?.Invoke(this, id);
             menu.Items.Add(rename);
         }
-        // One that can be woken: Wake, unless it is being woken or a
-        // wake-up for it is on its way.
-        if (Wake.Offered(model, id))
+        // After a line: Wake for one that can be woken, unless it is being
+        // woken or a wake-up for it is on its way; then Take Offline or
+        // Bring Back Online.
+        bool wakes = Wake.Offered(model, id);
+        bool offline = OfflineForNow.Offered(model, id);
+        if (wakes || offline)
         {
             menu.Items.Add(new MenuFlyoutSeparator());
+        }
+        if (wakes)
+        {
             var wake = new MenuFlyoutItem
             {
                 Text = Strings.Get(TextKeys.WakeAction),
@@ -1005,7 +1028,21 @@ internal sealed partial class ArrangementCanvas : Grid
             wake.Click += (_, _) => App.Instance.WakeDevice(id);
             menu.Items.Add(wake);
         }
-        menu.ShowAt(this, e.GetPosition(this));
+        if (offline)
+        {
+            bool bringBack = OfflineForNow.IsOffline(model, id);
+            var take = new MenuFlyoutItem
+            {
+                Text = Strings.Get(OfflineForNow.ActionKey(model, id)),
+                Icon = new FontIcon { Glyph = OfflineForNow.Glyph },
+            };
+            take.Click += (_, _) => App.Instance.SetOfflineForNow(id, !bringBack);
+            menu.Items.Add(take);
+        }
+        if (menu.Items.Count != 0)
+        {
+            menu.ShowAt(this, e.GetPosition(this));
+        }
     }
 
     private void OnTapped(object sender, TappedRoutedEventArgs e)

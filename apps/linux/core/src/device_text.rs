@@ -6,6 +6,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use iw_proto::app::v1::{ConnectionState, DeviceStatus, Screen, WakeState};
 
 use crate::clipboard_text::{AgoStyle, ago};
+use crate::offline;
 use crate::snapshot::Snapshot;
 use crate::text::{UiText, keys};
 use crate::ui;
@@ -46,11 +47,19 @@ pub fn connected(d: &DeviceStatus) -> UiText {
     with(keys::CONNECTION_CONNECTED, keys::CONNECTION_CONNECTED_RTT)
 }
 
-/// A device's status: this computer, how another one is connected, or
-/// that it is offline (`offline`).
+/// A device's status: this computer, that another one is offline for now
+/// (before anything else, with no latency), how it is connected, or that it
+/// is offline (`offline`); while this computer is offline for now, every
+/// other one is just offline.
 pub fn status(model: &Snapshot, id: &str, now: SystemTime) -> UiText {
     if id == model.this_device_id() {
         return ui!(keys::CONNECTION_THIS_COMPUTER);
+    }
+    if offline::is_offline(model, id) {
+        return ui!(keys::CONNECTION_OFFLINE_FOR_NOW);
+    }
+    if offline::this_offline(model) {
+        return ui!(keys::CONNECTION_OFFLINE);
     }
     match model.device(id) {
         Some(d) if d.state() == ConnectionState::Connected => connected(d),
@@ -155,6 +164,9 @@ pub fn files_off(name: &str) -> UiText {
 pub fn cannot_receive(model: &Snapshot, id: &str, compact: bool) -> Option<UiText> {
     if id == model.this_device_id() {
         return None;
+    }
+    if offline::is_offline(model, id) {
+        return Some(ui!(keys::CONNECTION_OFFLINE_FOR_NOW));
     }
     if model.files_off(id) {
         return Some(if compact {
@@ -321,6 +333,64 @@ mod tests {
         model.status.devices[0].wake = WakeState::Waking as i32;
         model.status.wake_supported = false;
         assert_eq!(said(&model), pair("Offline", "離線"));
+    }
+
+    #[test]
+    fn offline_for_now_comes_before_everything_else() {
+        use crate::text::{Catalog, Language};
+        let now = SystemTime::now();
+        let mut model = Snapshot {
+            link: Link::Connected,
+            status: Status {
+                this_device_id: "me".into(),
+                wake_supported: true,
+                offline_supported: true,
+                devices: vec![DeviceStatus {
+                    id: "mini".into(),
+                    name: "Mac mini".into(),
+                    state: ConnectionState::Offline as i32,
+                    offline_for_now: true,
+                    offline_by_device_id: "me".into(),
+                    // Whatever else it says, as an older service might.
+                    wake: WakeState::Waking as i32,
+                    sharing_paused: true,
+                    ..Default::default()
+                }],
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        let zh = Catalog::for_language(Language::ChineseTaiwan);
+        let said = |model: &Snapshot| {
+            let text = status(model, "mini", now);
+            (text.to_string(), zh.render(&text))
+        };
+        let pair = |en: &str, zh: &str| (en.to_owned(), zh.to_owned());
+        assert_eq!(said(&model), pair("Offline for now", "暫時離線"));
+        assert_eq!(
+            cannot_receive(&model, "mini", true).map(|t| t.to_string()),
+            Some("Offline for now".into())
+        );
+        // Connected all the same (the service keeps a connection to bring
+        // it back): still offline for now, with no latency.
+        model.status.devices[0].state = ConnectionState::Connected as i32;
+        model.status.devices[0].rtt_ms = 3;
+        assert_eq!(said(&model), pair("Offline for now", "暫時離線"));
+        // This computer offline for now: every other one is just offline.
+        model.status.devices[0].offline_for_now = false;
+        model.status.devices[0].state = ConnectionState::Offline as i32;
+        model.status.offline_for_now = true;
+        assert_eq!(said(&model), pair("Offline", "離線"));
+        // From a service before it: as before.
+        model.status.offline_supported = false;
+        model.status.offline_for_now = false;
+        model.status.devices[0].offline_for_now = true;
+        model.status.devices[0].wake = WakeState::None as i32;
+        assert_eq!(said(&model), pair("Offline", "離線"));
+        assert_eq!(
+            cannot_receive(&model, "mini", true).map(|t| t.to_string()),
+            Some("Offline".into())
+        );
     }
 
     #[test]

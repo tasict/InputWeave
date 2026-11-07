@@ -22,6 +22,7 @@ use iw_platform::{PermissionState, SessionStatus};
 
 use crate::agent::{AgentError, Options};
 use crate::config::{BackendConfig, ClipboardConfig, Config, NetworkConfig, PathsConfig};
+use crate::offline_file::OfflineDoc;
 use crate::store::DevicesFile;
 
 /// The user's InputWeave folder below their home, as `paths::config_dir`
@@ -85,12 +86,18 @@ const MAX_CONFIG: u64 = 1 << 20;
 const MAX_DEVICES: u64 = 4 << 20;
 #[cfg(unix)]
 const MAX_IDENTITY: u64 = 64 << 10;
+#[cfg(unix)]
+const MAX_OFFLINE: u64 = crate::offline_file::MAX_FILE;
 
 /// What the agent at the login window runs as: the user's device.
 pub struct UserState {
     pub config: Config,
     pub identity: iw_net::Identity,
     pub devices: DevicesFile,
+    /// The devices of the group taken offline for now, as the user's agent
+    /// last knew them; none when it kept no such file or it cannot be read
+    /// (other devices tell the newest anyway as they connect).
+    pub offline: OfflineDoc,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -183,10 +190,24 @@ pub fn load(home: &std::path::Path, uid: u32) -> Result<Option<UserState>, LoadE
     };
     let cert = file(iw_net::CERT_FILE, "the identity's certificate")?;
     let key = file(iw_net::KEY_FILE, "the identity's key")?;
+    // Read as leniently as the user's agent reads it: never a reason not to
+    // run.
+    let offline = match read(&dir, "offline.toml", "offline.toml", MAX_OFFLINE) {
+        Ok(Some(text)) => OfflineDoc::parse(&text).unwrap_or_else(|e| {
+            tracing::warn!(error = %e, "the offline file is not one; starting without it");
+            OfflineDoc::default()
+        }),
+        Ok(None) => OfflineDoc::default(),
+        Err(e) => {
+            tracing::warn!(error = %e, "cannot read the offline file; starting without it");
+            OfflineDoc::default()
+        }
+    };
     Ok(Some(UserState {
         config: config_for(config),
         identity: iw_net::Identity::from_files(cert, key),
         devices,
+        offline,
     }))
 }
 
@@ -220,13 +241,15 @@ pub fn config_for(user: Config) -> Config {
     }
 }
 
-/// How the agent runs at the login window: the user's devices in memory
-/// only, and no socket, broker, receive folder, transfer history or app.
-/// Other devices keep the pictures of this Mac's desktop they have, since
-/// this agent cannot read the user's.
-pub fn options(devices: DevicesFile) -> Options {
+/// How the agent runs at the login window: the user's devices, and the
+/// devices taken offline for now, in memory only, and no socket, broker,
+/// receive folder, transfer history or app. Other devices keep the pictures
+/// of this Mac's desktop they have, since this agent cannot read the
+/// user's.
+pub fn options(devices: DevicesFile, offline: OfflineDoc) -> Options {
     Options {
         devices: Some(devices),
+        offline: Some(offline),
         open_app: false,
         previews_unchanged: true,
         ..Options::default()

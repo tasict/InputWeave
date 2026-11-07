@@ -51,6 +51,7 @@ public sealed partial class PanelWindow : Window
         InitializeComponent();
         this.setSharing = setSharing;
         menu = new AppMenu(MoreMenu, actions);
+        BringBackButton.Content = Strings.Get(TextKeys.OfflineBringBack);
         AutomationProperties.SetName(map, Strings.Get(TextKeys.NavArrangement));
         MapFrame.Child = map;
         hwnd = WindowNative.GetWindowHandle(this);
@@ -238,10 +239,12 @@ public sealed partial class PanelWindow : Window
         SubtitleText.Text = subtitle is null ? "" : Strings.Text(subtitle);
         SubtitleText.Visibility = subtitle is null ? Visibility.Collapsed : Visibility.Visible;
 
+        // Offline for now, the switch still shows the user's own choice.
         updating = true;
         SharingSwitch.IsOn = connected && model.Status.Sharing;
         SharingSwitch.IsEnabled = connected;
         updating = false;
+        BringBackButton.Visibility = connected && Settings.OfflineForNow.ThisOffline(model) ? Visibility.Visible : Visibility.Collapsed;
 
         MapFrame.Visibility = connected ? Visibility.Visible : Visibility.Collapsed;
         map.Update(model);
@@ -308,6 +311,15 @@ public sealed partial class PanelWindow : Window
             }
         }
         Transfers.Visibility = rows.Count == 0 ? Visibility.Collapsed : Visibility.Visible;
+    }
+
+    /// <summary>Bring Back Online, while this computer is offline for now.</summary>
+    private void OnBringBack(object sender, RoutedEventArgs e)
+    {
+        if (shown is { } model && Settings.OfflineForNow.ThisOffline(model))
+        {
+            App.Instance.SetOfflineForNow(model.ThisDeviceId, offline: false);
+        }
     }
 
     private void OnSendFiles(object sender, RoutedEventArgs e) => SendFiles.Start(hwnd);

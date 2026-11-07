@@ -8860,7 +8860,7 @@ async fn the_login_window_agent_is_the_users_device_and_writes_nothing() {
         state.identity,
         spec.displays.clone(),
         Box::new(LoginWindowSession),
-        login_window::options(state.devices),
+        login_window::options(state.devices, state.offline),
     )
     .await;
     assert_eq!(at_login.agent.device_id(), "mac");
@@ -12721,4 +12721,887 @@ async fn a_wake_up_that_cannot_be_sent_is_answered_once_the_status_says_so() {
         WakeState::NotWoken
     );
     mac.agent.shutdown().await;
+}
+
+/// Takes `device` offline for now from `node`, or brings it back, and waits
+/// until `node` shows it so.
+async fn offline(node: &Node, device: &str, on: bool) {
+    node.agent.set_offline_for_now(device, on).await.unwrap();
+    let here = node.agent.status().this_device == device;
+    wait_status(node, |s| {
+        if here {
+            s.offline_by.is_some() == on
+        } else {
+            s.device(device).is_some_and(|d| d.offline_for_now == on)
+        }
+    })
+    .await;
+}
+
+/// Whether `status` shows `device` taken offline for now by `by`, shown
+/// offline.
+fn shows_offline(status: &Status, device: &str, by: (&str, &str)) -> bool {
+    if status.this_device == device {
+        return status
+            .offline_by
+            .as_ref()
+            .map(|(id, name)| (id.as_str(), name.as_str()))
+            == Some(by)
+            && status.devices.iter().all(|d| !d.connected);
+    }
+    status.device(device).is_some_and(|d| {
+        d.offline_for_now
+            && !d.connected
+            && !d.can_wake
+            && d.rtt_ms == 0
+            && d.offline_by
+                .as_ref()
+                .map(|(id, name)| (id.as_str(), name.as_str()))
+                == Some(by)
+    })
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_device_taken_offline_is_cut_off_from_the_whole_group_until_brought_back() {
+    use inputweave::agent::OfflineChange;
+
+    let nodes = desk(&[mac(), mini(), win()]).await;
+    let (mac, mini, win) = (&nodes[0], &nodes[1], &nodes[2]);
+
+    // Taken offline on the Mac: every device shows it so, and says who.
+    mac.agent.set_offline_for_now("win", true).await.unwrap();
+    let by_mac = ("mac", "MacBook Pro");
+    for node in [mac, mini, win] {
+        wait_status(node, |s| shows_offline(s, "win", by_mac)).await;
+    }
+    // Only the Mac, where it was done, and the PC, taken offline by
+    // another, count it, for their apps to tell.
+    let change = |device: &str, offline, by: &str| OfflineChange {
+        device: device.to_owned(),
+        offline,
+        by: by.to_owned(),
+        by_name: match by {
+            "mac" => "MacBook Pro",
+            "win" => "Windows PC",
+            _ => "",
+        }
+        .to_owned(),
+    };
+    let status = mac.agent.status();
+    assert_eq!(status.offline_changes, 1);
+    assert_eq!(status.last_offline_change, Some(change("win", true, "mac")));
+    let status = win.agent.status();
+    assert_eq!(status.offline_changes, 1);
+    assert_eq!(status.last_offline_change, Some(change("win", true, "mac")));
+    assert_eq!(mini.agent.status().offline_changes, 0);
+    // The others are still reached.
+    assert!(mini.agent.status().device("mac").unwrap().connected);
+    assert!(
+        mac.agent
+            .arrangement()
+            .devices
+            .iter()
+            .any(|d| d.id == "win" && !d.connected)
+    );
+
+    // Neither way does the cursor go: not by a jump, nor across an edge.
+    let refused = |device: &str| {
+        Err(agent::JumpError::Refused(
+            iw_core::router::JumpError::OfflineForNow(DeviceId::new(device)),
+        ))
+    };
+    assert_eq!(mac.agent.jump_to("win").await, refused("win"));
+    assert_eq!(win.agent.jump_to("mac").await, refused("win"));
+    motion(win, (0.0, 500.0), (-5.0, 0.0));
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    assert_eq!(win.agent.status().cursor_on, "win");
+    assert_eq!(mac.agent.status().controlled_by, None);
+    // Changing another device is not the PC's to do now; unknown devices
+    // are no one's.
+    assert_eq!(
+        win.agent.set_offline_for_now("mini", true).await,
+        Err(agent::OfflineError::OfflineHere)
+    );
+    assert_eq!(
+        mac.agent.set_offline_for_now("ghost", true).await,
+        Err(agent::OfflineError::UnknownDevice("ghost".to_owned()))
+    );
+    // Taking it offline again changes nothing, whoever does.
+    mini.agent.set_offline_for_now("win", true).await.unwrap();
+    assert_eq!(mini.agent.status().offline_changes, 0);
+    assert!(shows_offline(&win.agent.status(), "win", by_mac));
+    // Another taken offline meanwhile: the PC, offline itself, shows it as
+    // it shows every other device, just offline.
+    offline(mac, "mini", true).await;
+    wait_status(mini, |s| shows_offline(s, "mini", by_mac)).await;
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    let pc = win.agent.status();
+    let seen = pc.device("mini").unwrap();
+    assert!(!seen.connected && !seen.offline_for_now && seen.offline_by.is_none());
+    offline(mac, "mini", false).await;
+    wait_status(mini, |s| s.offline_by.is_none()).await;
+
+    // The Mac controls the mini all the same, and the clipboard goes with
+    // the cursor between them.
+    mac.clipboard.copy(text("for the mini"), false);
+    mac.agent.jump_to("mini").await.unwrap();
+    wait_status(mini, |s| s.controlled_by.as_deref() == Some("mac")).await;
+    wait_clipboard(mini, &text("for the mini")).await;
+    mac.agent.jump_to("mac").await.unwrap();
+    wait_status(mini, |s| s.controlled_by.is_none()).await;
+
+    // The PC brings itself back: every device hears it, and the Mac goes
+    // over again.
+    win.agent.set_offline_for_now("win", false).await.unwrap();
+    for node in [mac, mini, win] {
+        wait_status(node, |s| {
+            s.offline_by.is_none()
+                && s.devices
+                    .iter()
+                    .all(|d| d.connected && !d.offline_for_now && d.offline_by.is_none())
+        })
+        .await;
+    }
+    // Brought back on the PC itself, it counts there, and nowhere else.
+    assert_eq!(win.agent.status().offline_changes, 2);
+    assert_eq!(
+        win.agent.status().last_offline_change,
+        Some(change("win", false, "win"))
+    );
+    assert_eq!(mac.agent.status().offline_changes, 3);
+    mac.agent.jump_to("win").await.unwrap();
+    wait_status(win, |s| s.controlled_by.as_deref() == Some("mac")).await;
+
+    for node in nodes {
+        node.agent.shutdown().await;
+    }
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_device_taken_offline_while_controlled_lets_go_of_every_key() {
+    // Taken offline by a third device, by the controller, by itself; and
+    // the controller taken offline.
+    for (setter, taken) in [
+        ("mini", "win"),
+        ("mac", "win"),
+        ("win", "win"),
+        ("mini", "mac"),
+    ] {
+        let nodes = desk(&[mac(), mini(), win()]).await;
+        let (mac, mini, win) = (&nodes[0], &nodes[1], &nodes[2]);
+        mac.clipboard.copy(text("on the Mac"), false);
+        mac_enters_win(mac, win).await;
+        wait_clipboard(win, &text("on the Mac")).await;
+        key(mac, usage::LEFT_SHIFT, true);
+        key(mac, usage::A, true);
+        wait_injected(win, Emulated::Key(usage::A, true)).await;
+        // Copied there while controlled: coming back would bring it here.
+        win.clipboard.copy(text("copied on the PC"), false);
+
+        let node = match setter {
+            "mac" => mac,
+            "mini" => mini,
+            _ => win,
+        };
+        node.agent.set_offline_for_now(taken, true).await.unwrap();
+        // Everything held goes up on the PC, and the keyboard and mouse
+        // come back to the Mac, which says why.
+        wait_injected(win, Emulated::Key(usage::A, false)).await;
+        wait_injected(win, Emulated::Key(usage::LEFT_SHIFT, false)).await;
+        wait_status(win, |s| s.controlled_by.is_none()).await;
+        wait_status(mac, |s| {
+            s.cursor_on == "mac"
+                && s.last_return == Some(ReturnReason::OfflineForNow(DeviceId::new(taken)))
+        })
+        .await;
+        // Only the device that did it counts a change for its app to tell,
+        // and the device taken offline; the Mac, controlling it, says why
+        // the keyboard and mouse came back instead.
+        if setter == "mini" && taken == "win" {
+            assert_eq!(mac.agent.status().offline_changes, 0);
+        }
+        // Keys typed on the Mac now stay here.
+        key(mac, usage::A, false);
+        key(mac, usage::LEFT_SHIFT, false);
+        key(mac, usage::C, true);
+        key(mac, usage::C, false);
+        tokio::time::sleep(Duration::from_millis(300)).await;
+        assert!(
+            !win.emulation
+                .calls()
+                .iter()
+                .any(|c| matches!(c, Emulated::Key(u, _) if *u == usage::C)),
+            "{setter} took {taken} offline: {:?}",
+            win.emulation.calls()
+        );
+        // Nor did the PC's clipboard come with the keyboard and mouse.
+        assert_eq!(
+            mac.clipboard.content(),
+            text("on the Mac"),
+            "{setter} took {taken} offline"
+        );
+        for node in nodes {
+            node.agent.shutdown().await;
+        }
+    }
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn taken_offline_survives_a_restart_on_every_device() {
+    let dir = tempfile::tempdir().unwrap();
+    // Each in a folder of its own, the PC on a fixed port so the Mac finds
+    // it again after it restarts.
+    let (mac_dir, win_dir) = (dir.path().join("mac"), dir.path().join("win"));
+    let port = std::net::UdpSocket::bind("127.0.0.1:0")
+        .unwrap()
+        .local_addr()
+        .unwrap();
+    let start_mac = || async {
+        let options = kept_in(&mac_dir, "mac", mac_dir.join("received"));
+        start_kept(&mac(), &mac_dir, "mac", options, None).await
+    };
+    let start_win = || async {
+        // The port a stopped agent held is let go of a moment later.
+        let deadline = tokio::time::Instant::now() + TIMEOUT;
+        while std::net::UdpSocket::bind(port).is_err() {
+            assert!(
+                tokio::time::Instant::now() < deadline,
+                "the port stayed taken"
+            );
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+        let options = kept_in(&win_dir, "win", win_dir.join("received"));
+        start_kept(&win(), &win_dir, "win", options, Some(port)).await
+    };
+    let (mac, win) = (start_mac().await, start_win().await);
+    pair(&mac, &win).await;
+    connected(&mac, "win").await;
+    offline(&mac, "win", true).await;
+    let by_mac = ("mac", "MacBook Pro");
+    wait_status(&win, |s| shows_offline(s, "win", by_mac)).await;
+    mac.agent.shutdown().await;
+    win.agent.shutdown().await;
+    // Each kept it in a file of its own, the devices file left as an
+    // older agent reads it.
+    for folder in [&mac_dir, &win_dir] {
+        let doc = inputweave::offline_file::OfflineDoc::load(&folder.join("offline.toml"));
+        assert!(doc.contains("win"), "{doc:?}");
+        let entry = &doc.devices["win"];
+        assert_eq!((entry.version, entry.author.as_str()), (1, "mac"));
+        assert_eq!(entry.by.as_deref(), Some("mac"));
+        let devices = std::fs::read_to_string(folder.join(format!(
+            "{}-devices.toml",
+            folder.file_name().unwrap().to_string_lossy()
+        )))
+        .unwrap();
+        assert!(!devices.contains("offline"), "{devices}");
+    }
+
+    // Started again, alone: the PC is still offline for now, and the Mac
+    // still shows it so.
+    let win = start_win().await;
+    assert!(shows_offline(&win.agent.status(), "win", by_mac));
+    win.agent.shutdown().await;
+    let mac = start_mac().await;
+    assert!(mac.agent.status().device("win").unwrap().offline_for_now);
+    let win = start_win().await;
+    wait_status(&win, |s| shows_offline(s, "win", by_mac)).await;
+    // Until it brings itself back.
+    offline(&win, "win", false).await;
+    wait_status(&mac, |s| {
+        s.device("win")
+            .is_some_and(|d| d.connected && !d.offline_for_now)
+    })
+    .await;
+    mac.agent.shutdown().await;
+    win.agent.shutdown().await;
+    for folder in [&mac_dir, &win_dir] {
+        let doc = inputweave::offline_file::OfflineDoc::load(&folder.join("offline.toml"));
+        // Kept, back online, so an older entry cannot take it offline again.
+        assert!(!doc.contains("win"), "{doc:?}");
+        let entry = &doc.devices["win"];
+        assert_eq!(
+            (entry.version, entry.author.as_str(), entry.offline),
+            (2, "win", false)
+        );
+    }
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_device_on_an_older_protocol_is_told_sharing_is_paused() {
+    // The PC speaks as InputWeave 1.0 does: it knows nothing of devices
+    // taken offline for now.
+    let nodes = desk_with(&[mac(), win()], |spec| Options {
+        peer_protocol_max: (spec.id == "win").then_some(6),
+        ..Options::default()
+    })
+    .await;
+    let (mac, win) = (&nodes[0], &nodes[1]);
+    wait_status(mac, |s| s.device("win").is_some_and(|d| d.offline_unaware)).await;
+
+    // The Mac taken offline: the PC never hears of it, but is told the Mac
+    // paused, so it keeps off.
+    offline(mac, "mac", true).await;
+    wait_status(win, |s| s.device("mac").is_some_and(|d| d.sharing_paused)).await;
+    assert_eq!(win.agent.status().offline_by, None);
+    assert!(!mac.agent.status().device("win").unwrap().sharing_paused);
+    motion(win, (0.0, 500.0), (-5.0, 0.0));
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    assert_eq!(mac.agent.status().controlled_by, None);
+    // Back: the PC goes over again.
+    offline(mac, "mac", false).await;
+    wait_status(win, |s| s.device("mac").is_some_and(|d| !d.sharing_paused)).await;
+    motion(win, (0.0, 500.0), (-5.0, 0.0));
+    wait_status(mac, |s| s.controlled_by.as_deref() == Some("win")).await;
+    key(win, usage::A, true);
+    wait_injected(mac, Emulated::Key(usage::A, true)).await;
+
+    // The PC itself taken offline while it controls the Mac: the Mac lets
+    // go of it, and tells it the Mac paused, which it understands.
+    offline(mac, "win", true).await;
+    wait_injected(mac, Emulated::Key(usage::A, false)).await;
+    wait_status(mac, |s| s.controlled_by.is_none()).await;
+    wait_status(win, |s| {
+        s.cursor_on == "win" && s.device("mac").is_some_and(|d| d.sharing_paused)
+    })
+    .await;
+    key(win, usage::A, false);
+    // Still listed as the one knowing nothing of it.
+    assert!(mac.agent.status().device("win").unwrap().offline_unaware);
+
+    for node in nodes {
+        node.agent.shutdown().await;
+    }
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn files_stop_while_a_device_is_offline_and_go_on_once_it_is_back() {
+    use inputweave::agent::{SendError, TransferState};
+
+    let dir = tempfile::tempdir().unwrap();
+    let (mac, win, _, _) = file_pair(dir.path()).await;
+    let source = dir.path().join("big.bin");
+    let data: Vec<u8> = (0..160_000_000u32)
+        .map(|i| (i.wrapping_mul(2654435761) >> 24) as u8)
+        .collect();
+    std::fs::write(&source, &data).unwrap();
+    let id = mac
+        .agent
+        .send_files("win", vec![source.clone()])
+        .await
+        .unwrap()
+        .remove(0);
+    let partway = wait_transfer(&win, &id, |t| t.done > 0).await;
+    assert!(
+        partway.done < partway.size,
+        "the transfer finished too fast to cut off"
+    );
+
+    // The PC takes itself offline midway: both sides stop, keeping what
+    // arrived, and wait as for a device not connected.
+    offline(&win, "win", true).await;
+    let waiting =
+        |t: &inputweave::agent::TransferStatus| t.state == TransferState::WaitingForConnection;
+    wait_transfer(&mac, &id, waiting).await;
+    let stopped = wait_transfer(&win, &id, waiting).await;
+    assert!(stopped.done < stopped.size);
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    assert_eq!(
+        wait_transfer(&mac, &id, waiting).await.state,
+        TransferState::WaitingForConnection
+    );
+    // Nothing new goes either way.
+    let small = dir.path().join("small.txt");
+    std::fs::write(&small, "small").unwrap();
+    for (node, to) in [(&mac, "win"), (&win, "mac")] {
+        let refused = node.agent.send_files(to, vec![small.clone()]).await;
+        assert!(
+            matches!(refused, Err(SendError::OfflineForNow(_))),
+            "{refused:?}"
+        );
+    }
+
+    // Back: it goes on from where it stopped, and arrives whole.
+    offline(&win, "win", false).await;
+    assert_eq!(
+        wait_transfer(&mac, &id, finished).await.state,
+        TransferState::Done
+    );
+    let received = wait_transfer(&win, &id, finished).await;
+    assert_eq!(std::fs::read(received.path.unwrap()).unwrap(), data);
+
+    mac.agent.shutdown().await;
+    win.agent.shutdown().await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn an_older_device_taken_offline_is_turned_away_when_it_enters() {
+    use iw_net::{PeerEndpoint, Session, hello};
+    use iw_proto::peer::v1::{Control, Enter, Input, Key, Os, control, input};
+
+    // A device the PC trusts, speaking the protocol by hand as InputWeave
+    // 1.0 does (protocol 6): it never hears it was taken offline, and
+    // enters all the same. The PC dials it.
+    let rogue = PeerEndpoint::bind(
+        "127.0.0.1:0".parse().unwrap(),
+        Arc::new(Identity::generate().unwrap()),
+    )
+    .unwrap();
+    let known = [Known {
+        id: "zed",
+        name: "Rogue",
+        fingerprint: rogue.fingerprint(),
+        address: Some(rogue.local_addr().unwrap()),
+    }];
+    let spec = win();
+    let win = start(&spec, Identity::generate().unwrap(), &[&spec], &known).await;
+    let win_fp = win.agent.fingerprint();
+    let accepted = tokio::time::timeout(TIMEOUT, async {
+        rogue
+            .accept()
+            .await
+            .unwrap()
+            .finish(|fp| *fp == win_fp)
+            .await
+            .unwrap()
+    })
+    .await
+    .unwrap();
+    let mut ours = hello("zed", "Rogue", Os::Linux);
+    ours.protocol_max = 6;
+    let mut session = Session::accept(accepted.connection, accepted.peer, ours)
+        .await
+        .unwrap();
+    let mut input_tx = session.info.open_input().await.unwrap();
+    let send = |msg| Input { msg: Some(msg) };
+    let enter = || {
+        send(input::Msg::Enter(Enter {
+            x: 100.0,
+            y: 100.0,
+            ..Enter::default()
+        }))
+    };
+    let a = |pressed| {
+        send(input::Msg::Key(Key {
+            usage: u32::from(usage::A.id()),
+            pressed,
+        }))
+    };
+    wait_status(&win, |s| s.device("zed").is_some_and(|d| d.offline_unaware)).await;
+
+    // Taken offline on the PC: it is told the PC paused, the only thing it
+    // understands of it, and never the list itself; entering, it is turned
+    // away, its input dropped.
+    win.agent.set_offline_for_now("zed", true).await.unwrap();
+    input_tx.send(&enter()).await.unwrap();
+    input_tx.send(&a(true)).await.unwrap();
+    input_tx.send(&a(false)).await.unwrap();
+    let (mut paused, mut took_over) = (false, 0);
+    tokio::time::timeout(TIMEOUT, async {
+        while !(paused && took_over > 0) {
+            let msg: Control = session.control_rx.recv().await.unwrap().unwrap();
+            match msg.msg {
+                Some(control::Msg::SessionState(state)) => paused |= state.sharing_paused,
+                Some(control::Msg::LocalActivity(_)) => took_over += 1,
+                Some(control::Msg::OfflineDevices(_)) => panic!("sent to an older device"),
+                _ => {}
+            }
+        }
+    })
+    .await
+    .unwrap();
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    assert!(
+        !win.emulation
+            .calls()
+            .iter()
+            .any(|c| matches!(c, Emulated::Key(..))),
+        "{:?}",
+        win.emulation.calls()
+    );
+    assert_eq!(win.agent.status().controlled_by, None);
+
+    // Back: it is told the PC shares again, and controls it.
+    win.agent.set_offline_for_now("zed", false).await.unwrap();
+    tokio::time::timeout(TIMEOUT, async {
+        loop {
+            let msg: Control = session.control_rx.recv().await.unwrap().unwrap();
+            if let Some(control::Msg::SessionState(state)) = msg.msg
+                && !state.sharing_paused
+            {
+                return;
+            }
+        }
+    })
+    .await
+    .unwrap();
+    input_tx.send(&enter()).await.unwrap();
+    input_tx.send(&a(true)).await.unwrap();
+    wait_injected(&win, Emulated::Key(usage::A, true)).await;
+    wait_status(&win, |s| s.controlled_by.as_deref() == Some("zed")).await;
+    input_tx.send(&a(false)).await.unwrap();
+    wait_injected(&win, Emulated::Key(usage::A, false)).await;
+    win.agent.shutdown().await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn documents_merge_entry_by_entry_and_the_newer_one_goes_back() {
+    use iw_net::{PeerEndpoint, Session, hello};
+    use iw_proto::peer::v1::{Control, OfflineDevice, OfflineDevices, Os, control};
+
+    // A device the PC trusts, speaking the protocol by hand.
+    let rogue = PeerEndpoint::bind(
+        "127.0.0.1:0".parse().unwrap(),
+        Arc::new(Identity::generate().unwrap()),
+    )
+    .unwrap();
+    let known = [Known {
+        id: "zed",
+        name: "Rogue",
+        fingerprint: rogue.fingerprint(),
+        address: Some(rogue.local_addr().unwrap()),
+    }];
+    let spec = win();
+    let win = start(&spec, Identity::generate().unwrap(), &[&spec], &known).await;
+    let win_fp = win.agent.fingerprint();
+    let accepted = tokio::time::timeout(TIMEOUT, async {
+        rogue
+            .accept()
+            .await
+            .unwrap()
+            .finish(|fp| *fp == win_fp)
+            .await
+            .unwrap()
+    })
+    .await
+    .unwrap();
+    let mut session = Session::accept(
+        accepted.connection,
+        accepted.peer,
+        hello("zed", "Rogue", Os::Linux),
+    )
+    .await
+    .unwrap();
+    let entry = |id: &str, offline, version, author: &str| OfflineDevice {
+        device_id: id.into(),
+        offline,
+        version,
+        author: author.into(),
+        by_device_id: if offline {
+            author.into()
+        } else {
+            String::new()
+        },
+        by_name: if offline && author == "win" {
+            "Windows PC".into()
+        } else {
+            String::new()
+        },
+    };
+    async fn next_doc(session: &mut Session) -> OfflineDevices {
+        tokio::time::timeout(TIMEOUT, async {
+            loop {
+                let msg: Control = session.control_rx.recv().await.unwrap().unwrap();
+                if let Some(control::Msg::OfflineDevices(doc)) = msg.msg {
+                    return doc;
+                }
+            }
+        })
+        .await
+        .unwrap()
+    }
+    let send = |doc| Control {
+        msg: Some(control::Msg::OfflineDevices(OfflineDevices {
+            devices: doc,
+        })),
+    };
+    // Its first, as the session starts: none; and the other's, as a real
+    // agent sends it then, which needs no answer.
+    assert!(next_doc(&mut session).await.devices.is_empty());
+    session.control_tx.send(&send(Vec::new())).await.unwrap();
+
+    // The PC takes it offline; it hears.
+    win.agent.set_offline_for_now("zed", true).await.unwrap();
+    let doc = next_doc(&mut session).await;
+    assert_eq!(doc.devices, [entry("zed", true, 1, "win")]);
+
+    // It sends an older entry for itself and a new one for a device the PC
+    // does not know: the older one loses alone, the new one is kept, and
+    // the PC sends its own back, which the other lacked.
+    session
+        .control_tx
+        .send(&send(vec![
+            entry("zed", false, 0, "zed"),
+            entry("ghost", true, 1, "zed"),
+        ]))
+        .await
+        .unwrap();
+    let back = next_doc(&mut session).await;
+    assert_eq!(
+        back.devices,
+        [entry("ghost", true, 1, "zed"), entry("zed", true, 1, "win")]
+    );
+    let status = win.agent.status();
+    assert!(status.device("zed").unwrap().offline_for_now);
+
+    // A newer entry wins, and leaves nothing to send back.
+    session
+        .control_tx
+        .send(&send(vec![
+            entry("zed", false, 2, "zed"),
+            entry("ghost", true, 1, "zed"),
+        ]))
+        .await
+        .unwrap();
+    wait_status(&win, |s| {
+        s.device("zed").is_some_and(|d| !d.offline_for_now)
+    })
+    .await;
+    // Taken offline again by a device the PC does not know, which gave no
+    // name: the PC says who by id only, and no name, never the id as one.
+    let mut by_stranger = entry("zed", true, 3, "stranger");
+    by_stranger.by_name = String::new();
+    session
+        .control_tx
+        .send(&send(vec![by_stranger, entry("ghost", true, 1, "zed")]))
+        .await
+        .unwrap();
+    let status = wait_status(&win, |s| s.device("zed").is_some_and(|d| d.offline_for_now)).await;
+    assert_eq!(
+        status.device("zed").unwrap().offline_by,
+        Some(("stranger".to_owned(), String::new()))
+    );
+    session
+        .control_tx
+        .send(&send(vec![
+            entry("zed", false, 4, "zed"),
+            entry("ghost", true, 1, "zed"),
+        ]))
+        .await
+        .unwrap();
+    wait_status(&win, |s| {
+        s.device("zed").is_some_and(|d| !d.offline_for_now)
+    })
+    .await;
+
+    // A device the group lists offline that the PC does not trust can be
+    // brought back from here; one it does not know cannot be taken offline.
+    win.agent.set_offline_for_now("ghost", false).await.unwrap();
+    let doc = next_doc(&mut session).await;
+    assert!(
+        doc.devices.contains(&entry("ghost", false, 5, "win")),
+        "{doc:?}"
+    );
+    assert_eq!(
+        win.agent.set_offline_for_now("other", true).await,
+        Err(agent::OfflineError::UnknownDevice("other".to_owned()))
+    );
+    assert_eq!(
+        win.agent.set_offline_for_now("other", false).await,
+        Err(agent::OfflineError::UnknownDevice("other".to_owned()))
+    );
+    win.agent.shutdown().await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_new_session_exchanges_the_document_once_each_way() {
+    use inputweave::offline_file::{Entry, OfflineDoc};
+    use iw_net::{PeerEndpoint, Session, hello};
+    use iw_proto::peer::v1::{Control, OfflineDevices, Os, control};
+
+    let rogue = PeerEndpoint::bind(
+        "127.0.0.1:0".parse().unwrap(),
+        Arc::new(Identity::generate().unwrap()),
+    )
+    .unwrap();
+    let known = [Known {
+        id: "zed",
+        name: "Rogue",
+        fingerprint: rogue.fingerprint(),
+        address: Some(rogue.local_addr().unwrap()),
+    }];
+    // The PC starts with a device offline that the other lacks.
+    let offline = OfflineDoc {
+        devices: [(
+            "ghost".to_owned(),
+            Entry {
+                version: 3,
+                author: "win".to_owned(),
+                offline: true,
+                by: Some("win".to_owned()),
+                by_name: String::new(),
+            },
+        )]
+        .into(),
+    };
+    let spec = win();
+    let options = Options {
+        offline: Some(offline),
+        ..Options::default()
+    };
+    let win = start_with(
+        &spec,
+        Identity::generate().unwrap(),
+        &[&spec],
+        &known,
+        options,
+    )
+    .await;
+    let win_fp = win.agent.fingerprint();
+    let accepted = tokio::time::timeout(TIMEOUT, async {
+        rogue
+            .accept()
+            .await
+            .unwrap()
+            .finish(|fp| *fp == win_fp)
+            .await
+            .unwrap()
+    })
+    .await
+    .unwrap();
+    let mut session = Session::accept(
+        accepted.connection,
+        accepted.peer,
+        hello("zed", "Rogue", Os::Linux),
+    )
+    .await
+    .unwrap();
+    let empty = || Control {
+        msg: Some(control::Msg::OfflineDevices(OfflineDevices::default())),
+    };
+    // Each side's own, as the session starts; the other's answers nothing
+    // though it lacks the PC's entry, which it has just been sent.
+    session.control_tx.send(&empty()).await.unwrap();
+    async fn docs(session: &mut Session, wait: Duration) -> Vec<OfflineDevices> {
+        let mut docs = Vec::new();
+        let _ = tokio::time::timeout(wait, async {
+            loop {
+                let msg: Control = session.control_rx.recv().await.unwrap().unwrap();
+                if let Some(control::Msg::OfflineDevices(doc)) = msg.msg {
+                    docs.push(doc);
+                }
+            }
+        })
+        .await;
+        docs
+    }
+    let opening = docs(&mut session, Duration::from_millis(700)).await;
+    assert_eq!(opening.len(), 1, "{opening:?}");
+    assert_eq!(opening[0].devices.len(), 1);
+    // Later in the session, one that lacks it is answered.
+    session.control_tx.send(&empty()).await.unwrap();
+    let answer = docs(&mut session, Duration::from_millis(700)).await;
+    assert_eq!(answer.len(), 1, "{answer:?}");
+    win.agent.shutdown().await;
+}
+
+#[cfg(unix)]
+#[tokio::test(flavor = "multi_thread")]
+async fn a_device_taken_offline_while_being_woken_is_not_woken_any_more() {
+    use inputweave::agent::WakeState;
+
+    let receiver = wake_receiver().await;
+    let target = receiver.local_addr().unwrap();
+    let nodes = desk_with(&[mac(), win()], |spec| Options {
+        wake_target: (spec.id == "mac").then_some(target),
+        wake_info: (spec.id == "win").then(pc_wake),
+        ..Options::default()
+    })
+    .await;
+    let [mac, win] = <[Node; 2]>::try_from(nodes).ok().unwrap();
+    wait_status(&mac, |s| s.device("win").is_some_and(|d| d.connected)).await;
+    // Told how to wake it before it went.
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    win.agent.shutdown().await;
+    wait_status(&mac, |s| s.device("win").is_some_and(|d| d.can_wake)).await;
+    mac.agent.wake("win").await.unwrap();
+    assert_eq!(
+        mac.agent.status().device("win").unwrap().wake,
+        WakeState::Waking
+    );
+
+    // Taken offline for now meanwhile: neither waking nor wakeable, and
+    // waking it is given up, so back online it is just offline.
+    offline(&mac, "win", true).await;
+    let pc = mac.agent.status().device("win").unwrap().clone();
+    assert_eq!((pc.wake, pc.can_wake), (WakeState::None, false));
+    assert!(matches!(
+        mac.agent.wake("win").await,
+        Err(agent::WakeError::OfflineForNow(_))
+    ));
+    // Not connected, and offline for now: a jump says the latter, as the
+    // apps show it.
+    assert_eq!(
+        mac.agent.jump_to("win").await,
+        Err(agent::JumpError::Refused(
+            iw_core::router::JumpError::OfflineForNow(DeviceId::new("win"))
+        ))
+    );
+    offline(&mac, "win", false).await;
+    let pc = mac.agent.status().device("win").unwrap().clone();
+    assert_eq!((pc.wake, pc.can_wake), (WakeState::None, true));
+    mac.agent.shutdown().await;
+}
+
+#[cfg(unix)]
+#[tokio::test(flavor = "multi_thread")]
+async fn ctl_takes_a_device_offline_and_brings_it_back() {
+    let dir = tempfile::tempdir().unwrap();
+    let socket = dir.path().join("agent.sock");
+    let nodes = desk_with(&[mac(), win()], ipc_on_mac(&socket)).await;
+    let win = &nodes[1];
+
+    let output = run_ctl(&socket, &["offline", "win", "on"]).await;
+    assert!(output.status.success(), "{output:?}");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains("offline for now") && stdout.contains("set on this device"),
+        "{stdout}"
+    );
+    wait_status(win, |s| shows_offline(s, "win", ("mac", "MacBook Pro"))).await;
+    let mut client = inputweave::ctl::Client::connect(&socket).await.unwrap();
+    assert_eq!(refusal(client.jump_to("win").await), "offline_for_now");
+    let status = client.status().await.unwrap();
+    let pc = status.devices.iter().find(|d| d.id == "win").unwrap();
+    assert!(pc.offline_for_now && pc.offline_by_device_id == "mac");
+    assert_eq!(pc.state(), iw_proto::app::v1::ConnectionState::Offline);
+    assert_eq!(
+        status.last_return(),
+        iw_proto::app::v1::ReturnReason::Unspecified
+    );
+    assert_eq!(status.offline_changes, 1);
+    assert!(status.offline_supported && !status.offline_for_now);
+
+    // Back, then this device itself: every other device shows offline,
+    // and it changes none of them until it is back.
+    let output = run_ctl(&socket, &["offline", "win", "off"]).await;
+    assert!(output.status.success(), "{output:?}");
+    let output = run_ctl(&socket, &["offline", "mac", "on"]).await;
+    assert!(output.status.success(), "{output:?}");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains("offline:        for now, set on this device"),
+        "{stdout}"
+    );
+    let status = client.status().await.unwrap();
+    assert!(status.offline_for_now && status.offline_by_device_id == "mac");
+    assert!(
+        status
+            .devices
+            .iter()
+            .all(|d| d.state() == iw_proto::app::v1::ConnectionState::Offline)
+    );
+    let output = run_ctl(&socket, &["offline", "win", "on"]).await;
+    assert!(!output.status.success(), "{output:?}");
+    assert!(
+        String::from_utf8_lossy(&output.stderr).contains("offline_for_now"),
+        "{output:?}"
+    );
+    let output = run_ctl(&socket, &["offline", "mac", "off"]).await;
+    assert!(output.status.success(), "{output:?}");
+    wait_status(win, |s| s.device("mac").is_some_and(|d| d.connected)).await;
+
+    for node in nodes {
+        node.agent.shutdown().await;
+    }
 }

@@ -792,6 +792,12 @@ async fn respond(
                 error("agent_stopping", "the agent is stopping")
             }
         }
+        Command::SetOfflineForNow(set) => {
+            match super::set_offline_for_now(&ctx.engine, &set.device_id, set.offline).await {
+                Ok(()) => status(),
+                Err(e) => error(e.code(), &e.to_string()),
+            }
+        }
         Command::SetLoginWindowAccess(set) => {
             if let Err(e) = super::set_login_window_access(
                 &ctx.directory,
@@ -1029,6 +1035,7 @@ fn jump_error_code(e: &JumpError) -> &'static str {
         JumpError::Refused(Refused::ScreenLocked(_)) => "screen_locked",
         JumpError::Refused(Refused::InputUnavailable(_)) => "input_unavailable",
         JumpError::Refused(Refused::PeerPaused(_)) => "peer_paused",
+        JumpError::Refused(Refused::OfflineForNow(_)) => "offline_for_now",
     }
 }
 

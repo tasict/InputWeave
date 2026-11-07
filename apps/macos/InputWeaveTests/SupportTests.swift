@@ -252,6 +252,30 @@ final class StatusIconStateTests: XCTestCase {
         XCTAssertEqual(
             StatusIcon.State(model(link: .connecting), serviceEnabled: true, now: .now + 11), .attention)
     }
+
+    func testThisComputerOfflineForNowLooksPausedButSaysWhy() throws {
+        var status = model().status
+        status.offlineSupported = true
+        status.offlineForNow = true
+        status.offlineByDeviceID = "pc"
+        XCTAssertEqual(state(AgentModel.sample(status: status)), .offlineForNow)
+        // Whatever sharing says.
+        status.sharing = false
+        XCTAssertEqual(state(AgentModel.sample(status: status)), .offlineForNow)
+        // What the user has to fix still comes first.
+        XCTAssertEqual(state(AgentModel.sample(status: status), serviceEnabled: false), .attention)
+        // A service from before knows nothing of it.
+        status.sharing = true
+        status.offlineSupported = false
+        XCTAssertEqual(state(AgentModel.sample(status: status)), .normal)
+
+        XCTAssertEqual(StatusIcon.description(.offlineForNow), "InputWeave, this computer is offline for now")
+        XCTAssertEqual(StatusIcon.description(.paused), "InputWeave, sharing paused")
+        // Drawn as paused: only the words differ.
+        let paused = try XCTUnwrap(StatusIcon.image(.paused).tiffRepresentation)
+        XCTAssertEqual(StatusIcon.image(.offlineForNow).tiffRepresentation, paused)
+        XCTAssertNotEqual(StatusIcon.image(.normal).tiffRepresentation, paused)
+    }
 }
 
 @MainActor
@@ -312,6 +336,26 @@ final class PanelTextTests: XCTestCase {
         XCTAssertEqual(PanelText.title(AgentModel.sample(status: status)), "Relative mouse on Windows Desktop")
         status.hotkeys.relative = ""
         XCTAssertEqual(PanelText.subtitle(AgentModel.sample(status: status)), "Press ⌃⌥⇧⎋ to take back control.")
+    }
+
+    func testThisComputerOfflineForNowComesFirst() {
+        var status = model(sharing: false, locked: true, controlledBy: "pc").status
+        status.offlineSupported = true
+        status.offlineForNow = true
+        status.offlineByDeviceID = "pc"
+        status.offlineByName = "Windows Desktop"
+        XCTAssertEqual(PanelText.title(AgentModel.sample(status: status)), "This computer is offline for now")
+        XCTAssertEqual(
+            PanelText.subtitle(AgentModel.sample(status: status)),
+            "Set by Windows Desktop. Your other computers don’t control this one or share the clipboard and files with it.")
+        status.offlineByDeviceID = "mac"
+        status.offlineByName = "MacBook Pro"
+        XCTAssertEqual(
+            PanelText.subtitle(AgentModel.sample(status: status)),
+            "Set on this computer. Your other computers don’t control this one or share the clipboard and files with it.")
+        // A service from before knows nothing of it.
+        status.offlineSupported = false
+        XCTAssertEqual(PanelText.title(AgentModel.sample(status: status)), "Sharing paused")
     }
 
     func testUnlockedTextIsUnchanged() {
@@ -577,6 +621,109 @@ final class HUDControllerTests: XCTestCase {
         XCTAssertNil(older.message(for: mini(.waking, supported: false), at: now))
     }
 
+    func testTellsOfComputersTakenOfflineForNow() {
+        func offline(
+            _ count: UInt64, device: String = "", offline: Bool = false, by: String = "", returns: UInt64 = 0,
+            returnedFrom: String = "", supported: Bool = true
+        ) -> AgentModel {
+            var status = model().status
+            status.offlineSupported = supported
+            status.offlineChanges = count
+            status.lastOfflineChange.deviceID = device
+            status.lastOfflineChange.offline = offline
+            status.lastOfflineChange.byDeviceID = by
+            status.lastOfflineChange.byName = by == "mac" ? "MacBook Pro" : by == "pc" ? "Windows Desktop" : ""
+            if device == "mac" && offline {
+                status.offlineForNow = true
+                status.offlineByDeviceID = by
+                // The status may name it otherwise by the time the HUD
+                // looks; the change's own name is what it tells.
+                status.offlineByName = ""
+            }
+            status.controlReturns = returns
+            if returns > 0 {
+                status.lastReturn = .offlineForNow
+                status.lastReturnDeviceID = returnedFrom
+            }
+            return AgentModel.sample(status: status)
+        }
+        let hud = HUDController(model: model(), defaults: defaults)
+        let now = Date()
+        // Counted already as the app connects: only remembered.
+        XCTAssertNil(hud.message(for: offline(2, device: "pc", offline: true, by: "mac"), at: now))
+        XCTAssertEqual(
+            hud.message(for: offline(3, device: "pc", offline: false, by: "mac"), at: now), "Windows Desktop is back online.")
+        XCTAssertEqual(
+            hud.message(for: offline(4, device: "pc", offline: true, by: "mac"), at: now), "Windows Desktop is offline for now.")
+        XCTAssertNil(hud.message(for: offline(4, device: "pc", offline: true, by: "mac"), at: now))
+        XCTAssertEqual(
+            hud.message(for: offline(5, device: "pc", offline: false, by: "mac"), at: now), "Windows Desktop is back online.")
+        // Taken offline from here while this computer controlled it: why
+        // the keyboard and mouse came back says it, once.
+        let wentOffline = "“Windows Desktop” went offline for now. The keyboard and mouse are back on this computer."
+        XCTAssertEqual(
+            hud.message(for: offline(6, device: "pc", offline: true, by: "mac", returns: 1, returnedFrom: "pc"), at: now),
+            wentOffline)
+        XCTAssertNil(hud.message(for: offline(6, device: "pc", offline: true, by: "mac", returns: 1, returnedFrom: "pc"), at: now))
+        // Taken offline elsewhere: this computer counts no change, only
+        // the return.
+        XCTAssertEqual(
+            hud.message(for: offline(6, device: "pc", offline: true, by: "mac", returns: 2, returnedFrom: "pc"), at: now),
+            wentOffline)
+        // This computer, from here, while it controlled another: its own
+        // name, and nothing for the keyboard and mouse coming back.
+        XCTAssertEqual(
+            hud.message(for: offline(7, device: "mac", offline: true, by: "mac", returns: 3, returnedFrom: "mac"), at: now),
+            "MacBook Pro is offline for now.")
+        // Bringing itself back needs no word.
+        XCTAssertNil(hud.message(for: offline(8, device: "mac", offline: false, by: "mac", returns: 3), at: now))
+        // Another computer took this one offline, as it controlled one.
+        XCTAssertEqual(
+            hud.message(for: offline(9, device: "mac", offline: true, by: "pc", returns: 4, returnedFrom: "mac"), at: now),
+            "Windows Desktop took this computer offline for now.")
+        // The service out of reach and back: its first status is only
+        // remembered again.
+        XCTAssertNil(hud.message(for: AgentModel.sample(status: offline(9).status, link: .connecting), at: now))
+        XCTAssertNil(hud.message(for: offline(10, device: "pc", offline: true, by: "mac", returns: 4), at: now))
+        // A service from before tells nothing of it.
+        let older = HUDController(model: model(), defaults: defaults)
+        XCTAssertNil(older.message(for: offline(0, supported: false), at: now))
+        XCTAssertNil(older.message(for: offline(1, device: "pc", offline: true, by: "mac", supported: false), at: now))
+    }
+
+    func testTellsOfAComputerTheServiceDoesNotKnowTakingThisOneOffline() {
+        func taken(_ count: UInt64, byID: String = "", byName: String = "", statusName: String = "") -> AgentModel {
+            var status = model().status
+            status.offlineSupported = true
+            status.offlineForNow = true
+            status.offlineByDeviceID = byID
+            status.offlineByName = statusName
+            status.offlineChanges = count
+            status.lastOfflineChange.deviceID = "mac"
+            status.lastOfflineChange.offline = true
+            status.lastOfflineChange.byDeviceID = byID
+            status.lastOfflineChange.byName = byName
+            return AgentModel.sample(status: status)
+        }
+        let hud = HUDController(model: model(), defaults: defaults)
+        let now = Date()
+        XCTAssertNil(hud.message(for: taken(0), at: now))
+        XCTAssertEqual(hud.message(for: taken(1), at: now), "Another computer took this computer offline for now.")
+        // An id without a name is still another computer, whatever the
+        // status names it by now.
+        XCTAssertEqual(
+            hud.message(for: taken(2, byID: "mini", statusName: "Mac mini"), at: now),
+            "Another computer took this computer offline for now.")
+        // A name without an id is shown, the change's rather than the
+        // status's.
+        XCTAssertEqual(
+            hud.message(for: taken(3, byName: "Mac mini", statusName: "Studio"), at: now),
+            "Mac mini took this computer offline for now.")
+        XCTAssertEqual(
+            PanelText.subtitle(taken(3, byID: "mini")),
+            "Set by another computer. Your other computers don’t control this one or share the clipboard and files with it.")
+    }
+
     func testARefusalShownFirstLeavesWhatAGameDidUntold() {
         let hud = HUDController(model: model(), defaults: defaults)
         defaults.set(3, forKey: Preferences.takeBackHints)
@@ -653,6 +800,31 @@ final class AgentModelStateTests: XCTestCase {
         // Nor onto one whose user paused sharing.
         XCTAssertFalse(model(pcSharingPaused: true).canJump(to: "pc"))
         XCTAssertTrue(model(pcSharingPaused: true).outOfReach("pc"))
+    }
+
+    func testOfflineForNowLeavesTheLockAndProblemsAlone() {
+        XCTAssertTrue(model().canToggleLock)
+        XCTAssertFalse(model(sharing: false).canToggleLock)
+        XCTAssertFalse(model(link: .connecting).canToggleLock)
+        var controlled = model().status
+        controlled.controlledByDeviceID = "pc"
+        XCTAssertFalse(AgentModel.sample(status: controlled).canToggleLock)
+        XCTAssertEqual(model().unreachableDevices.map(\.id), ["laptop"])
+
+        var status = model().status
+        status.offlineSupported = true
+        // A computer taken offline for now is meant to be offline.
+        status.devices[1].offlineForNow = true
+        XCTAssertEqual(AgentModel.sample(status: status).unreachableDevices.map(\.id), [])
+        XCTAssertTrue(AgentModel.sample(status: status).canToggleLock)
+        // While this one is, every other shows offline, and the lock has
+        // nothing to keep.
+        status.devices[1].offlineForNow = false
+        status.devices[0].state = .offline
+        status.offlineForNow = true
+        XCTAssertEqual(AgentModel.sample(status: status).unreachableDevices.map(\.id), [])
+        XCTAssertFalse(AgentModel.sample(status: status).canToggleLock)
+        XCTAssertTrue(AgentModel.sample(status: status).offlineHere)
     }
 
     func testTurnsTheSwitchDelayOnWithTheLastOneInEffect() {

@@ -262,6 +262,7 @@ public partial class App : Application
 
     private MenuActions Actions => new(
         TogglePause,
+        ToggleOffline,
         ToggleLock,
         IdentifyScreens,
         () => ShowMain(MainPage.Devices, addDevice: true),
@@ -710,7 +711,8 @@ public partial class App : Application
             Preferences.DismissedTransfers = DismissedTransfers.Ids;
         }
         var menu = MenuState.For(snapshot);
-        tray.Update(TrayIcons.StateFor(snapshot, serviceState, now), TaskbarTheme.IsLight, menu);
+        var trayState = TrayIcons.StateFor(snapshot, serviceState, now);
+        tray.Update(trayState, TrayIcons.Description(trayState, snapshot), TaskbarTheme.IsLight, menu);
         var shown = sampleTransfers && snapshot.Link == AgentLink.Connected ? SampleTransfers.Over(snapshot) : snapshot;
         if (sampleDevices && snapshot.Link == AgentLink.Connected)
         {
@@ -910,6 +912,28 @@ public partial class App : Application
             Send($"wake {id}", () => Model.WakeDeviceAsync(id));
         }
     }
+
+    /// <summary>
+    /// Takes this computer offline for now, or brings it back (the tray
+    /// menu and the panel). The HUD says what happened from the status the
+    /// service answers with; a refusal is only logged.
+    /// </summary>
+    private void ToggleOffline()
+    {
+        var snapshot = Model.Snapshot;
+        if (snapshot.Link == AgentLink.Connected && Settings.OfflineForNow.Supported(snapshot))
+        {
+            SetOfflineForNow(snapshot.ThisDeviceId, !snapshot.Status.OfflineForNow);
+        }
+    }
+
+    /// <summary>
+    /// Takes a computer offline for now, or brings it back (the inspector,
+    /// the canvas's context menu, the panel's Bring Back Online). No
+    /// confirmation: it is undone as easily, and the HUD says what happened.
+    /// </summary>
+    internal void SetOfflineForNow(string id, bool offline) =>
+        Send($"offline for now {id}: {offline}", () => Model.SetOfflineForNowAsync(id, offline));
 
     private void ToggleLock()
     {

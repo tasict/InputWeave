@@ -19,7 +19,8 @@ internal static class Sample
         bool macLockScreenInput = false, bool dragsCarried = false, string relative = "", bool relativeAutomatic = false,
         ulong relativeEnds = 0, RelativeEndReason endReason = RelativeEndReason.Unspecified, bool relativeSupported = true,
         bool macInputUnavailable = false, bool macSharingPaused = false, bool wakeSupported = false, bool macCanWake = false,
-        WakeState macWake = WakeState.None, ulong macOfflineSince = 0)
+        WakeState macWake = WakeState.None, ulong macOfflineSince = 0, bool offlineSupported = false,
+        string macOfflineBy = "", string thisOfflineBy = "")
     {
         var status = new Status
         {
@@ -36,6 +37,11 @@ internal static class Sample
             RelativeEnds = relativeEnds,
             RelativeSupported = relativeSupported,
             WakeSupported = wakeSupported,
+            OfflineSupported = offlineSupported,
+            // Taken offline by this computer, or by the MacBook Pro.
+            OfflineForNow = thisOfflineBy.Length != 0,
+            OfflineByDeviceId = thisOfflineBy,
+            OfflineByName = thisOfflineBy switch { "" => "", "pc" => "Windows Desktop", _ => "MacBook Pro" },
             LastRelativeEnd = relativeEnds == 0 ? null : new RelativeEnd { DeviceId = "mac", Reason = endReason },
         };
         if (missingPermission)
@@ -56,6 +62,9 @@ internal static class Sample
                 CanWake = macCanWake,
                 Wake = macWake,
                 OfflineSinceUnixMs = macOfflineSince,
+                OfflineForNow = macOfflineBy.Length != 0,
+                OfflineByDeviceId = macOfflineBy,
+                OfflineByName = macOfflineBy switch { "" => "", "pc" => "Windows Desktop", _ => "Mac mini" },
             });
         }
         return new AgentSnapshot

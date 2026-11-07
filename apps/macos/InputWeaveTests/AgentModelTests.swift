@@ -494,6 +494,61 @@ final class AgentModelTests: XCTestCase {
         XCTAssertFalse(model.status.wakeOnPush)
     }
 
+    /// Taking the computer the configuration file trusts offline for now
+    /// and bringing it back, then this one: while it is, every other
+    /// computer is offline, and only this one can be brought back from
+    /// here.
+    func testOfflineForNow() async throws {
+        let model = AgentModel(socketPath: directory.appending(path: "a.sock").path)
+        model.start()
+        try await eventually("a connection") { model.link == .connected }
+        try await eventually("the trusted computer") { model.device("pc") != nil }
+        XCTAssertTrue(model.offlineSupported)
+        XCTAssertEqual(model.offlineOffer("pc"), .takeOffline)
+        let counted = model.status.offlineChanges
+
+        try await model.setOfflineForNow("pc", true)
+        let pc = try XCTUnwrap(model.device("pc"))
+        XCTAssertTrue(pc.offlineForNow)
+        XCTAssertEqual(pc.offlineByDeviceID, "mac")
+        XCTAssertEqual(pc.offlineByName, "Test Mac")
+        XCTAssertEqual(pc.state, .offline)
+        XCTAssertTrue(model.showsOfflineForNow("pc"))
+        XCTAssertEqual(model.offlineOffer("pc"), .bringBack)
+        XCTAssertEqual(model.status.offlineChanges, counted + 1)
+        XCTAssertEqual(model.status.lastOfflineChange.deviceID, "pc")
+        XCTAssertTrue(model.status.lastOfflineChange.offline)
+        XCTAssertEqual(model.status.lastOfflineChange.byDeviceID, "mac")
+        XCTAssertEqual(model.unreachableDevices.map(\.id), [])
+        try await model.setOfflineForNow("pc", false)
+        XCTAssertEqual(model.device("pc")?.offlineForNow, false)
+        XCTAssertEqual(model.offlineOffer("pc"), .takeOffline)
+
+        try await model.setOfflineForNow("mac", true)
+        XCTAssertTrue(model.offlineHere)
+        XCTAssertEqual(model.status.offlineByDeviceID, "mac")
+        XCTAssertTrue(model.status.devices.allSatisfy { $0.state == .offline && !$0.offlineForNow })
+        XCTAssertEqual(model.offlineOffer("pc"), .hidden)
+        XCTAssertFalse(model.canToggleLock)
+        var refused: String?
+        do {
+            try await model.setOfflineForNow("pc", true)
+        } catch {
+            refused = (error as? AgentRefusal)?.code
+        }
+        XCTAssertEqual(refused, "offline_for_now")
+        try await model.setOfflineForNow("mac", false)
+        XCTAssertFalse(model.offlineHere)
+
+        refused = nil
+        do {
+            try await model.setOfflineForNow("ghost", true)
+        } catch {
+            refused = (error as? AgentRefusal)?.code
+        }
+        XCTAssertEqual(refused, "unknown_device")
+    }
+
     /// Setup has the background service list the folders macOS protects,
     /// here in the test's own folder, where macOS asks nothing.
     func testFolderAccess() async throws {

@@ -104,6 +104,7 @@ pub fn snapshot(now: SystemTime) -> Snapshot {
         relative_auto: true,
         relative_supported: true,
         wake_supported: true,
+        offline_supported: true,
         ..Default::default()
     };
     let arranged = |id: &str,
@@ -416,5 +417,63 @@ pub fn wayland(now: SystemTime) -> Snapshot {
             failure: String::new(),
         },
     ];
+    model
+}
+
+/// The sample with the Mac mini taken offline for now, from this computer
+/// (`from_here`) or by the ThinkPad, with it and the Studio PC still on a
+/// version that knows nothing of it.
+pub fn offline_for_now(now: SystemTime, from_here: bool) -> Snapshot {
+    let mut model = snapshot(now);
+    let (by, by_name) = if from_here {
+        ("me", "ubuntu-desk")
+    } else {
+        ("laptop", "ThinkPad")
+    };
+    for device in &mut model.status.devices {
+        match device.id.as_str() {
+            "mac" => {
+                device.state = ConnectionState::Offline as i32;
+                device.rtt_ms = 0;
+                device.offline_for_now = true;
+                device.offline_by_device_id = by.into();
+                device.offline_by_name = by_name.into();
+                device.offline_unaware = true;
+            }
+            "pc" => device.offline_unaware = true,
+            _ => {}
+        }
+    }
+    let mut arrangement = (*model.arrangement).clone();
+    for device in &mut arrangement.devices {
+        if device.id == "mac" {
+            device.connected = false;
+        }
+    }
+    model.arrangement = Arc::new(arrangement);
+    model
+}
+
+/// The sample with this computer taken offline for now by the Mac mini:
+/// every other computer offline, and none to wake.
+pub fn this_offline(now: SystemTime) -> Snapshot {
+    let mut model = snapshot(now);
+    model.status.offline_for_now = true;
+    model.status.offline_by_device_id = "mac".into();
+    model.status.offline_by_name = "Mac mini".into();
+    model.status.last_clipboard = None;
+    for device in &mut model.status.devices {
+        device.state = ConnectionState::Offline as i32;
+        device.rtt_ms = 0;
+        device.can_wake = false;
+        device.offline_since_unix_ms = 0;
+    }
+    let mut arrangement = (*model.arrangement).clone();
+    for device in &mut arrangement.devices {
+        if !device.this_device {
+            device.connected = false;
+        }
+    }
+    model.arrangement = Arc::new(arrangement);
     model
 }

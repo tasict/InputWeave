@@ -16,6 +16,7 @@ pub mod license;
 pub mod license_text;
 pub mod log;
 pub mod news;
+pub mod offline;
 pub mod pairing_text;
 pub mod paths;
 pub mod polar;

@@ -160,6 +160,15 @@ pub fn wake_file(devices_file: &Path) -> PathBuf {
         .join("wake.toml")
 }
 
+/// The devices of the group taken offline for now, beside the devices file
+/// (`offline_file`).
+pub fn offline_file(devices_file: &Path) -> PathBuf {
+    devices_file
+        .parent()
+        .unwrap_or(Path::new("."))
+        .join("offline.toml")
+}
+
 /// File transfers that finished are remembered next to the devices file,
 /// in `transfers.toml`. On Windows the broker remembers them instead, in
 /// the user's `%LOCALAPPDATA%\InputWeave`, and the agent removes this file

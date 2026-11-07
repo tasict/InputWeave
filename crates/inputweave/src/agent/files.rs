@@ -64,12 +64,15 @@ use super::listing::{
 use super::queue::SendQueue;
 use super::throttle::{MAX_CHUNK, Pacer, PacingStatus};
 use super::transfer::FRAME_LIMIT;
+use crate::offline_file::OfflineDoc;
 
 /// The stream code either side resets or stops a transfer with when its
 /// user cancels.
 const CANCELLED: u32 = 1;
 /// The stream code a receiver stops a transfer with when it cannot go on
-/// for now, as when the Windows broker restarts; the sender tries again.
+/// for now, as when the Windows broker restarts, and either side resets or
+/// stops it with as it or the other is taken offline for now; the sender
+/// tries again.
 const INTERRUPTED: u32 = 2;
 /// Files received at once, from all devices; more are turned away as
 /// busy, and their senders try again. Each sender sends at most
@@ -392,6 +395,9 @@ pub enum SendError {
     /// This device's user turned files with that device off.
     #[error("files with {0} are turned off on this device")]
     FilesOff(String),
+    /// That device, or this one, is taken offline for now.
+    #[error("{0} or this device is offline for now")]
+    OfflineForNow(String),
     #[error("{0} is not a file or a folder")]
     NotAFile(PathBuf),
     #[error("{0} is a symbolic link")]
@@ -416,6 +422,7 @@ impl SendError {
         match self {
             Self::UnknownDevice(_) => "unknown_device",
             Self::FilesOff(_) => "files_off",
+            Self::OfflineForNow(_) => "offline_for_now",
             Self::NotAFile(_) => "not_a_file",
             Self::Symlink(_) => "symlink",
             Self::NoBroker => "no_broker",
@@ -582,6 +589,11 @@ pub(crate) struct Files {
     store: Store,
     /// The live session with each device, for opening transfer streams.
     sessions: watch::Sender<HashMap<DeviceId, SessionInfo>>,
+    /// The group's document of the devices taken offline for now, as the
+    /// engine last had it (`offline_changed`), and this device's id: read
+    /// for every chunk, so without the directory's lock.
+    offline: watch::Sender<OfflineDoc>,
+    this_device: String,
     directory: Arc<Directory>,
     /// Opens the app to ask about files when none is connected.
     app: Arc<AppOpener>,
@@ -650,6 +662,8 @@ impl Files {
             tidied: Mutex::new(tidied),
             store,
             sessions: watch::Sender::new(HashMap::new()),
+            offline: watch::Sender::new(directory.offline()),
+            this_device: directory.this_device().to_owned(),
             directory,
             app,
             incoming: AtomicUsize::new(0),
@@ -725,6 +739,20 @@ impl Files {
             .entry(device.clone())
             .or_insert_with(|| Arc::new(Pacer::new()))
             .clone()
+    }
+
+    /// Devices were taken offline for now or brought back, as `doc` now
+    /// says: files to a device taken offline, or to any while this one is,
+    /// wait as for one not connected, and those brought back go on.
+    pub(crate) fn offline_changed(&self, doc: &OfflineDoc) {
+        self.offline.send_replace(doc.clone());
+        self.sessions.send_modify(|_| {});
+    }
+
+    /// Whether files go neither to `device` nor from it now: either is
+    /// taken offline for now (`OfflineDoc::between`).
+    fn cut_off(&self, device: &str) -> bool {
+        self.offline.borrow().between(&self.this_device, device)
     }
 
     pub(crate) fn session_down(&self, device: &DeviceId, info: &SessionInfo) {
@@ -847,6 +875,9 @@ impl Files {
         match self.directory.peer(device) {
             None => return Err(SendError::UnknownDevice(device.to_owned())),
             Some(peer) if peer.files_off => return Err(SendError::FilesOff(device.to_owned())),
+            Some(_) if self.cut_off(device) => {
+                return Err(SendError::OfflineForNow(device.to_owned()));
+            }
             Some(_) => {}
         }
         let manifest = self.manifest(paths).await?;
@@ -1575,12 +1606,16 @@ impl Files {
         self.cancel_ids(&targets);
     }
 
-    /// The session with `device`, once there is one.
+    /// The session with `device`, once there is one and neither is taken
+    /// offline for now.
     async fn session(&self, device: &DeviceId) -> SessionInfo {
         let mut sessions = self.sessions.subscribe();
         loop {
-            if let Some(info) = sessions.borrow_and_update().get(device) {
-                return info.clone();
+            let info = sessions.borrow_and_update().get(device).cloned();
+            if let Some(info) = info
+                && !self.cut_off(device.as_str())
+            {
+                return info;
             }
             if sessions.changed().await.is_err() {
                 // The agent is stopping; wait to be dropped.
@@ -1900,6 +1935,13 @@ impl Files {
         {
             debug!(device = %from, batch = id, "declining files from a device files are turned off with");
             return Err(FileDecline::Unavailable);
+        }
+        // Taken offline for now, it or this device: busy, so the sender
+        // tries again later, as it would were they not connected; one that
+        // knows waits until it is brought back.
+        if self.cut_off(from.as_str()) {
+            debug!(device = %from, batch = id, "turning away files: it or this device is offline for now");
+            return Err(FileDecline::Busy);
         }
         let key = (from.clone(), id.to_owned());
         let _deciding = self.deciding.lock().await;
@@ -2250,7 +2292,17 @@ async fn send_file(
             info = files.session(&device) => info,
             _ = cancelled(&mut cancel) => return files.finish(&id, TransferState::Cancelled),
         };
-        match offer_file(&files, &info, &pacer, &mut source, &offer, &mut cancel).await {
+        match offer_file(
+            &files,
+            &device,
+            &info,
+            &pacer,
+            &mut source,
+            &offer,
+            &mut cancel,
+        )
+        .await
+        {
             Ok(end) => {
                 // The receiver heard of the failure, unless the batch was
                 // turned away.
@@ -2281,6 +2333,7 @@ async fn send_file(
 /// ended, or an error after which it is worth trying again.
 async fn offer_file(
     files: &Files,
+    device: &DeviceId,
     info: &SessionInfo,
     pacer: &Pacer,
     source: &mut Source,
@@ -2334,6 +2387,12 @@ async fn offer_file(
         if *cancel.borrow() {
             tx.reset(CANCELLED);
             return Ok(TransferState::Cancelled);
+        }
+        // Taken offline for now, it or this device: the rest goes once it
+        // is brought back, from where it stopped.
+        if files.cut_off(device.as_str()) {
+            tx.reset(INTERRUPTED);
+            return Err(NetError::Protocol("taken offline for now"));
         }
         let want = usize::try_from(size - done)
             .unwrap_or(usize::MAX)
@@ -2677,6 +2736,14 @@ async fn receive_file(
                     rx.stop(CANCELLED);
                     target.discard().await;
                     return files.finish(&id, TransferState::Failed("corrupt"));
+                }
+                // Taken offline for now, it or this device: what arrived is
+                // kept, for the sender to go on from once it is brought back.
+                if files.cut_off(from.as_str()) {
+                    debug!(id, device = %from, "file transfer stopped: taken offline for now");
+                    rx.stop(INTERRUPTED);
+                    target.close().await;
+                    return interrupted(done);
                 }
                 if let Err(e) = target.write(&chunk.data).await {
                     if e.kind() == std::io::ErrorKind::NotConnected {

@@ -23,7 +23,8 @@ public enum WakeNote
 /// decides whether a computer can be woken (DeviceStatus.can_wake) and how
 /// far waking it got (DeviceStatus.wake); this only says what the app shows
 /// for that. A service from before waking (Status.wake_supported false) gets
-/// none of it, and this computer never does.
+/// none of it, and this computer never does; nor does a computer offline for
+/// now, nor any while this one is (<see cref="OfflineForNow.CutOff"/>).
 /// </summary>
 public static class Wake
 {
@@ -33,9 +34,13 @@ public static class Wake
     /// <summary>The Segoe Fluent warning sign, before the note that a computer didn't wake up.</summary>
     public const string WarningGlyph = "";
 
-    /// <summary>Another computer, from a service that can wake computers.</summary>
+    /// <summary>
+    /// Another computer, from a service that can wake computers, unless
+    /// being offline for now cuts it off: the service then says it can't be
+    /// woken, which is no reason to tell how to wake it.
+    /// </summary>
     private static DeviceStatus? Other(AgentSnapshot model, string id) =>
-        model.WakeSupported && id != model.ThisDeviceId ? model.Device(id) : null;
+        model.WakeSupported && id != model.ThisDeviceId && !OfflineForNow.CutOff(model, id) ? model.Device(id) : null;
 
     /// <summary>
     /// Whether a computer can be woken from here now: Wake shows beside its
