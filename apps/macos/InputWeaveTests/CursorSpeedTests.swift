@@ -173,8 +173,20 @@ final class CursorSpeedEditorTests: XCTestCase {
 
     private let delay = Duration.milliseconds(20)
 
+    /// Long enough for anything held back by `delay` to have gone on an
+    /// idle machine: only for checking that something did not go.
     private func settle() async throws {
         try await Task.sleep(for: delay * 4)
+    }
+
+    /// Waits for what the editor does on its own, however slow the machine
+    /// running the tests is.
+    private func eventually(_ what: String, _ condition: () -> Bool) async throws {
+        let deadline = ContinuousClock.now + .seconds(10)
+        while !condition() {
+            if ContinuousClock.now > deadline { XCTFail("timed out waiting for \(what)"); return }
+            try await Task.sleep(for: .milliseconds(5))
+        }
     }
 
     func testTheKeysSendOnceTheyStopUnlessTheSliderIsBackWhereItWas() async throws {
@@ -183,7 +195,7 @@ final class CursorSpeedEditorTests: XCTestCase {
         editor.show("pc", send: service.send)
         editor.moved(to: 120, service: 100, on: "pc", send: service.send)
         editor.moved(to: 130, service: 100, on: "pc", send: service.send)
-        try await settle()
+        try await eventually("130 sent") { !service.sent.isEmpty }
         XCTAssertEqual(service.sent, ["pc 130"])
         // Back to the service's speed before the delay: nothing goes.
         editor.moved(to: 140, service: 100, on: "pc", send: service.send)
@@ -201,7 +213,7 @@ final class CursorSpeedEditorTests: XCTestCase {
         try await settle()
         XCTAssertEqual(service.sent, [], "nothing while it is held")
         editor.ended(service: 100, on: "pc", send: service.send)
-        try await settle()
+        try await eventually("200 sent") { !service.sent.isEmpty }
         XCTAssertEqual(service.sent, ["pc 200"])
     }
 
@@ -210,13 +222,13 @@ final class CursorSpeedEditorTests: XCTestCase {
         let editor = CursorSpeedEditor(delay: .seconds(10))
         editor.moved(to: 150, service: 100, on: "pc", send: service.send)
         editor.show("mini", send: service.send)
-        try await Task.sleep(for: delay)
+        try await eventually("150 sent") { !service.sent.isEmpty }
         XCTAssertEqual(service.sent, ["pc 150"])
         XCTAssertEqual(editor.shown(100, for: "mini"), 100)
         // And when the row goes away.
         editor.moved(to: 60, service: 100, on: "mini", send: service.send)
         editor.leave(listed: ["pc", "mini"], send: service.send)
-        try await Task.sleep(for: delay)
+        try await eventually("60 sent") { service.sent.count > 1 }
         XCTAssertEqual(service.sent, ["pc 150", "mini 60"])
     }
 
@@ -227,7 +239,7 @@ final class CursorSpeedEditorTests: XCTestCase {
         editor.began(on: "pc", send: service.send)
         editor.moved(to: 150, service: 100, on: "pc", send: service.send)
         editor.ended(service: 100, on: "pc", send: service.send)
-        try await Task.sleep(for: delay)
+        try await eventually("150 sent") { !service.sent.isEmpty }
         XCTAssertEqual(service.sent, ["pc 150"])
         // The same speed chosen on the mini meanwhile stays when the PC's
         // answer comes.
@@ -236,7 +248,7 @@ final class CursorSpeedEditorTests: XCTestCase {
         // Back on the PC before its answer: the speed on its way shows.
         XCTAssertEqual(editor.shown(100, for: "pc"), 150)
         service.answer()
-        try await Task.sleep(for: delay)
+        try await eventually("the PC's answer") { editor.shown(120, for: "pc") == 120 }
         XCTAssertEqual(editor.shown(100, for: "mini"), 150)
         XCTAssertEqual(editor.shown(120, for: "pc"), 120)
     }
@@ -247,7 +259,7 @@ final class CursorSpeedEditorTests: XCTestCase {
         editor.began(on: "pc", send: service.send)
         editor.moved(to: 220, service: 100, on: "pc", send: service.send)
         editor.show("mini", send: service.send)
-        try await Task.sleep(for: delay)
+        try await eventually("220 sent") { !service.sent.isEmpty }
         XCTAssertEqual(service.sent, ["pc 220"])
         XCTAssertFalse(editor.drafts["pc"]?.editing ?? true)
     }
@@ -257,10 +269,10 @@ final class CursorSpeedEditorTests: XCTestCase {
         service.holding = true
         let editor = CursorSpeedEditor(delay: delay)
         editor.moved(to: 110, service: 100, on: "pc", send: service.send)
-        try await settle()
+        try await eventually("110 sent") { !service.sent.isEmpty }
         XCTAssertEqual(service.sent, ["pc 110"])
         editor.moved(to: 100, service: 100, on: "pc", send: service.send)
-        try await settle()
+        try await eventually("100 sent") { service.sent.count > 1 }
         XCTAssertEqual(service.sent, ["pc 110", "pc 100"])
         service.answer()
     }
@@ -278,10 +290,11 @@ final class CursorSpeedEditorTests: XCTestCase {
         editor.keep(["mini"])
         XCTAssertNil(editor.drafts["pc"])
         XCTAssertEqual(editor.shown(100, for: "pc"), 100)
+        try await eventually("150 sent") { !service.sent.isEmpty }
         try await settle()
         XCTAssertEqual(service.sent, ["pc 150"])
         service.answer()
-        try await Task.sleep(for: delay)
+        try await settle()
         XCTAssertNil(editor.drafts["pc"])
     }
 
@@ -308,7 +321,7 @@ final class CursorSpeedEditorTests: XCTestCase {
         let editor = CursorSpeedEditor(delay: delay)
         editor.moved(to: 170, service: 150, on: "pc", send: service.send)
         editor.reset(service: 150, on: "pc", send: service.send)
-        try await settle()
+        try await eventually("the reset answered") { editor.draft.inFlight == nil }
         XCTAssertEqual(service.sent, ["pc 100"])
         // Answered: the slider shows the service's speed again.
         XCTAssertNil(editor.draft.value)
