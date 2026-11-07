@@ -12475,7 +12475,10 @@ async fn a_paired_device_says_how_to_wake_it_and_is_woken_while_offline() {
         .unwrap()
         .offline_since
         .expect("offline since it went");
-    assert!(since >= before - Duration::from_secs(1), "{since:?}");
+    // When it was last heard from, kept in whole seconds: up to the
+    // heartbeat timeout before it went, and the second rounded down.
+    assert!(since >= before - Duration::from_secs(3), "{since:?}");
+    assert!(since <= std::time::SystemTime::now(), "{since:?}");
     let proto = client.status().await.unwrap();
     let laptop = proto.devices.iter().find(|d| d.id == "mac").unwrap();
     assert!(laptop.can_wake && proto.wake_supported);
