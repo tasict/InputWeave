@@ -51,6 +51,16 @@
         }
       }
     },
+    "%@ didn’t wake up. Wake for network access may be off on it, or it may not be on a wired network.": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "「%@」沒有醒來。它可能沒有打開網路喚醒，或沒有接在有線網路上。"
+          }
+        }
+      }
+    },
     "%@ does not accept new devices.": {
       "localizations": {
         "zh-Hant": {
@@ -67,6 +77,26 @@
           "stringUnit": {
             "state": "translated",
             "value": "「%@」不接收檔案。"
+          }
+        }
+      }
+    },
+    "%@ hasn’t told this computer how to wake it yet. You can wake it after it connects again.": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "「%@」還沒告訴這台怎麼喚醒它；下次連上之後就能喚醒。"
+          }
+        }
+      }
+    },
+    "%@ is awake.": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "「%@」醒來了。"
           }
         }
       }
@@ -197,6 +227,90 @@
           "stringUnit": {
             "state": "translated",
             "value": "%1$@，%2$lld 個螢幕，沒有和其他電腦相接"
+          }
+        }
+      }
+    },
+    "%lld days ago": {
+      "localizations": {
+        "en": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld day ago"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld days ago"
+                }
+              }
+            }
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld 天前"
+          }
+        }
+      }
+    },
+    "%lld hours ago": {
+      "localizations": {
+        "en": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld hour ago"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld hours ago"
+                }
+              }
+            }
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld 小時前"
+          }
+        }
+      }
+    },
+    "%lld minutes ago": {
+      "localizations": {
+        "en": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld minute ago"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld minutes ago"
+                }
+              }
+            }
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld 分鐘前"
           }
         }
       }
@@ -1251,6 +1365,16 @@
         }
       }
     },
+    "How to turn on wake for network access": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "怎麼打開網路喚醒"
+          }
+        }
+      }
+    },
     "InputWeave keeps its settings in another folder here, set in its configuration file, and the login window only reads the usual one.": {
       "localizations": {
         "zh-Hant": {
@@ -1537,6 +1661,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "跳到第 N 台電腦"
+          }
+        }
+      }
+    },
+    "just now": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "剛剛"
           }
         }
       }
@@ -1917,6 +2051,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "通知"
+          }
+        }
+      }
+    },
+    "Offline · %@": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "離線・%@"
           }
         }
       }
@@ -3861,6 +4005,46 @@
         }
       }
     },
+    "Wake": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "喚醒"
+          }
+        }
+      }
+    },
+    "Wake a sleeping computer when you push the cursor toward it": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "把游標推向睡眠中的電腦時喚醒它"
+          }
+        }
+      }
+    },
+    "Waking %@…": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在喚醒「%@」…"
+          }
+        }
+      }
+    },
+    "Waking…": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在喚醒…"
+          }
+        }
+      }
+    },
     "What you copy on one computer can be pasted on the next one the cursor moves to. Content from password managers is never synced, and nothing over 8 MB.": {
       "localizations": {
         "zh-Hant": {
@@ -3897,6 +4081,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "你控制的電腦上有 App（例如遊戲）把游標藏起來並限制在它的視窗裡時，滑鼠的移動會照原樣送過去，游標也留在那台，直到 App 放開為止。只有 Windows 電腦會告知這件事；控制 Mac 時請用下面的快速鍵。"
+          }
+        }
+      }
+    },
+    "When the cursor pushes against the edge on a sleeping computer’s side, InputWeave sends it a wake-up, at most every 30 seconds. Works only on computers with wake for network access on, usually over a wired network.": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "游標推到睡眠中電腦那一側的螢幕邊緣時，送出網路喚醒，同一台 30 秒最多一次。只對打開網路喚醒的電腦有效，多半要接有線網路。"
           }
         }
       }

@@ -25,6 +25,7 @@ pub mod linux;
 #[cfg(target_os = "macos")]
 pub mod macos;
 pub mod mock;
+pub mod network;
 pub mod preview;
 pub mod system;
 /// Compiled everywhere for `windows::clipboard_representations`, which the

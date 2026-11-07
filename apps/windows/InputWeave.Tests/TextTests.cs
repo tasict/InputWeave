@@ -304,15 +304,17 @@ public class ClipboardTextTests
 
 public class DeviceTextTests
 {
+    private static readonly CultureInfo En = CultureInfo.GetCultureInfo("en-US");
+
     [Fact]
     public void ShowsTheRoundTripOnceMeasured()
     {
         Assert.Equal(new UiText(TextKeys.ConnectionConnected), DeviceText.Connected(0));
         Assert.Equal(new UiText(TextKeys.ConnectionConnectedRtt, "12"), DeviceText.Connected(12));
-        Assert.Equal(new UiText(TextKeys.ConnectionThisComputer), DeviceText.Status(Sample.Model(), "pc"));
-        Assert.Equal(new UiText(TextKeys.ConnectionConnected), DeviceText.Status(Sample.Model(), "mac"));
-        Assert.Equal(new UiText(TextKeys.ConnectionOffline), DeviceText.Status(Sample.Model(macOnline: false), "mac"));
-        Assert.Equal(new UiText(TextKeys.ConnectionOffline), DeviceText.Status(Sample.Model(), "ghost"));
+        Assert.Equal(new UiText(TextKeys.ConnectionThisComputer), DeviceText.Status(Sample.Model(), "pc", Sample.Now, En));
+        Assert.Equal(new UiText(TextKeys.ConnectionConnected), DeviceText.Status(Sample.Model(), "mac", Sample.Now, En));
+        Assert.Equal(new UiText(TextKeys.ConnectionOffline), DeviceText.Status(Sample.Model(macOnline: false), "mac", Sample.Now, En));
+        Assert.Equal(new UiText(TextKeys.ConnectionOffline), DeviceText.Status(Sample.Model(), "ghost", Sample.Now, En));
     }
 
     [Fact]
@@ -322,13 +324,13 @@ public class DeviceTextTests
         Assert.Equal(new UiText(TextKeys.ConnectionScreenLockedRtt, "12"), DeviceText.Connected(12, screenLocked: true));
         Assert.Equal(new UiText(TextKeys.ConnectionConnectedRtt, "12"), DeviceText.Connected(12, screenLocked: false));
         var locked = Sample.Model(macScreenLocked: true, macLockScreenInput: true);
-        Assert.Equal(new UiText(TextKeys.ConnectionScreenLocked), DeviceText.Status(locked, "mac"));
+        Assert.Equal(new UiText(TextKeys.ConnectionScreenLocked), DeviceText.Status(locked, "mac", Sample.Now, En));
         Assert.True(DeviceText.ScreenLocked(locked, "mac"));
         Assert.False(DeviceText.ScreenLocked(Sample.Model(), "mac"));
         // Offline is offline, whatever it said last.
         var gone = Sample.Model(macOnline: false, macScreenLocked: true);
         Assert.False(DeviceText.ScreenLocked(gone, "mac"));
-        Assert.Equal(new UiText(TextKeys.ConnectionOffline), DeviceText.Status(gone, "mac"));
+        Assert.Equal(new UiText(TextKeys.ConnectionOffline), DeviceText.Status(gone, "mac", Sample.Now, En));
         Assert.False(DeviceText.ScreenLocked(locked, "pc"));
     }
 
@@ -342,7 +344,7 @@ public class DeviceTextTests
         Assert.Equal(new UiText(TextKeys.ConnectionConnectedRtt, "12"),
             DeviceText.Connected(12, screenLocked: false, lockScreenInput: false));
         var outOfReach = Sample.Model(macScreenLocked: true);
-        Assert.Equal(new UiText(TextKeys.ConnectionScreenLockedNoInput), DeviceText.Status(outOfReach, "mac"));
+        Assert.Equal(new UiText(TextKeys.ConnectionScreenLockedNoInput), DeviceText.Status(outOfReach, "mac", Sample.Now, En));
         // The cursor cannot be sent there; a locked screen that takes input is fine.
         Assert.True(outOfReach.OutOfReach("mac"));
         Assert.False(outOfReach.CanJump("mac"));
@@ -360,7 +362,7 @@ public class DeviceTextTests
         Assert.Equal(new UiText(TextKeys.ConnectionScreenLockedNoInputRtt, "12"),
             DeviceText.Connected(12, screenLocked: true, lockScreenInput: true, inputUnavailable: true));
         var unavailable = Sample.Model(macInputUnavailable: true);
-        Assert.Equal(new UiText(TextKeys.ConnectionNoInput), DeviceText.Status(unavailable, "mac"));
+        Assert.Equal(new UiText(TextKeys.ConnectionNoInput), DeviceText.Status(unavailable, "mac", Sample.Now, En));
         Assert.True(unavailable.OutOfReach("mac"));
         Assert.False(unavailable.CanJump("mac"));
     }
@@ -374,7 +376,7 @@ public class DeviceTextTests
         Assert.Equal(new UiText(TextKeys.ConnectionPeerPausedRtt, "12"),
             DeviceText.Connected(12, screenLocked: true, inputUnavailable: true, sharingPaused: true));
         var paused = Sample.Model(macSharingPaused: true);
-        Assert.Equal(new UiText(TextKeys.ConnectionPeerPaused), DeviceText.Status(paused, "mac"));
+        Assert.Equal(new UiText(TextKeys.ConnectionPeerPaused), DeviceText.Status(paused, "mac", Sample.Now, En));
         Assert.True(paused.OutOfReach("mac"));
         Assert.False(paused.CanJump("mac"));
     }

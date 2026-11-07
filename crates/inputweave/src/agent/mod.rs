@@ -47,6 +47,7 @@ mod status;
 mod this_device;
 mod throttle;
 mod transfer;
+mod wake;
 
 use std::net::SocketAddr;
 use std::path::PathBuf;
@@ -71,7 +72,7 @@ pub(crate) use diagnostics::utc;
 pub use digest::executable_digest;
 pub use directory::DeviceError;
 pub use drag::{ArrivedDrag, DragEnd, DragEvent, DraggedItem, Dragging, EndedDrag};
-pub use engine::{DragError, HotkeysError, JumpError, RearrangeError, RelativeError};
+pub use engine::{DragError, HotkeysError, JumpError, RearrangeError, RelativeError, WakeError};
 pub use files::{
     BatchInfo, Direction, FailedEntry, FileSettings, FolderProgress, RemoveError, SendError,
     TransferState, TransferStatus,
@@ -88,6 +89,7 @@ pub use status::{
     ArrangedDevice, Arrangement, CursorCrossed, DeviceState, RelativeEnded, RelativeMode, Status,
     hotkeys_to_proto,
 };
+pub use wake::{WakeData, WakeState};
 
 use crate::config::{Config, ConfigError};
 use crate::convert;
@@ -223,6 +225,9 @@ pub struct Options {
     /// How often a license file that is there but cannot be read is read
     /// again; for tests. `None` is two minutes.
     pub license_reread: Option<Duration>,
+    /// How long a device being woken has to connect before it counts as not
+    /// woken; for tests. `None` is two minutes.
+    pub wake_wait: Option<Duration>,
     /// Leave out every this many relative movements sent, as if the
     /// network lost them. 0 sends them all. Only with the `test-hooks`
     /// feature, which the tests turn on.
@@ -233,6 +238,15 @@ pub struct Options {
     /// does. Only with the `test-hooks` feature.
     #[cfg(feature = "test-hooks")]
     pub omit_crossing_spots: bool,
+    /// Tell other devices to wake this one so, in place of what its
+    /// network interfaces say, which over the loopback is nothing. Only
+    /// with the `test-hooks` feature.
+    #[cfg(feature = "test-hooks")]
+    pub wake_info: Option<WakeData>,
+    /// Send every wake-up here, in place of each broadcast address it goes
+    /// to. Only with the `test-hooks` feature.
+    #[cfg(feature = "test-hooks")]
+    pub wake_target: Option<SocketAddr>,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -283,6 +297,7 @@ pub async fn start(
     options: Options,
 ) -> Result<AgentHandle, AgentError> {
     let fingerprint = identity.fingerprint();
+    let wake_source = wake_source(&options);
     config.resolve_device(&fingerprint, iw_platform::computer_name());
     config.validate()?;
     let options_receive_folder = options.receive_folder.clone();
@@ -303,7 +318,21 @@ pub async fn start(
             .as_deref()
             .map(crate::paths::previews_dir),
     );
-    let directory = Arc::new(Directory::new(&config, options.devices_file, stored));
+    // How other devices told this one to wake them, in a file of its own
+    // beside the devices file; one that cannot be read never keeps the agent
+    // from starting.
+    let wake_path = options.devices_file.as_deref().map(crate::paths::wake_file);
+    let wake = wake_path
+        .as_deref()
+        .map(crate::wake_file::WakeFile::load)
+        .unwrap_or_default();
+    let directory = Arc::new(Directory::with_wake(
+        &config,
+        options.devices_file,
+        stored,
+        wake_path,
+        wake,
+    ));
     // A damaged license file never keeps the agent from starting. One that
     // cannot be read makes the license unavailable, and is never saved
     // over, until the engine can read it.
@@ -539,10 +568,14 @@ pub async fn start(
         relative_auto: directory.relative_auto(),
         folder_access,
         refuses_drags: options.refuses_drags,
+        wake_on_push: directory.wake_on_push(),
+        wake_wait: options.wake_wait.unwrap_or(wake::WAKE_WAIT),
         #[cfg(feature = "test-hooks")]
         lose_relative_motion: options.lose_relative_motion,
         #[cfg(feature = "test-hooks")]
         omit_crossing_spots: options.omit_crossing_spots,
+        #[cfg(feature = "test-hooks")]
+        wake_target: options.wake_target,
     });
     let engine_task = tokio::spawn(engine.run(engine_rx));
     // The desktop pictures are read by the poller, now that the endpoint
@@ -572,6 +605,7 @@ pub async fn start(
             pulls,
         },
         files.clone(),
+        wake_source,
     )?);
     tasks.spawn(peers::accept_loop(ctx.clone()));
     tasks.spawn(peers::dial_all(ctx));
@@ -763,6 +797,54 @@ fn files_store(broker: &Option<BrokerRef>) -> files::Store {
         Some(never) => match *never {},
         None => files::Store::Local,
     }
+}
+
+/// Where sessions learn how to wake this device: its network interfaces,
+/// or in tests what they were told to say.
+fn wake_source(options: &Options) -> peers::WakeSource {
+    #[cfg(feature = "test-hooks")]
+    if let Some(data) = options.wake_info {
+        return peers::WakeSource::Fixed(data);
+    }
+    let _ = options;
+    peers::WakeSource::Interfaces
+}
+
+/// Sends a wake-up to an offline device; returns once it was sent, the
+/// status showing the device being woken.
+async fn wake_device(
+    engine: &mpsc::UnboundedSender<EngineEvent>,
+    device: &str,
+) -> Result<(), WakeError> {
+    let (reply, rx) = oneshot::channel();
+    engine
+        .send(EngineEvent::Wake {
+            device: device.to_owned(),
+            reply,
+        })
+        .map_err(|_| WakeError::Stopping)?;
+    rx.await.map_err(|_| WakeError::Stopping)?
+}
+
+/// Has pushing the cursor toward an offline device wake it, or not, and
+/// remembers the choice; returns once the status shows it and it is in the
+/// wake file, or could not be written there (logged), waiting for the file
+/// [`APPLY_TIMEOUT`] at most. False once the agent is stopping.
+async fn set_wake_on_push(engine: &mpsc::UnboundedSender<EngineEvent>, on: bool) -> bool {
+    let (reply, rx) = oneshot::channel();
+    if engine
+        .send(EngineEvent::SetWakeOnPush { on, reply })
+        .is_err()
+    {
+        return false;
+    }
+    let Ok(saved) = rx.await else {
+        return false;
+    };
+    if let Some(saved) = saved {
+        let _ = tokio::time::timeout(APPLY_TIMEOUT, saved).await;
+    }
+    true
 }
 
 /// A diagnostics report of the agent as it is now.
@@ -1373,6 +1455,18 @@ impl AgentHandle {
     /// Moves the cursor to the middle of a device's primary display.
     pub async fn jump_to(&self, device: &str) -> Result<(), JumpError> {
         jump_to(&self.engine_tx, device).await
+    }
+
+    /// Sends a wake-up to an offline device that told how to wake it
+    /// (`WakeDevice`).
+    pub async fn wake(&self, device: &str) -> Result<(), WakeError> {
+        wake_device(&self.engine_tx, device).await
+    }
+
+    /// Has pushing the cursor toward an offline device wake it, or not
+    /// (`SetWakeOnPush`).
+    pub async fn set_wake_on_push(&self, on: bool) {
+        set_wake_on_push(&self.engine_tx, on).await;
     }
 
     /// Enters a license key here, for the app to activate (`SetLicenseKey`).

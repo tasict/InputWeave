@@ -29,7 +29,8 @@ namespace InputWeave.Canvas;
 /// they are on. Interactive, the user drags whole computers, which snap to
 /// each other's edges and spring back if they would overlap; arrow keys
 /// nudge the selected one and Ctrl+Z undoes a move; its context menu moves
-/// the cursor there and renames another computer. Compact, it is the
+/// the cursor there, renames another computer and wakes one that can be
+/// woken, which has a moon after its name. Compact, it is the
 /// panel's mini map, where a click moves the cursor. Files dropped on a
 /// connected computer go to it, unless files are turned off with it. Beside
 /// each name is the shortcut that jumps there, where there is room.
@@ -303,7 +304,7 @@ internal sealed partial class ArrangementCanvas : Grid
         }
         var jump = current.JumpShortcut(info?.JumpSlot ?? 0);
         bool screenLocked = DeviceText.ScreenLocked(current, device.Id);
-        if (NameLabel(name, jump, screenLocked, tiles, device.MainScreen) is { } label)
+        if (NameLabel(name, jump, screenLocked, Wake.Offered(current, device.Id), tiles, device.MainScreen) is { } label)
         {
             content.Children.Add(label);
         }
@@ -469,14 +470,16 @@ internal sealed partial class ArrangementCanvas : Grid
     }
 
     /// <summary>
-    /// The computer's name, a padlock while its screen is locked and,
+    /// The computer's name, a padlock while its screen is locked or a moon
+    /// while it can be woken (one is connected, the other offline), and,
     /// beside them in the secondary color, the shortcut that jumps there
     /// (<paramref name="jump"/>, when it has one): on the arrangement page
     /// with a display glyph in the main screen's corner; on the mini map
     /// small, on the main screen or the widest that has room, or not at all. The shortcut is left out where
     /// the name would have too little room (<see cref="CanvasGeometry.NameBeside"/>).
     /// </summary>
-    private FrameworkElement? NameLabel(string name, string? jump, bool screenLocked, IReadOnlyList<CanvasRect> tiles, int main)
+    private FrameworkElement? NameLabel(
+        string name, string? jump, bool screenLocked, bool canWake, IReadOnlyList<CanvasRect> tiles, int main)
     {
         int index;
         if (Interactive)
@@ -519,10 +522,21 @@ internal sealed partial class ArrangementCanvas : Grid
         };
         row.Children.Add(nameText);
         // On a narrow mini map tile the name keeps its least width and the
-        // padlock is left out.
-        if (screenLocked && (Interactive || room - (fontSize + spacing) >= CompactLeastName))
+        // padlock or the moon is left out.
+        if ((screenLocked || canWake) && (Interactive || room - (fontSize + spacing) >= CompactLeastName))
         {
-            row.Children.Add(new FontIcon { Glyph = "\uE72E", FontSize = fontSize, VerticalAlignment = VerticalAlignment.Center });
+            var glyph = new FontIcon
+            {
+                Glyph = screenLocked ? "\uE72E" : Wake.MoonGlyph,
+                FontSize = fontSize,
+                VerticalAlignment = VerticalAlignment.Center,
+            };
+            if (!screenLocked)
+            {
+                // The status says it can be woken; the moon only shows it.
+                AutomationProperties.SetAccessibilityView(glyph, Microsoft.UI.Xaml.Automation.Peers.AccessibilityView.Raw);
+            }
+            row.Children.Add(glyph);
             room -= fontSize + spacing;
         }
         TextBlock? shortcut = null;
@@ -976,6 +990,20 @@ internal sealed partial class ArrangementCanvas : Grid
             var rename = new MenuFlyoutItem { Text = Strings.Get(TextKeys.CanvasRename), Icon = new FontIcon { Glyph = "" } };
             rename.Click += (_, _) => RenameRequested?.Invoke(this, id);
             menu.Items.Add(rename);
+        }
+        // One that can be woken: Wake, unless it is being woken or a
+        // wake-up for it is on its way.
+        if (Wake.Offered(model, id))
+        {
+            menu.Items.Add(new MenuFlyoutSeparator());
+            var wake = new MenuFlyoutItem
+            {
+                Text = Strings.Get(TextKeys.WakeAction),
+                Icon = new FontIcon { Glyph = Wake.MoonGlyph },
+                IsEnabled = Wake.CanSend(model, id),
+            };
+            wake.Click += (_, _) => App.Instance.WakeDevice(id);
+            menu.Items.Add(wake);
         }
         menu.ShowAt(this, e.GetPosition(this));
     }

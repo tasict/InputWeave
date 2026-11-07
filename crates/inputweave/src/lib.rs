@@ -9,3 +9,4 @@ pub mod log_file;
 pub mod login_window;
 pub mod paths;
 pub mod store;
+pub mod wake_file;

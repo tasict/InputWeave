@@ -1,3 +1,4 @@
+using System.Collections.Immutable;
 using Inputweave.App.V1;
 using InputWeave.Panel;
 using InputWeave.Settings;
@@ -123,6 +124,13 @@ public sealed record AgentSnapshot
 
     /// <summary>The last non-zero time the cursor had to rest at an edge; 0 before any.</summary>
     public uint LastSwitchDelayMs { get; init; }
+
+    /// <summary>
+    /// The computers this app asked the service to wake (WakeDevice) and
+    /// has no answer for yet; a computer that leaves the status leaves this
+    /// too. A new set whenever it changes, so a change is a new snapshot.
+    /// </summary>
+    public ImmutableHashSet<string> WakesSent { get; init; } = ImmutableHashSet<string>.Empty;
 
     public string ThisDeviceId => Status.ThisDeviceId;
 
@@ -265,6 +273,13 @@ public sealed record AgentSnapshot
     /// "Ctrl+Alt+Shift+2"; null without a number, or with the jumps off.
     /// </summary>
     public string? JumpShortcut(uint slot, bool compact = true) => ShortcutText.Jump(Hotkeys.JumpModifiers, slot, compact);
+
+    /// <summary>
+    /// Whether the service can wake other computers (Status.wake_supported);
+    /// one from before says nothing, and the app then shows nothing of
+    /// waking.
+    /// </summary>
+    public bool WakeSupported => Status.WakeSupported;
 
     /// <summary>
     /// Whether the service knows relative mode,

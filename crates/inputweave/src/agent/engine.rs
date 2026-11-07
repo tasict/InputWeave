@@ -1,11 +1,22 @@
 //! The engine task: the single owner of the router, the receiver and the
 //! platform backends. Everything else talks to it through `EngineEvent`s.
+//!
+//! When each device that told how to wake it was last seen connected is
+//! kept in the wake file, through the directory; the status, made anew
+//! after every event, captured input too, shows it from the engine's copy
+//! (`Engine::last_seen`) rather than taking the directory's lock for each
+//! device every time. The engine writes the time only through
+//! `Engine::note_last_seen`, which writes the directory and takes the copy
+//! anew from it; the directory changes it on its own only as a device is
+//! paired, unpaired or tells how to wake it anew, each of which changes the
+//! trusted devices, and `Engine::on_peers` takes the copy anew then too. So
+//! the copy is only ever what the directory has.
 
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime};
 
 use iw_core::clipboard::{ClipboardMove, ClipboardRelay};
 use iw_core::geometry::Point;
@@ -25,7 +36,7 @@ use iw_proto::peer::v1::{
     self as peer, ClipboardFilesPull, ClipboardFilesSending, ClipboardOffer, ClipboardPart,
     ClipboardPull, ClipboardRequest, ClipboardSkip, ClipboardSkipped, Control, Datagram, Displays,
     DragItem, Identify, Input, LicenseInfo, LocalActivity, Locate, Placement, PointerAt,
-    PointerCaptured, SessionState, control, datagram, input,
+    PointerCaptured, SessionState, WakeInfo, control, datagram, input,
 };
 use tokio::sync::{broadcast, mpsc, oneshot, watch};
 use tracing::{debug, info, warn};
@@ -48,6 +59,7 @@ use super::local_clipboard::{
     FilesServe, LocalClipboard, LocalDone, LocalOp, Purpose, Serve, Taken, Unpromised, Unwritten,
     WritePurpose,
 };
+use super::peers::LastHeard;
 use super::previews::{self, Pictures, PreviewFiles};
 use super::status::{
     ArrangedDevice, Arrangement, ClipboardActivity, CursorCrossed, DeviceState, LazyStats,
@@ -55,6 +67,7 @@ use super::status::{
 };
 use super::this_device::ThisDevice;
 use super::transfer::ClipboardTransfer;
+use super::wake::{self, INFO_INTERVAL, WakeData, Wakes};
 use crate::config::{Config, PlacementConfig};
 use crate::convert;
 
@@ -123,6 +136,29 @@ pub(crate) enum EngineEvent {
     },
     /// The license file that could not be read was read again.
     LicenseRead(Loaded),
+    /// The user asked to wake an offline device; the reply comes once the
+    /// wake-up was sent, the status showing it being woken, or says why
+    /// not.
+    Wake {
+        device: String,
+        reply: oneshot::Sender<Result<(), WakeError>>,
+    },
+    /// The wake-up numbered `serial` could not be sent to `device`, for
+    /// `error`; `reply`, if someone asked for it, hears so once the status
+    /// shows it did not wake up.
+    WakeNotSent {
+        device: String,
+        serial: u64,
+        error: String,
+        reply: Option<oneshot::Sender<Result<(), WakeError>>>,
+    },
+    /// Waking a device by pushing the cursor toward it was turned on or
+    /// off; the status shows it before the reply, which carries, when the
+    /// wake file is to be written, what says once it is.
+    SetWakeOnPush {
+        on: bool,
+        reply: oneshot::Sender<Option<Saved>>,
+    },
     /// The user moved devices on the canvas.
     Rearrange {
         moves: Vec<(String, Point)>,
@@ -135,6 +171,8 @@ pub(crate) enum EngineEvent {
         /// The peer protocol version the session speaks.
         version: u32,
         link: mpsc::UnboundedSender<Outbound>,
+        /// When the peer was last heard from, as the session keeps it.
+        heard: Arc<LastHeard>,
     },
     PeerDown {
         device: DeviceId,
@@ -332,6 +370,50 @@ pub enum JumpError {
     Refused(#[from] router::JumpError),
     #[error("the agent is stopping")]
     Stopping,
+}
+
+/// How often when the devices connected now were last heard from is
+/// written down (`Engine::stamp_connected`), besides as they go offline and
+/// as the agent stops.
+const LAST_SEEN_STAMP: Duration = Duration::from_secs(10 * 60);
+
+/// Why a session's link goes (`Engine::on_peer_down`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Gone {
+    /// The session ended: the device went offline.
+    Offline,
+    /// Another session with it took the place of this one.
+    Replaced,
+    /// It is not trusted any more.
+    Untrusted,
+}
+
+/// Why a device cannot be woken (`WakeDevice`).
+#[derive(Debug, thiserror::Error, PartialEq)]
+pub enum WakeError {
+    #[error("no trusted device has id {0:?}")]
+    Unknown(String),
+    #[error("{0:?} is connected")]
+    Connected(String),
+    #[error("{0:?} never told this device how to wake it")]
+    NoWakeData(String),
+    #[error("no wake-up could be sent: {0}")]
+    NotSent(String),
+    #[error("the agent is stopping")]
+    Stopping,
+}
+
+impl WakeError {
+    /// The error code clients are told.
+    pub fn code(&self) -> &'static str {
+        match self {
+            Self::Unknown(_) => "unknown_device",
+            Self::Connected(_) => "connected",
+            Self::NoWakeData(_) => "no_wake_data",
+            Self::NotSent(_) => "not_sent",
+            Self::Stopping => "agent_stopping",
+        }
+    }
 }
 
 /// Why relative mode cannot be turned on.
@@ -539,6 +621,11 @@ struct Link {
     relative_total: Point,
     /// An app on it holds the pointer, as it last said.
     pointer_captured: bool,
+    /// When it last said how to wake it, as taken.
+    wake_info_at: Option<Instant>,
+    /// When it was last heard from, by the wall clock, as the session keeps
+    /// it.
+    heard: Arc<LastHeard>,
 }
 
 impl Link {
@@ -631,10 +718,17 @@ pub(crate) struct EngineParts {
     pub(crate) folder_access: FolderAccess,
     /// Drags of files offered here are declined (Linux).
     pub(crate) refuses_drags: bool,
+    /// Pushing the cursor toward an offline device wakes it.
+    pub(crate) wake_on_push: bool,
+    /// How long a device being woken has to connect.
+    pub(crate) wake_wait: Duration,
     /// Every this many relative movements one is not sent, as if lost; 0
     /// sends them all. For tests.
     #[cfg(feature = "test-hooks")]
     pub(crate) lose_relative_motion: u64,
+    /// Where wake-ups go in place of every broadcast address. For tests.
+    #[cfg(feature = "test-hooks")]
+    pub(crate) wake_target: Option<std::net::SocketAddr>,
     /// Where the cursor crossed is not sent to other devices, as an older
     /// agent does not. For tests.
     #[cfg(feature = "test-hooks")]
@@ -825,10 +919,20 @@ pub(crate) struct Engine {
     refuses_drags: bool,
     /// Whether a firewall lets other devices reach the agent, and its port.
     firewall: (Firewall, u16),
+    /// Devices being woken, or that did not wake up.
+    wakes: Wakes,
+    /// When each device that told how to wake it was last seen connected:
+    /// the directory's, as of the last change (see the module docs).
+    last_seen: HashMap<String, SystemTime>,
+    /// Kept here too, since the router may not exist yet.
+    wake_on_push: bool,
+    wake_wait: Duration,
     #[cfg(feature = "test-hooks")]
     lose_relative_motion: u64,
     #[cfg(feature = "test-hooks")]
     omit_crossing_spots: bool,
+    #[cfg(feature = "test-hooks")]
+    wake_target: Option<std::net::SocketAddr>,
 }
 
 impl Engine {
@@ -875,10 +979,14 @@ impl Engine {
             folder_access,
             refuses_drags,
             input_available,
+            wake_on_push,
+            wake_wait,
             #[cfg(feature = "test-hooks")]
             lose_relative_motion,
             #[cfg(feature = "test-hooks")]
             omit_crossing_spots,
+            #[cfg(feature = "test-hooks")]
+            wake_target,
         } = parts;
         if let Some(staging) = &clipboard_staging {
             staging.clean_old();
@@ -1016,11 +1124,18 @@ impl Engine {
             session_info: None,
             refuses_drags,
             firewall: (Firewall::Unknown, 0),
+            wakes: Wakes::default(),
+            last_seen: HashMap::new(),
+            wake_on_push,
+            wake_wait,
             #[cfg(feature = "test-hooks")]
             lose_relative_motion,
             #[cfg(feature = "test-hooks")]
             omit_crossing_spots,
+            #[cfg(feature = "test-hooks")]
+            wake_target,
         };
+        engine.take_last_seen();
         engine.start_capture();
         engine.rebuild_layout();
         engine.publish();
@@ -1501,7 +1616,13 @@ impl Engine {
             self.license_reread,
         );
         license_rereads.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+        let mut stamps = tokio::time::interval_at(
+            tokio::time::Instant::now() + LAST_SEEN_STAMP,
+            LAST_SEEN_STAMP,
+        );
+        stamps.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
         loop {
+            let wake_deadline = self.wakes.next_deadline();
             tokio::select! {
                 event = events.recv() => match event {
                     None | Some(EngineEvent::Shutdown) => break,
@@ -1527,6 +1648,16 @@ impl Engine {
                 }
                 _ = license_rereads.tick(), if self.license_unavailable.is_some() => {
                     self.reread_license();
+                }
+                _ = stamps.tick() => {
+                    if let Some(unsaved) = self.stamp_connected() {
+                        self.save_devices(unsaved);
+                    }
+                }
+                () = sleep_until(wake_deadline), if wake_deadline.is_some() => {
+                    for device in self.wakes.expire(Instant::now()) {
+                        info!(%device, "a device being woken did not connect in time");
+                    }
                 }
             }
             self.publish();
@@ -1703,16 +1834,56 @@ impl Engine {
                 let _ = reply.send(result);
             }
             EngineEvent::LicenseRead(loaded) => self.on_license_read(loaded),
+            EngineEvent::Wake { device, reply } => match self.can_wake(&device) {
+                Ok(data) => {
+                    info!(%device, "waking a device, as asked");
+                    self.wake(device, data, Some(reply));
+                }
+                Err(e) => {
+                    let _ = reply.send(Err(e));
+                }
+            },
+            EngineEvent::WakeNotSent {
+                device,
+                serial,
+                error,
+                reply,
+            } => {
+                if self.wakes.not_sent(&device, serial) {
+                    self.publish();
+                }
+                if let Some(reply) = reply {
+                    let _ = reply.send(Err(WakeError::NotSent(error)));
+                }
+            }
+            EngineEvent::SetWakeOnPush { on, reply } => {
+                info!(
+                    on,
+                    "waking a device by pushing the cursor toward it changed"
+                );
+                self.wake_on_push = on;
+                if let Some(router) = self.router.as_mut() {
+                    router.set_wake_on_push(on);
+                }
+                let saved = self
+                    .directory
+                    .change_wake_on_push(on)
+                    .map(|unsaved| self.save_devices(unsaved));
+                // The client reads the status as soon as it has the reply.
+                self.publish();
+                let _ = reply.send(saved);
+            }
             EngineEvent::PeerUp {
                 device,
                 fingerprint,
                 session,
                 version,
                 link,
-            } => self.on_peer_up(device, fingerprint, session, version, link),
+                heard,
+            } => self.on_peer_up(device, fingerprint, session, version, link, heard),
             EngineEvent::PeerDown { device, session } => {
                 if self.is_current(&device, session) {
-                    self.on_peer_down(device);
+                    self.on_peer_down(device, Gone::Offline);
                 }
             }
             EngineEvent::FromPeer {
@@ -1807,11 +1978,11 @@ impl Engine {
         }
     }
 
-    /// Writes a change to the devices file off this loop, on a blocking
-    /// thread of the runtime, so it is written whether or not whoever asked
-    /// for the change waits for it; a later change's write wins over an
-    /// earlier one's (`Directory::save`). What it returns says once it is
-    /// written, or why it could not be (logged too).
+    /// Writes a change to the devices file or the wake file off this loop,
+    /// on a blocking thread of the runtime, so it is written whether or not
+    /// whoever asked for the change waits for it; a later change's write
+    /// wins over an earlier one's (`Directory::save`). What it returns says
+    /// once it is written, or why it could not be (logged too).
     fn save_devices(&self, unsaved: Unsaved) -> Saved {
         let directory = self.directory.clone();
         let (done, saved) = oneshot::channel();
@@ -2103,9 +2274,11 @@ impl Engine {
         session: u64,
         version: u32,
         tx: mpsc::UnboundedSender<Outbound>,
+        heard: Arc<LastHeard>,
     ) {
         if self.links.contains_key(&device) {
-            self.on_peer_down(device.clone());
+            // A new session in place of this one: it never went offline.
+            self.on_peer_down(device.clone(), Gone::Replaced);
         }
         // A session with a just-paired device can come up before the
         // engine has seen the directory change.
@@ -2148,10 +2321,15 @@ impl Engine {
                 relative_session: 0,
                 relative_total: Point::default(),
                 pointer_captured: false,
+                wake_info_at: None,
+                heard,
             },
         );
         if let Some(router) = self.router.as_mut() {
             router.set_relative_capable(device.clone(), version >= RELATIVE_SINCE);
+        }
+        if self.wakes.connected(device.as_str()) {
+            info!(%device, "a device being woken connected");
         }
         self.route(Event::PeerConnected(device));
         self.publish_arrangement();
@@ -2168,12 +2346,19 @@ impl Engine {
     /// and the layout follow.
     fn on_peers(&mut self, peers: Arc<Vec<Peer>>, generation: u64) {
         self.peers_generation = generation;
-        // Only how fast the cursor moves changed: nothing to trust, name or
-        // place anew.
-        if only_speeds_differ(&self.peers, &peers) {
+        // Paired, unpaired or told how to wake anew, the directory may have
+        // moved, dropped or forgotten when a device was last seen.
+        self.take_last_seen();
+        let wakeable_changed = wakeable_differs(&self.peers, &peers);
+        // Only how fast the cursor moves, or how to wake devices, changed:
+        // nothing to trust, name or place anew.
+        if only_local_choices_differ(&self.peers, &peers) {
             self.peers = peers;
             if let Some(router) = self.router.as_mut() {
                 router.set_speeds(peer_speeds(&self.peers));
+                if wakeable_changed {
+                    router.set_wakeable(wakeable(&self.peers));
+                }
             }
             return;
         }
@@ -2197,13 +2382,18 @@ impl Engine {
         for device in untrusted {
             info!(%device, "no longer trusted; ending its session");
             // Removing the link drops its sender, which ends the session.
-            self.on_peer_down(device);
+            self.on_peer_down(device, Gone::Untrusted);
         }
         if let Some(router) = self.router.as_mut() {
             // Replaced, so devices no longer trusted keep none.
             router.set_remaps(peer_remaps(&self.peers));
             router.set_speeds(peer_speeds(&self.peers));
+            if wakeable_changed {
+                router.set_wakeable(wakeable(&self.peers));
+            }
         }
+        let peers = self.peers.clone();
+        self.wakes.retain(|id| peers.iter().any(|p| p.id == id));
         // Devices no longer trusted leave the computers on the license, and
         // the names of the others may have changed.
         if let Some(license) = self.license.as_mut()
@@ -2216,9 +2406,18 @@ impl Engine {
         self.rebuild_layout();
     }
 
-    fn on_peer_down(&mut self, device: DeviceId) {
+    fn on_peer_down(&mut self, device: DeviceId, gone: Gone) {
         info!(%device, "peer disconnected");
-        self.links.remove(&device);
+        let link = self.links.remove(&device);
+        // Offline since it was last heard from, for the apps, while it can
+        // be woken (kept apart from the trusted devices, which are not
+        // published anew for it); not for a session replaced by another.
+        if gone == Gone::Offline
+            && let Some(link) = link
+            && let Some(unsaved) = self.note_last_seen(&[(device.as_str(), link.heard.get())])
+        {
+            self.save_devices(unsaved);
+        }
         for waiter in self.clipboard.pulls.lost(&device) {
             self.pull_failed(waiter, ClipboardSkip::Unavailable);
         }
@@ -2235,6 +2434,134 @@ impl Engine {
         let gone = self.drags.peer_down(&device);
         self.carry_out(gone);
         self.publish_arrangement();
+    }
+
+    /// Remembers when each connected device that told how to wake it was
+    /// last heard from, as when it was last seen connected: so a stop
+    /// without word (a crash, a power cut, Windows ending the agent) leaves
+    /// a time that late at worst. What to write, if anything changed.
+    fn stamp_connected(&mut self) -> Option<Unsaved> {
+        let heard: Vec<(String, SystemTime)> = self
+            .links
+            .iter()
+            .map(|(device, link)| (device.to_string(), link.heard.get()))
+            .collect();
+        if heard.is_empty() {
+            return None;
+        }
+        let heard: Vec<(&str, SystemTime)> =
+            heard.iter().map(|(id, at)| (id.as_str(), *at)).collect();
+        self.note_last_seen(&heard)
+    }
+
+    /// Remembers when the devices `seen` were last seen connected, those
+    /// trusted that told how to wake them (`Directory::change_last_seen`),
+    /// in the directory and in the engine's copy of it: the only way the
+    /// engine changes either. What to write, if anything changed.
+    fn note_last_seen(&mut self, seen: &[(&str, SystemTime)]) -> Option<Unsaved> {
+        let unsaved = self.directory.change_last_seen(seen)?;
+        self.take_last_seen();
+        Some(unsaved)
+    }
+
+    /// Takes the engine's copy of when devices were last seen anew from the
+    /// directory.
+    fn take_last_seen(&mut self) {
+        self.last_seen = self.directory.last_seen();
+    }
+
+    /// A device told how to wake it: kept, if it is a way (`WakeData`), and
+    /// it told nothing of it, a way or not, within the last
+    /// [`INFO_INTERVAL`].
+    fn on_wake_info(&mut self, from: DeviceId, info: WakeInfo) {
+        let now = Instant::now();
+        let Some(link) = self.links.get_mut(&from) else {
+            return;
+        };
+        if link
+            .wake_info_at
+            .is_some_and(|at| now.saturating_duration_since(at) < INFO_INTERVAL)
+        {
+            debug!(device = %from, "dropping how to wake a device, said again too soon");
+            return;
+        }
+        // Whatever it said counts toward the interval, so a device saying
+        // what is no way to wake it, again and again, is warned of at most
+        // that often.
+        link.wake_info_at = Some(now);
+        let Some(data) = WakeData::from_proto(&info) else {
+            warn!(device = %from, "dropping how to wake a device: no way to wake one");
+            return;
+        };
+        debug!(device = %from, ?data, "a device told how to wake it");
+        if let Some(unsaved) = self.directory.change_how_to_wake(from.as_str(), data) {
+            self.save_devices(unsaved);
+        }
+    }
+
+    /// How to wake `device`, if it can be woken now: trusted, offline, and
+    /// it told how.
+    fn can_wake(&self, device: &str) -> Result<WakeData, WakeError> {
+        let peer = self
+            .peers
+            .iter()
+            .find(|p| p.id == device)
+            .ok_or_else(|| WakeError::Unknown(device.to_owned()))?;
+        if self.links.contains_key(&DeviceId::new(device)) {
+            return Err(WakeError::Connected(device.to_owned()));
+        }
+        peer.wake
+            .ok_or_else(|| WakeError::NoWakeData(device.to_owned()))
+    }
+
+    /// Sends `device` a wake-up, off this loop: it is being woken from now,
+    /// for `wake_wait`. `reply`, if any, hears once it was sent, or that it
+    /// could not be once the status shows `device` did not wake up
+    /// (`EngineEvent::WakeNotSent`).
+    fn wake(
+        &mut self,
+        device: String,
+        data: WakeData,
+        reply: Option<oneshot::Sender<Result<(), WakeError>>>,
+    ) {
+        let serial = self.wakes.sent(&device, Instant::now(), self.wake_wait);
+        // The client that asked reads the status as soon as it has the
+        // reply, which comes after this.
+        self.publish();
+        let packet = wake::magic_packet(data.mac());
+        #[cfg(feature = "test-hooks")]
+        let target = self.wake_target;
+        let events = self.events.clone();
+        tokio::spawn(async move {
+            // Where, as this device's networks are now.
+            #[allow(unused_mut)]
+            let mut destinations = wake::destinations(&data, &wake::interfaces_now().await);
+            #[cfg(feature = "test-hooks")]
+            if let Some(target) = target {
+                destinations.iter_mut().for_each(|d| *d = target);
+            }
+            match wake::send(&packet, &destinations).await {
+                Ok(()) => {
+                    if let Some(reply) = reply {
+                        let _ = reply.send(Ok(()));
+                    }
+                }
+                Err(e) => {
+                    warn!(%device, error = %e, "cannot send a wake-up");
+                    // Through the engine, so whoever asked hears it once the
+                    // status says so; with the engine gone, the reply goes
+                    // with the event.
+                    if let Some(events) = events.upgrade() {
+                        let _ = events.send(EngineEvent::WakeNotSent {
+                            device,
+                            serial,
+                            error: e.to_string(),
+                            reply,
+                        });
+                    }
+                }
+            }
+        });
     }
 
     fn on_peer_msg(&mut self, from: DeviceId, msg: PeerMsg) {
@@ -2355,6 +2682,7 @@ impl Engine {
                             self.route(Event::PointerCaptured(from, captured));
                         }
                     }
+                    control::Msg::WakeInfo(info) => self.on_wake_info(from, info),
                     control::Msg::Hello(_) | control::Msg::Heartbeat(_) => {}
                 }
                 return;
@@ -4250,6 +4578,17 @@ impl Engine {
                     self.relative_ends += 1;
                     self.send_relative(&device, false);
                 }
+                Action::Wake { device } => {
+                    // One wake-up in 30 seconds at most, whatever asked for
+                    // the last: a push soon after Wake was pressed sends
+                    // none, nor starts the two minutes over.
+                    if self.wakes.sent_lately(device.as_str(), Instant::now()) {
+                        debug!(%device, "not waking a device the cursor pushes toward: a wake-up went to it lately");
+                    } else if let Ok(data) = self.can_wake(device.as_str()) {
+                        info!(%device, "waking a device the cursor pushes toward");
+                        self.wake(device.to_string(), data, None);
+                    }
+                }
                 Action::RelativeUnsupported { device } => {
                     info!(%device, "the relative mode hotkey went there as a key, as it cannot take relative movements");
                     self.relative_unsupported
@@ -4502,6 +4841,8 @@ impl Engine {
                 };
                 router.set_remaps(peer_remaps(&self.peers));
                 router.set_speeds(peer_speeds(&self.peers));
+                router.set_wakeable(wakeable(&self.peers));
+                router.set_wake_on_push(self.wake_on_push);
                 // A router without relative mode yet: nothing to end.
                 let _ = router.set_relative_auto(self.relative_auto);
                 let now = Instant::now();
@@ -4583,6 +4924,7 @@ impl Engine {
 
     /// Hands control back and releases everything before the agent stops.
     fn wind_down(&mut self) {
+        // Nothing held, here or there, before anything else.
         self.route(Event::SetSharing(false));
         if let Some(controller) = self.receiver.controller().cloned() {
             let releases = self
@@ -4591,6 +4933,13 @@ impl Engine {
             self.inject_all(releases);
         }
         let _ = self.capture.set_grabbed(false);
+        // Then: the devices connected until now were last seen as they
+        // were last heard from, as far as this device can tell once it is
+        // back. The agent stops, so it is written here, once for them all,
+        // last.
+        if let Some(unsaved) = self.stamp_connected() {
+            let _ = self.directory.save(unsaved);
+        }
     }
 
     fn publish(&self) {
@@ -4619,6 +4968,13 @@ impl Engine {
                     let link = self.links.get(&id);
                     DeviceState {
                         connected: link.is_some(),
+                        can_wake: link.is_none() && p.wake.is_some(),
+                        wake: self.wakes.state(&p.id),
+                        offline_since: if link.is_none() && p.wake.is_some() {
+                            self.last_seen.get(&p.id).copied()
+                        } else {
+                            None
+                        },
                         arranged: self.arranged.contains(&id),
                         rtt_ms: link.map_or(0, |l| l.rtt_ms),
                         screen_locked: link.is_some_and(|l| l.screen_locked),
@@ -4665,6 +5021,7 @@ impl Engine {
             edges_only: self.capture.edges_only(),
             firewall: self.firewall,
             license: self.license_status.clone(),
+            wake_on_push: self.wake_on_push,
         };
         self.status.send_if_modified(|current| {
             if *current == status {
@@ -4712,14 +5069,41 @@ fn peer_speeds(peers: &[Peer]) -> impl Iterator<Item = (DeviceId, CursorSpeed)> 
     peers.iter().map(|p| (DeviceId::new(&p.id), p.cursor_speed))
 }
 
-/// Whether `new` is `old` with only cursor speeds changed.
-fn only_speeds_differ(old: &[Peer], new: &[Peer]) -> bool {
-    old.len() == new.len() && old.iter().zip(new).all(|(o, n)| same_but_speed(o, n))
+/// The trusted devices that told how to wake them.
+fn wakeable(peers: &[Peer]) -> impl Iterator<Item = DeviceId> + '_ {
+    peers
+        .iter()
+        .filter(|p| p.wake.is_some())
+        .map(|p| DeviceId::new(&p.id))
 }
 
-/// Whether `a` and `b` are the same but for their cursor speed. Every field
-/// is named, so one added later is not left out of the comparison.
-fn same_but_speed(a: &Peer, b: &Peer) -> bool {
+/// Whether `old` and `new` differ in which devices can be woken.
+fn wakeable_differs(old: &[Peer], new: &[Peer]) -> bool {
+    wakeable(old).collect::<HashSet<_>>() != wakeable(new).collect::<HashSet<_>>()
+}
+
+/// Resolves at `deadline`; never without one.
+async fn sleep_until(deadline: Option<Instant>) {
+    match deadline {
+        Some(at) => tokio::time::sleep_until(at.into()).await,
+        None => std::future::pending().await,
+    }
+}
+
+/// Whether `new` is `old` with only cursor speeds, or how to wake devices,
+/// changed.
+fn only_local_choices_differ(old: &[Peer], new: &[Peer]) -> bool {
+    old.len() == new.len()
+        && old
+            .iter()
+            .zip(new)
+            .all(|(o, n)| same_but_local_choices(o, n))
+}
+
+/// Whether `a` and `b` are the same but for their cursor speed and how to
+/// wake them. Every field is named, so one added later is not left out of
+/// the comparison.
+fn same_but_local_choices(a: &Peer, b: &Peer) -> bool {
     let Peer {
         id,
         name,
@@ -4734,6 +5118,7 @@ fn same_but_speed(a: &Peer, b: &Peer) -> bool {
         clipboard_off,
         files_off,
         cursor_speed: _,
+        wake: _,
     } = a;
     *id == b.id
         && *name == b.name
@@ -4825,7 +5210,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn a_change_to_speeds_alone_is_told_apart() {
+    fn a_change_to_speeds_or_how_to_wake_alone_is_told_apart() {
         use crate::agent::directory::Origin;
         use crate::store::Side;
         let peer = |id: &str, percent: u32| Peer {
@@ -4842,19 +5227,43 @@ mod tests {
             clipboard_off: false,
             files_off: false,
             cursor_speed: CursorSpeed::from_percent(percent).unwrap(),
+            wake: None,
         };
         let old = [peer("mini", 100), peer("win", 100)];
-        assert!(only_speeds_differ(
+        assert!(only_local_choices_differ(
             &old,
             &[peer("mini", 150), peer("win", 100)]
         ));
-        assert!(only_speeds_differ(&old, &old));
+        assert!(only_local_choices_differ(&old, &old));
+        let mut told = peer("mini", 100);
+        told.wake = WakeData::new([2, 0, 0, 0, 0, 1], None);
+        assert!(only_local_choices_differ(
+            &old,
+            &[told.clone(), peer("win", 100)]
+        ));
+        // Which devices can be woken, apart: not for a speed, nor for
+        // another way to wake one that could be woken already.
+        assert!(!wakeable_differs(
+            &old,
+            &[peer("mini", 150), peer("win", 100)]
+        ));
+        assert!(wakeable_differs(&old, &[told.clone(), peer("win", 100)]));
+        let mut told_anew = told.clone();
+        told_anew.wake = WakeData::new([2, 0, 0, 0, 0, 2], None);
+        assert!(!wakeable_differs(
+            &[told.clone(), peer("win", 100)],
+            &[peer("win", 100), told_anew]
+        ));
+        assert!(wakeable_differs(&[told], &old));
         // Anything else is a change of its own.
         let mut renamed = peer("mini", 150);
         renamed.name = "Studio".to_owned();
-        assert!(!only_speeds_differ(&old, &[renamed, peer("win", 100)]));
-        assert!(!only_speeds_differ(&old, &[peer("mini", 100)]));
-        assert!(!only_speeds_differ(
+        assert!(!only_local_choices_differ(
+            &old,
+            &[renamed, peer("win", 100)]
+        ));
+        assert!(!only_local_choices_differ(&old, &[peer("mini", 100)]));
+        assert!(!only_local_choices_differ(
             &old,
             &[peer("win", 100), peer("mini", 100)]
         ));

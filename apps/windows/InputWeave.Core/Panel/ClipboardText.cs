@@ -35,21 +35,41 @@ public static class ClipboardText
             default:
                 return null;
         }
-        var when = Ago(now - at, culture);
+        var when = Ago(now - at, culture, brief: true);
         var kind = Kind(activity.Kinds);
         return activity.ToDeviceId == model.ThisDeviceId
             ? new(TextKeys.ClipboardSyncedFrom, model.NameOf(activity.FromDeviceId), when, kind)
             : new(TextKeys.ClipboardSentTo, model.NameOf(activity.ToDeviceId), when, kind);
     }
 
-    /// <summary>"just now", or "3 min ago".</summary>
-    public static UiText Ago(TimeSpan elapsed, CultureInfo culture)
+    /// <summary>
+    /// How long ago, in whole units rounded down: "just now" under a
+    /// minute, then "1 minute ago" or "3 minutes ago" under an hour, hours
+    /// under a day, and days. <paramref name="brief"/> says minutes as "3
+    /// min ago", as the clipboard line does; it never gets to hours.
+    /// </summary>
+    public static UiText Ago(TimeSpan elapsed, CultureInfo culture, bool brief = false)
     {
-        var minutes = (int)Math.Floor(elapsed.TotalMinutes);
-        return minutes < 1
-            ? new(TextKeys.RelativeJustNow)
-            : new(TextKeys.RelativeMinutesAgo, minutes.ToString(culture));
+        var minutes = (long)Math.Floor(Math.Max(elapsed.TotalMinutes, 0));
+        if (minutes < 1)
+        {
+            return new(TextKeys.RelativeJustNow);
+        }
+        if (minutes < 60)
+        {
+            return brief
+                ? new(TextKeys.RelativeMinutesAgo, minutes.ToString(culture))
+                : Counted(minutes, TextKeys.AgoMinute, TextKeys.AgoMinutes, culture);
+        }
+        var hours = minutes / 60;
+        return hours < 24
+            ? Counted(hours, TextKeys.AgoHour, TextKeys.AgoHours, culture)
+            : Counted(hours / 24, TextKeys.AgoDay, TextKeys.AgoDays, culture);
     }
+
+    /// <summary>The words for one of a unit, or for <paramref name="count"/> of them.</summary>
+    private static UiText Counted(long count, string one, string many, CultureInfo culture) =>
+        count == 1 ? new(one) : new(many, count.ToString(culture));
 
     public static UiText Kind(IEnumerable<string> kinds)
     {

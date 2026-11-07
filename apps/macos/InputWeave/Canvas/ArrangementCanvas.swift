@@ -114,7 +114,9 @@ struct ArrangementCanvas: View {
             active: model.status.activeDeviceID == device.id && model.controllingOther,
             compact: !interactive,
             jump: model.jumpShortcut(slot: info?.jumpSlot ?? 0),
-            screenLocked: screenLocked(device.id)
+            nameSymbol: ConnectionText.nameSymbol(
+                screenLocked: screenLocked(device.id),
+                wakeable: WakeText.showsMoon(model.device(device.id), supported: model.wakeSupported))
         )
         .frame(width: frame.width, height: frame.height)
         .offset(x: frame.minX, y: frame.minY)
@@ -138,7 +140,9 @@ struct ArrangementCanvas: View {
         }
         .modifier(JumpMenu(
             shown: interactive, enabled: model.canJump(to: device.id), jump: { jump(to: device.id) },
-            rename: model.device(device.id) == nil ? nil : { rename(device.id) }))
+            rename: model.device(device.id) == nil ? nil : { rename(device.id) },
+            wake: model.wakeOffer(device.id) == .hidden ? nil : { model.wake(device.id) },
+            wakeEnabled: model.wakeOffer(device.id) == .enabled))
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(accessibilityLabel(device, info: info, all: all))
         .accessibilityValue(accessibilityValue(device.id))
@@ -325,14 +329,15 @@ private enum NameCapsule {
     /// The mini map's name runs this narrow at least before the jump
     /// shortcut beside it is left out.
     static let compactNameWidth: CGFloat = 24
-    /// What the lock beside a locked computer's name takes on the mini map,
-    /// with the gap before it.
-    static let lockWidth: CGFloat = 12
+    /// What the symbol beside the name (a lock, a moon) takes on the mini
+    /// map, with the gap before it.
+    static let symbolWidth: CGFloat = 12
 
-    /// Whether the mini map has room for the lock beside the name on a tile
-    /// `width` wide, with the capsule's padding and the name's least width.
-    static func fitsLock(width: CGFloat) -> Bool {
-        2 * compactInset + 8 + compactNameWidth + lockWidth <= width
+    /// Whether the mini map has room for the symbol beside the name on a
+    /// tile `width` wide, with the capsule's padding and the name's least
+    /// width.
+    static func fitsSymbol(width: CGFloat) -> Bool {
+        2 * compactInset + 8 + compactNameWidth + symbolWidth <= width
     }
 
     /// Whether the mini map has room for `shortcut` beside the name on a
@@ -372,8 +377,10 @@ private struct DeviceGroup: View {
     let compact: Bool
     /// The shortcut that moves the cursor here, if any.
     let jump: String?
-    /// Its screen is locked, shown by a lock beside the name.
-    let screenLocked: Bool
+    /// The symbol beside the name, if any: a lock while its screen is
+    /// locked, a moon while it is asleep and can be woken
+    /// (`ConnectionText.nameSymbol`).
+    let nameSymbol: String?
 
     var body: some View {
         let bounds = device.bounds
@@ -404,15 +411,15 @@ private struct DeviceGroup: View {
                 if let labeled = NameCapsule.compactTile(tiles, main: main) {
                     let tile = tiles[labeled]
                     let inset = NameCapsule.compactInset
-                    let showsLock = screenLocked && NameCapsule.fitsLock(width: tile.width)
-                    let room = tile.width - (showsLock ? NameCapsule.lockWidth : 0)
+                    let symbol = nameSymbol.flatMap { NameCapsule.fitsSymbol(width: tile.width) ? $0 : nil }
+                    let room = tile.width - (symbol == nil ? 0 : NameCapsule.symbolWidth)
                     let shortcut = jump.flatMap { NameCapsule.fitsShortcut($0, width: room) ? $0 : nil }
                     HStack(spacing: 3) {
                         Text(name)
                             .lineLimit(1)
                             .truncationMode(.tail)
-                        if showsLock {
-                            Image(systemName: "lock.fill").imageScale(.small)
+                        if let symbol {
+                            Image(systemName: symbol).imageScale(.small)
                         }
                         if let shortcut {
                             Text(verbatim: shortcut)
@@ -431,8 +438,8 @@ private struct DeviceGroup: View {
                 let corner = tiles[safe: main]?.origin ?? .zero
                 HStack(spacing: 4) {
                     Label(name, systemImage: OSLabel(os: info?.os ?? "").symbol)
-                    if screenLocked {
-                        Image(systemName: "lock.fill").imageScale(.small)
+                    if let nameSymbol {
+                        Image(systemName: nameSymbol).imageScale(.small)
                     }
                     if let jump {
                         Text(verbatim: jump).foregroundStyle(.secondary)
@@ -471,12 +478,15 @@ private struct DeviceGroup: View {
 }
 
 /// "Move Cursor Here", and "Rename…" for another computer, in a computer's
-/// context menu on the arrangement page.
+/// context menu on the arrangement page; then "Wake" for another computer
+/// that can be woken.
 private struct JumpMenu: ViewModifier {
     let shown: Bool
     let enabled: Bool
     let jump: () -> Void
     let rename: (() -> Void)?
+    var wake: (() -> Void)?
+    var wakeEnabled = false
 
     func body(content: Content) -> some View {
         if shown {
@@ -485,6 +495,11 @@ private struct JumpMenu: ViewModifier {
                     .disabled(!enabled)
                 if let rename {
                     Button("Rename…", action: rename)
+                }
+                if let wake {
+                    Divider()
+                    Button("Wake", action: wake)
+                        .disabled(!wakeEnabled)
                 }
             }
         } else {

@@ -4,8 +4,8 @@ import SwiftUI
 /// Brief, non-activating notes at the top of the screen the cursor is on:
 /// why the keyboard and mouse came back,
 /// the cursor being locked or unlocked, relative mode starting and ending,
-/// the take-back hint after the first crossings, and files being dragged
-/// to another computer.
+/// the take-back hint after the first crossings, files being dragged
+/// to another computer, and another computer being woken and waking up.
 /// One at a time; a new note replaces the shown one.
 @MainActor
 final class HUDController {
@@ -18,6 +18,7 @@ final class HUDController {
     private var hadSecureInput = false
     private var wasLocked: Bool?
     private var relative = RelativeText.News()
+    private var wake = WakeText.Watch()
     private var seenRefusal: UInt64?
     /// The device files from here were last seen dragged over.
     private var draggedOver = ""
@@ -46,6 +47,7 @@ final class HUDController {
         guard model.link == .connected else {
             // A restarted service starts over; what it says first is no news.
             _ = relative.update(nil, at: now, preempted: true)
+            _ = wake.update(nil)
             return nil
         }
         let dragging = status.hasDragging ? status.dragging : Inputweave_App_V1_Dragging()
@@ -71,6 +73,9 @@ final class HUDController {
         // Only what is shown counts as told.
         let relativeNote = relative.update(
             RelativeText.State(status), at: now, preempted: back != nil || refused != nil)
+        // Followed with every status, told or not: pressing Wake tells of it
+        // here too, from the status the service answers with.
+        let wakeNews = wake.update(status)
         if let message = back ?? refused {
             return message
         }
@@ -89,6 +94,9 @@ final class HUDController {
         }
         if let wasLocked, status.locked != wasLocked {
             return lockMessage(status, model: model)
+        }
+        if let wakeNews {
+            return WakeText.message(wakeNews, name: model.name(of: wakeNews.device))
         }
         if let hint = takeBackHint(model) {
             return hint

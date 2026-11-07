@@ -3,12 +3,14 @@ import SwiftUI
 
 /// Settings › General › Switching: waiting
 /// at the edge, a modifier to hold for the cursor to cross, the edge
-/// lighting up where it crosses, and relative mode turning on by
-/// itself for games.
+/// lighting up where it crosses, waking a sleeping computer the cursor
+/// pushes toward, and relative mode turning on by itself for games.
 struct SwitchingSection: View {
     @Environment(AgentModel.self) private var model
     /// Why the background service did not take the relative mode switch.
     @State private var relativeAutoError: String?
+    /// Why it did not take the switch for waking by pushing the cursor.
+    @State private var wakeOnPushError: String?
     /// The app's own setting, not the service's.
     @AppStorage(Preferences.showsEdgeGlow) private var showsEdgeGlow = true
 
@@ -36,6 +38,19 @@ struct SwitchingSection: View {
             Text("A short glow in the seam color shows where the cursor left this computer's screen, or came in.")
                 .foregroundStyle(.secondary)
                 .font(.callout)
+            // A service from before waking has no such switch.
+            if model.wakeSupported {
+                Toggle("Wake a sleeping computer when you push the cursor toward it", isOn: Binding(
+                    get: { model.status.wakeOnPush },
+                    set: { on in Task { await setWakeOnPush(on) } }))
+                if let wakeOnPushError {
+                    Text(wakeOnPushError).foregroundStyle(.red).font(.callout)
+                } else {
+                    Text("When the cursor pushes against the edge on a sleeping computer’s side, InputWeave sends it a wake-up, at most every 30 seconds. Works only on computers with wake for network access on, usually over a wired network.")
+                        .foregroundStyle(.secondary)
+                        .font(.callout)
+                }
+            }
             // A service from before relative mode has no such switch.
             if model.relativeSupported {
                 Toggle("Switch to relative mouse when a game holds the pointer", isOn: Binding(
@@ -57,7 +72,11 @@ struct SwitchingSection: View {
         // The setting's state arrived, or the service started over: an
         // earlier refusal no longer holds.
         .onChange(of: model.status.relativeAuto) { _, _ in relativeAutoError = nil }
-        .onChange(of: model.link) { _, _ in relativeAutoError = nil }
+        .onChange(of: model.status.wakeOnPush) { _, _ in wakeOnPushError = nil }
+        .onChange(of: model.link) { _, _ in
+            relativeAutoError = nil
+            wakeOnPushError = nil
+        }
     }
 
     private func setRelativeAuto(_ on: Bool) async {
@@ -65,8 +84,22 @@ struct SwitchingSection: View {
             try await model.setRelativeAuto(on)
             relativeAutoError = nil
         } catch {
-            relativeAutoError = String(localized: "The setting could not be changed. Try again once the background service responds.")
+            relativeAutoError = Self.notChanged
         }
+    }
+
+    private func setWakeOnPush(_ on: Bool) async {
+        do {
+            try await model.setWakeOnPush(on)
+            wakeOnPushError = nil
+        } catch {
+            wakeOnPushError = Self.notChanged
+        }
+    }
+
+    /// Why a switch here went back to what it was.
+    private static var notChanged: String {
+        String(localized: "The setting could not be changed. Try again once the background service responds.")
     }
 }
 

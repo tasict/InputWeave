@@ -6,11 +6,12 @@
 //! Pairing, discovery and the engine change it; the dialer, the accept
 //! loop, the engine and IPC clients read it or watch it for changes.
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::net::SocketAddr;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use iw_core::geometry::Point;
 use iw_core::hotkey::{Hotkeys, Modifier};
@@ -23,10 +24,12 @@ use tokio::sync::watch;
 use tracing::warn;
 
 use super::folder_access::{Access, UserFolder};
+use super::wake::WakeData;
 use crate::config::{Config, PlacementConfig};
 use crate::store::{
     DeviceSharing, DevicesFile, FolderAccessFile, HotkeysFile, KnownDisplays, PairedDevice, Side,
 };
+use crate::wake_file::{KnownWake, WakeFile};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Origin {
@@ -61,6 +64,10 @@ pub struct Peer {
     pub files_off: bool,
     /// How fast the cursor moves on it while this device controls it.
     pub cursor_speed: CursorSpeed,
+    /// How to wake it, as it told this device, if it did. When it was last
+    /// seen connected is kept apart (`Directory::last_seen`), so that each
+    /// time it goes offline the trusted devices are not published anew.
+    pub wake: Option<WakeData>,
 }
 
 /// The trusted devices as published: the list, and how many times it
@@ -128,13 +135,19 @@ impl DeviceError {
     }
 }
 
-/// A change to the devices file made without writing it: the file as it
-/// was then, numbered among the changes (`Directory::save`).
+/// A change to the devices file or the wake file made without writing it:
+/// the file as it was then, numbered among that file's changes
+/// (`Directory::save`).
 #[must_use = "the change is not in the file until it is saved"]
 pub(crate) struct Unsaved {
     path: PathBuf,
-    file: DevicesFile,
+    file: Contents,
     number: u64,
+}
+
+enum Contents {
+    Devices(Box<DevicesFile>),
+    Wake(WakeFile),
 }
 
 pub(crate) struct Directory {
@@ -148,6 +161,13 @@ pub(crate) struct Directory {
     /// The last of those changes saved to `file`. Held while writing, so
     /// the file is written by one caller at a time.
     written: Mutex<u64>,
+    /// How other devices told this one to wake them, kept in a file of its
+    /// own (`wake_file`), with its changes counted and written the same
+    /// way. Taken after `stored` when both are, never the other way.
+    wake_path: Option<PathBuf>,
+    wake: Mutex<WakeFile>,
+    wake_changes: AtomicU64,
+    wake_written: Mutex<u64>,
     peers: watch::Sender<TrustedDevices>,
     nearby: watch::Sender<Arc<Vec<Found>>>,
     /// Saved hotkeys from before relative mode left its hotkey off; said
@@ -160,8 +180,24 @@ pub(crate) struct Directory {
 
 impl Directory {
     /// `stored` is what the devices file at `file` holds; with no file,
-    /// changes are kept in memory only.
+    /// changes are kept in memory only. How other devices told this one to
+    /// wake them is kept in memory only too (`with_wake`).
+    #[cfg(test)]
     pub(crate) fn new(config: &Config, file: Option<PathBuf>, stored: DevicesFile) -> Self {
+        Self::with_wake(config, file, stored, None, WakeFile::default())
+    }
+
+    /// Like `new`, with `wake` what the wake file at `wake_path` holds; with
+    /// no such file, kept in memory only. Entries of devices not trusted
+    /// now, or of another device than the one trusted under their id (its
+    /// fingerprint differs), are dropped.
+    pub(crate) fn with_wake(
+        config: &Config,
+        file: Option<PathBuf>,
+        stored: DevicesFile,
+        wake_path: Option<PathBuf>,
+        wake: WakeFile,
+    ) -> Self {
         let configured = config
             .peers
             .iter()
@@ -179,6 +215,7 @@ impl Directory {
                 clipboard_off: false,
                 files_off: false,
                 cursor_speed: CursorSpeed::NORMAL,
+                wake: None,
             })
             .collect();
         let directory = Self {
@@ -189,12 +226,31 @@ impl Directory {
             stored: Mutex::new(stored),
             changes: AtomicU64::new(0),
             written: Mutex::new(0),
+            wake_path,
+            wake: Mutex::new(WakeFile::default()),
+            wake_changes: AtomicU64::new(0),
+            wake_written: Mutex::new(0),
             peers: watch::Sender::new(TrustedDevices::default()),
             nearby: watch::Sender::new(Arc::new(Vec::new())),
             relative_left_off_told: AtomicBool::new(false),
             unreported_told: AtomicBool::new(false),
         };
-        directory.publish(&directory.stored.lock().unwrap());
+        {
+            let stored = directory.stored.lock().unwrap();
+            let trusted = directory.trusted(&stored);
+            let mut wake = wake;
+            wake.devices.retain(|id, known| {
+                let theirs = trusted
+                    .iter()
+                    .any(|p| p.id == *id && p.fingerprint == known.fingerprint);
+                if !theirs {
+                    warn!(%id, "dropping how to wake a device not trusted as the one that told it");
+                }
+                theirs
+            });
+            *directory.wake.lock().unwrap() = wake;
+            directory.publish(&stored);
+        }
         directory
     }
 
@@ -314,23 +370,24 @@ impl Directory {
         {
             return;
         }
+        let mut wake_unsaved = None;
         self.update(|stored| {
             // What was chosen here under this id is this device's only if it
             // was paired under it before; anything else (another device
             // paired under it, or one since removed from the configuration
             // file) does not pass to it.
-            if !stored
+            let forget = !stored
                 .devices
                 .iter()
-                .any(|d| d.id == device.id && d.fingerprint == device.fingerprint)
-            {
+                .any(|d| d.id == device.id && d.fingerprint == device.fingerprint);
+            if forget {
                 forget_choices(stored, &device.id);
             }
             // This device paired before under another id: the name, cursor
-            // speed and clipboard and file choices given here go with it to
-            // the new id, and nothing stays under the old one. Its place in
-            // the arrangement and its last displays stay under the old id,
-            // as before.
+            // speed, clipboard and file choices given here and how it told
+            // this one to wake it go with it to the new id, and nothing
+            // stays under the old one. Its place in the arrangement and its
+            // last displays stay under the old id, as before.
             let earlier: Vec<String> = stored
                 .devices
                 .iter()
@@ -340,12 +397,29 @@ impl Directory {
             for id in &earlier {
                 move_choices(stored, id, &device.id);
             }
+            // Under the lock, so it changes with the rest.
+            wake_unsaved = self.change_wake(|wake| {
+                let before = wake.devices.clone();
+                if forget {
+                    wake.devices.remove(&device.id);
+                }
+                for id in &earlier {
+                    if let Some(known) = wake.devices.remove(id) {
+                        wake.devices.insert(device.id.clone(), known);
+                    }
+                }
+                wake.devices != before
+            });
             stored
                 .devices
                 .retain(|d| d.id != device.id && d.fingerprint != device.fingerprint);
             stored.devices.push(device);
             true
         });
+        if let Some(unsaved) = wake_unsaved {
+            // Said in the log; in effect all the same.
+            let _ = self.save(unsaved);
+        }
     }
 
     pub(crate) fn remove_paired(&self, id: &str) -> Result<(), DeviceError> {
@@ -353,6 +427,7 @@ impl Directory {
             return Err(DeviceError::Configured(id.to_owned()));
         }
         let mut removed = false;
+        let mut wake_unsaved = None;
         self.update(|stored| {
             let before = stored.devices.len();
             stored.devices.retain(|d| d.id != id);
@@ -360,8 +435,14 @@ impl Directory {
             stored.layout.retain(|p| p.device != id);
             stored.known_displays.retain(|k| k.device != id);
             forget_choices(stored, id);
+            // Under the lock, so it goes with the rest.
+            wake_unsaved = self.change_wake(|wake| wake.devices.remove(id).is_some());
             removed
         });
+        if let Some(unsaved) = wake_unsaved {
+            // Said in the log; in effect all the same.
+            let _ = self.save(unsaved);
+        }
         if removed {
             Ok(())
         } else {
@@ -537,6 +618,103 @@ impl Directory {
             stored.relative_auto_off = !on;
             changed
         });
+    }
+
+    /// Whether pushing the cursor toward an offline device wakes it.
+    pub(crate) fn wake_on_push(&self) -> bool {
+        self.wake.lock().unwrap().wake_on_push
+    }
+
+    /// Remembers whether pushing the cursor toward an offline device wakes
+    /// it, leaving the write to the caller (`save`), as the engine makes
+    /// this change: what to write, if the file is to change.
+    pub(crate) fn change_wake_on_push(&self, on: bool) -> Option<Unsaved> {
+        self.change_wake(|wake| {
+            let changed = wake.wake_on_push != on;
+            wake.wake_on_push = on;
+            changed
+        })
+    }
+
+    /// Remembers how the trusted device `id` said to wake it, keeping when
+    /// it was last seen, and publishes the trusted devices with it; leaves
+    /// the write to the caller (`save`). Nothing to write when it said the
+    /// same before, or is not trusted (as of the change, under `stored`'s
+    /// lock: unpaired just before, it leaves nothing behind).
+    pub(crate) fn change_how_to_wake(&self, id: &str, data: WakeData) -> Option<Unsaved> {
+        let stored = self.stored.lock().unwrap();
+        // The device trusted under `id`, whose fingerprint goes with it.
+        let fingerprint = self.peer(id)?.fingerprint;
+        let mut changed = false;
+        let unsaved = self.change_wake(|wake| {
+            let last_seen = match wake.devices.get(id) {
+                Some(known) if known.fingerprint != fingerprint => None,
+                Some(known) if known.data == data => return false,
+                Some(known) => known.last_seen,
+                None => None,
+            };
+            wake.devices.insert(
+                id.to_owned(),
+                KnownWake {
+                    fingerprint,
+                    data,
+                    last_seen,
+                },
+            );
+            changed = true;
+            true
+        });
+        if changed {
+            self.publish(&stored);
+        }
+        unsaved
+    }
+
+    /// Remembers when each of the trusted devices `seen` was last seen
+    /// connected, those of them that told how to wake them; leaves the
+    /// write to the caller (`save`). The trusted devices are not published
+    /// anew.
+    pub(crate) fn change_last_seen(&self, seen: &[(&str, SystemTime)]) -> Option<Unsaved> {
+        // Trusted as of the change, as for how to wake them.
+        let _stored = self.stored.lock().unwrap();
+        self.change_wake(|wake| {
+            let mut changed = false;
+            for (id, at) in seen.iter().filter(|(id, _)| self.is_trusted(id)) {
+                let Some(secs) = at.duration_since(UNIX_EPOCH).ok().map(|d| d.as_secs()) else {
+                    continue;
+                };
+                if let Some(known) = wake.devices.get_mut(*id)
+                    && known.last_seen != Some(secs)
+                {
+                    known.last_seen = Some(secs);
+                    changed = true;
+                }
+            }
+            changed
+        })
+    }
+
+    /// When each trusted device that told how to wake it was last seen
+    /// connected, as far as this device knows; those it does not know of
+    /// are left out.
+    pub(crate) fn last_seen(&self) -> HashMap<String, SystemTime> {
+        self.wake
+            .lock()
+            .unwrap()
+            .devices
+            .iter()
+            .filter_map(|(id, known)| {
+                let at = UNIX_EPOCH.checked_add(Duration::from_secs(known.last_seen?))?;
+                Some((id.clone(), at))
+            })
+            .collect()
+    }
+
+    /// When the device `id`, which told how to wake it, was last seen
+    /// connected, as far as this device knows.
+    #[cfg(test)]
+    pub(crate) fn last_seen_of(&self, id: &str) -> Option<SystemTime> {
+        self.last_seen().remove(id)
     }
 
     /// What macOS last said of the folders it protects.
@@ -866,7 +1044,24 @@ impl Directory {
         let number = self.changes.fetch_add(1, Ordering::Relaxed) + 1;
         Some(Unsaved {
             path,
-            file: stored.clone(),
+            file: Contents::Devices(Box::new(stored.clone())),
+            number,
+        })
+    }
+
+    /// Applies `change` to how other devices told this one to wake them,
+    /// as `change` does to the devices file, without publishing anything:
+    /// what is left to write, if anything changed and there is a file.
+    fn change_wake(&self, change: impl FnOnce(&mut WakeFile) -> bool) -> Option<Unsaved> {
+        let mut wake = self.wake.lock().unwrap();
+        if !change(&mut wake) {
+            return None;
+        }
+        let path = self.wake_path.clone()?;
+        let number = self.wake_changes.fetch_add(1, Ordering::Relaxed) + 1;
+        Some(Unsaved {
+            path,
+            file: Contents::Wake(wake.clone()),
             number,
         })
     }
@@ -876,18 +1071,24 @@ impl Directory {
     /// The error, also logged, when the file could not be written.
     pub(crate) fn save(&self, unsaved: Unsaved) -> std::io::Result<()> {
         let Unsaved { path, file, number } = unsaved;
+        let written = match &file {
+            Contents::Devices(_) => &self.written,
+            Contents::Wake(_) => &self.wake_written,
+        };
         off_async_threads(|| {
-            let mut written = self.written.lock().unwrap();
+            let mut written = written.lock().unwrap();
             if *written >= number {
                 return Ok(());
             }
             // One that failed leaves the earlier changes waiting to try
             // their own.
-            file.save(&path)
-                .map(|()| *written = number)
-                .inspect_err(|e| {
-                    warn!(path = %path.display(), error = %e, "cannot save the devices file");
-                })
+            let saved = match &file {
+                Contents::Devices(file) => file.save(&path),
+                Contents::Wake(file) => file.save(&path),
+            };
+            saved.map(|()| *written = number).inspect_err(|e| {
+                warn!(path = %path.display(), error = %e, "cannot save the devices or wake file");
+            })
         })
     }
 
@@ -909,6 +1110,7 @@ impl Directory {
     /// this device's user chose for them.
     fn compose(&self, stored: &DevicesFile) -> Vec<Peer> {
         let mut peers = self.trusted(stored);
+        let wake = self.wake.lock().unwrap();
         for peer in &mut peers {
             if let Some(alias) = stored
                 .aliases
@@ -924,6 +1126,11 @@ impl Directory {
             if let Some(&speed) = stored.cursor_speed.get(&peer.id) {
                 peer.cursor_speed = speed;
             }
+            peer.wake = wake
+                .devices
+                .get(&peer.id)
+                .filter(|known| known.fingerprint == peer.fingerprint)
+                .map(|known| known.data);
         }
         peers
     }
@@ -954,6 +1161,7 @@ impl Directory {
                 clipboard_off: false,
                 files_off: false,
                 cursor_speed: CursorSpeed::NORMAL,
+                wake: None,
             });
         }
         peers
@@ -1554,6 +1762,193 @@ mod tests {
         directory.set_speed("mini", 60).unwrap();
         directory.add_paired(paired("mini", 8));
         assert_eq!(directory.peer("mini").unwrap().cursor_speed.percent(), 60);
+    }
+
+    fn wake(byte: u8) -> WakeData {
+        WakeData::new(
+            [0x3c, 0x22, 0xfb, 0, 0, byte],
+            Some(std::net::Ipv4Addr::new(192, 168, 1, 255)),
+        )
+        .unwrap()
+    }
+
+    /// Writes a change the engine leaves to save.
+    fn saved(directory: &Directory, unsaved: Option<Unsaved>) -> bool {
+        unsaved.map(|u| directory.save(u).unwrap()).is_some()
+    }
+
+    /// A directory keeping its files in `dir`, as the agent does.
+    fn kept_in(dir: &std::path::Path) -> Directory {
+        let devices = dir.join("devices.toml");
+        let wake = crate::paths::wake_file(&devices);
+        Directory::with_wake(
+            &config(),
+            Some(devices.clone()),
+            DevicesFile::load(&devices).unwrap(),
+            Some(wake.clone()),
+            WakeFile::load(&wake),
+        )
+    }
+
+    #[test]
+    fn how_to_wake_a_device_is_kept_until_it_is_unpaired() {
+        let dir = tempfile::tempdir().unwrap();
+        let wake_file = dir.path().join("wake.toml");
+        let directory = kept_in(dir.path());
+        directory.add_paired(paired("mini", 2));
+        assert_eq!(directory.peer("mini").unwrap().wake, None);
+        // Not trusted, or this device: nothing kept.
+        assert!(directory.change_how_to_wake("ghost", wake(1)).is_none());
+        assert!(directory.change_how_to_wake("mac", wake(1)).is_none());
+        let (_, before) = directory.peers_now();
+        assert!(saved(
+            &directory,
+            directory.change_how_to_wake("mini", wake(1))
+        ));
+        let (_, after) = directory.peers_now();
+        assert!(after > before, "published at once");
+        assert_eq!(directory.peer("mini").unwrap().wake, Some(wake(1)));
+        // The same again: nothing to write.
+        assert!(directory.change_how_to_wake("mini", wake(1)).is_none());
+        // When it was last seen: kept, without publishing the devices anew,
+        // and kept as it says how anew.
+        let at = UNIX_EPOCH + Duration::from_secs(1_762_480_000);
+        let (_, before) = directory.peers_now();
+        assert!(saved(
+            &directory,
+            directory.change_last_seen(&[("mini", at)])
+        ));
+        assert_eq!(directory.peers_now().1, before);
+        assert!(directory.change_last_seen(&[("mini", at)]).is_none());
+        assert!(saved(
+            &directory,
+            directory.change_how_to_wake("mini", wake(2))
+        ));
+        assert_eq!(directory.peer("mini").unwrap().wake, Some(wake(2)));
+        assert_eq!(directory.last_seen_of("mini"), Some(at));
+        // A device that never told has no time; nor one not trusted.
+        directory.add_paired(paired("pc", 3));
+        assert!(
+            directory
+                .change_last_seen(&[("pc", at), ("ghost", at)])
+                .is_none()
+        );
+        // A configured device too; several at once, in one change.
+        assert!(saved(
+            &directory,
+            directory.change_how_to_wake("win", wake(4))
+        ));
+        assert_eq!(directory.peer("win").unwrap().wake, Some(wake(4)));
+        let later = at + Duration::from_secs(60);
+        assert!(saved(
+            &directory,
+            directory.change_last_seen(&[("win", later), ("mini", later), ("pc", later)])
+        ));
+        assert_eq!(
+            (directory.last_seen_of("win"), directory.last_seen_of("pc")),
+            (Some(later), None)
+        );
+
+        // In a file of its own, which agents from before waking never read;
+        // the devices file has none of it.
+        let devices = std::fs::read_to_string(dir.path().join("devices.toml")).unwrap();
+        assert!(
+            !devices.contains("wake") && !devices.contains("3c:22"),
+            "{devices}"
+        );
+        let kept = WakeFile::load(&wake_file);
+        assert_eq!(kept.devices["mini"].last_seen, Some(1_762_480_060));
+        // Kept across restarts.
+        let directory = kept_in(dir.path());
+        assert_eq!(directory.peer("mini").unwrap().wake, Some(wake(2)));
+        assert_eq!(directory.last_seen_of("mini"), Some(later));
+
+        // Unpaired, gone; paired again, it has to tell again.
+        directory.remove_paired("mini").unwrap();
+        assert!(!WakeFile::load(&wake_file).devices.contains_key("mini"));
+        assert_eq!(directory.last_seen_of("mini"), None);
+        directory.add_paired(paired("mini", 2));
+        assert_eq!(directory.peer("mini").unwrap().wake, None);
+    }
+
+    #[test]
+    fn how_to_wake_a_device_goes_with_it_to_another_id_but_not_to_another_device() {
+        let dir = tempfile::tempdir().unwrap();
+        let wake_file = dir.path().join("wake.toml");
+        let directory = kept_in(dir.path());
+        directory.add_paired(paired("mini", 2));
+        let at = UNIX_EPOCH + Duration::from_secs(1_762_480_000);
+        assert!(saved(
+            &directory,
+            directory.change_how_to_wake("mini", wake(1))
+        ));
+        assert!(saved(
+            &directory,
+            directory.change_last_seen(&[("mini", at)])
+        ));
+        directory.add_paired(PairedDevice {
+            id: "studio".to_owned(),
+            ..paired("mini", 2)
+        });
+        assert_eq!(directory.peer("studio").unwrap().wake, Some(wake(1)));
+        assert_eq!(directory.last_seen_of("studio"), Some(at));
+        let kept = WakeFile::load(&wake_file);
+        assert!(kept.devices.contains_key("studio") && !kept.devices.contains_key("mini"));
+        // Another computer under the id of one that told: nothing of it.
+        directory.add_paired(paired("studio", 9));
+        assert_eq!(directory.peer("studio").unwrap().wake, None);
+        assert_eq!(directory.last_seen_of("studio"), None);
+        assert!(WakeFile::load(&wake_file).devices.is_empty());
+    }
+
+    #[test]
+    fn how_another_device_under_the_same_id_was_woken_is_not_taken() {
+        let dir = tempfile::tempdir().unwrap();
+        let wake_file = dir.path().join("wake.toml");
+        let entry = |byte: u8| KnownWake {
+            fingerprint: fp(byte),
+            data: wake(1),
+            last_seen: Some(1_762_480_000),
+        };
+        // "win" told it as another computer (the configuration file trusts
+        // fp(1) under it now); "gone" is trusted no more.
+        WakeFile {
+            wake_on_push: true,
+            devices: [("win".to_owned(), entry(9)), ("gone".to_owned(), entry(3))].into(),
+        }
+        .save(&wake_file)
+        .unwrap();
+        let directory = kept_in(dir.path());
+        assert_eq!(directory.peer("win").unwrap().wake, None);
+        assert_eq!(directory.last_seen_of("win"), None);
+        assert!(directory.wake_on_push());
+        // Told anew by the device trusted under it: its own, with no time of
+        // the other's.
+        assert!(saved(
+            &directory,
+            directory.change_how_to_wake("win", wake(2))
+        ));
+        assert_eq!(directory.peer("win").unwrap().wake, Some(wake(2)));
+        let kept = WakeFile::load(&wake_file);
+        assert_eq!(kept.devices["win"].fingerprint, fp(1));
+        assert_eq!(kept.devices["win"].last_seen, None);
+        assert!(!kept.devices.contains_key("gone"));
+    }
+
+    #[test]
+    fn pushing_to_wake_is_remembered() {
+        let dir = tempfile::tempdir().unwrap();
+        let wake_file = dir.path().join("wake.toml");
+        let directory = kept_in(dir.path());
+        assert!(!directory.wake_on_push());
+        assert!(directory.change_wake_on_push(false).is_none());
+        assert!(saved(&directory, directory.change_wake_on_push(true)));
+        assert!(directory.wake_on_push());
+        assert!(WakeFile::load(&wake_file).wake_on_push);
+        assert!(!dir.path().join("devices.toml").exists());
+        assert!(kept_in(dir.path()).wake_on_push());
+        assert!(saved(&directory, directory.change_wake_on_push(false)));
+        assert!(!WakeFile::load(&wake_file).wake_on_push);
     }
 
     #[test]

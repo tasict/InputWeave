@@ -44,10 +44,17 @@
 //! carries on from where the device says its pointer went
 //! (`Event::PointerAt`).
 //!
+//! With waking on push on (`Router::set_wake_on_push`), the cursor pushing
+//! against an edge toward an offline device that can be woken
+//! (`Router::set_wakeable`), where it would cross were that device
+//! connected, asks for it to be woken (`Action::Wake`): after the dwell
+//! time, as crossing would, and at most every [`WAKE_INTERVAL`] for each
+//! device.
+//!
 //! The caller passes the current time with every event; the router only
 //! needs it to tell how long the cursor has been pushing against an edge,
-//! how quickly the mouse turns back and forth, and how quickly Control was
-//! pressed twice.
+//! how quickly the mouse turns back and forth, how quickly Control was
+//! pressed twice, and when it last asked for a device to be woken.
 
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::time::{Duration, Instant};
@@ -335,7 +342,18 @@ pub enum Action {
     RelativeUnsupported {
         device: DeviceId,
     },
+    /// The cursor pushes toward offline `device`, which can be woken
+    /// (`Router::set_wakeable`), as it would to cross there: wake it. At
+    /// most every [`WAKE_INTERVAL`] for each device, and only with waking
+    /// on push on (`Router::set_wake_on_push`).
+    Wake {
+        device: DeviceId,
+    },
 }
+
+/// How often pushing toward an offline device asks for it to be woken, at
+/// most.
+pub const WAKE_INTERVAL: Duration = Duration::from_secs(30);
 
 #[derive(Debug, thiserror::Error, PartialEq)]
 pub enum RouterError {
@@ -485,6 +503,12 @@ pub struct Router {
     /// Set from the end of relative mode until the device says where its
     /// pointer is.
     resync: Option<Resync>,
+    /// Pushing toward an offline device that can be woken wakes it.
+    wake_on_push: bool,
+    /// Devices that can be woken while they are offline.
+    wakeable: HashSet<DeviceId>,
+    /// When each device was last asked to be woken by a push.
+    woken: HashMap<DeviceId, Instant>,
 }
 
 impl Router {
@@ -521,6 +545,9 @@ impl Router {
             captured: HashSet::new(),
             relative_capable: HashSet::new(),
             resync: None,
+            wake_on_push: false,
+            wakeable: HashSet::new(),
+            woken: HashMap::new(),
         })
     }
 
@@ -738,6 +765,19 @@ impl Router {
         self.speeds = speeds.into_iter().collect();
     }
 
+    /// Whether pushing the cursor toward an offline device that can be
+    /// woken asks for it to be woken (`Action::Wake`). Off by default.
+    pub fn set_wake_on_push(&mut self, on: bool) {
+        self.wake_on_push = on;
+    }
+
+    /// The devices that can be woken while they are offline, replacing
+    /// those given before; this machine never is.
+    pub fn set_wakeable(&mut self, devices: impl IntoIterator<Item = DeviceId>) {
+        self.wakeable = devices.into_iter().filter(|d| *d != self.local).collect();
+        self.woken.retain(|d, _| self.wakeable.contains(d));
+    }
+
     /// Changes how the cursor crosses edges from now on.
     pub fn set_edge(&mut self, edge: EdgePolicy) {
         self.config.edge = edge;
@@ -778,6 +818,8 @@ impl Router {
         match event {
             Event::Input(input) => self.handle_input(input, now),
             Event::PeerConnected(device) => {
+                // Awake: once it goes again, a push wakes it at once.
+                self.woken.remove(&device);
                 self.connected.insert(device);
                 Vec::new()
             }
@@ -1181,7 +1223,7 @@ impl Router {
                 };
                 if step.device == self.local {
                     self.ease_off(delta);
-                    return Vec::new();
+                    return self.push_to_wake(&self.local.clone(), from, delta, now);
                 }
                 // Meanwhile the edge of the screen holds the cursor back.
                 if let Dwell::Waiting(_) =
@@ -1215,7 +1257,11 @@ impl Router {
                 };
                 if step.device == device {
                     self.ease_off(delta);
-                    return self.move_within(device, step.position);
+                    let mut actions = self.move_within(device.clone(), step.position);
+                    if can_cross {
+                        actions.extend(self.push_to_wake(&device, cursor, delta, now));
+                    }
+                    return actions;
                 }
                 if let Dwell::Waiting(held) = self.dwell(&device, cursor, delta, &step.device, now)
                 {
@@ -1287,6 +1333,73 @@ impl Router {
             });
         }
         Dwell::Waiting(held)
+    }
+
+    /// The cursor, moving from canvas point `from` on `current` by `delta`,
+    /// did not cross an edge, though it may cross: whether it pushes toward
+    /// an offline device that can be woken, as it would to cross there were
+    /// it connected, for the dwell time; if so, and that device was not
+    /// asked to be woken by a push in the last [`WAKE_INTERVAL`], it is now.
+    fn push_to_wake(
+        &mut self,
+        current: &DeviceId,
+        from: Point,
+        delta: Point,
+        now: Instant,
+    ) -> Vec<Action> {
+        if !self.wake_on_push {
+            return Vec::new();
+        }
+        // Only a movement an edge held back pushes: one within the screens
+        // is let be without looking further (as `Layout::step` does first).
+        let target = from + delta;
+        if self
+            .layout
+            .device(current)
+            .is_none_or(|d| d.canvas_bounds().any(|r| r.contains(target)))
+        {
+            return Vec::new();
+        }
+        // Nothing to look for while every device asleep was woken in the
+        // last 30 seconds: the push wakes none of them.
+        if self
+            .wakeable
+            .iter()
+            .filter(|d| !self.connected.contains(*d))
+            .all(|d| self.woken_lately(d, now))
+        {
+            return Vec::new();
+        }
+        let toward = self
+            .layout
+            .step(current, from, delta, &self.config.edge, |d| {
+                *d == self.local || self.can_enter(d) || self.asleep(d)
+            })
+            .map(|step| step.device)
+            .filter(|d| self.asleep(d));
+        // One woken lately is not pushed toward at all: no wait at the edge
+        // starts for it (`waiting_at_edge`).
+        let Some(target) = toward.filter(|d| !self.woken_lately(d, now)) else {
+            return Vec::new();
+        };
+        if let Dwell::Waiting(_) = self.dwell(current, from, delta, &target, now) {
+            return Vec::new();
+        }
+        self.woken.insert(target.clone(), now);
+        vec![Action::Wake { device: target }]
+    }
+
+    /// Whether a push asked for `device` to be woken less than
+    /// [`WAKE_INTERVAL`] before `now`.
+    fn woken_lately(&self, device: &DeviceId, now: Instant) -> bool {
+        self.woken
+            .get(device)
+            .is_some_and(|at| now.saturating_duration_since(*at) < WAKE_INTERVAL)
+    }
+
+    /// Whether `device` is offline and can be woken.
+    fn asleep(&self, device: &DeviceId) -> bool {
+        self.wakeable.contains(device) && !self.connected.contains(device)
     }
 
     /// A movement that did not cross an edge. Sliding along the edge goes on
@@ -3357,6 +3470,250 @@ mod tests {
         assert_eq!(
             motion_at(&mut r, after(t, 310), push, (5.0, 0.0))[0],
             Action::Grab
+        );
+    }
+
+    /// A router where the PC and the Mac mini are offline, the PC one that
+    /// can be woken, and pushing toward it wakes it.
+    fn waking(config: RouterConfig) -> Router {
+        let mut r = router_with(config);
+        let now = Instant::now();
+        r.handle(Event::PeerLost(id("win")), now);
+        r.handle(Event::PeerLost(id("mini")), now);
+        r.set_wakeable([id("win")]);
+        r.set_wake_on_push(true);
+        r
+    }
+
+    fn wake(device: &str) -> Action {
+        Action::Wake { device: id(device) }
+    }
+
+    fn secs(start: Instant, s: f64) -> Instant {
+        start + Duration::from_secs_f64(s)
+    }
+
+    #[test]
+    fn pushing_toward_a_sleeping_device_wakes_it_once_every_30_seconds() {
+        let mut r = waking(RouterConfig::default());
+        let t = Instant::now();
+        let push = (1511.0, 500.0);
+        assert_eq!(motion_at(&mut r, t, push, (5.0, 0.0)), vec![wake("win")]);
+        // The cursor stays: nothing to cross to.
+        assert_eq!(*r.state(), State::Local);
+        assert!(motion_at(&mut r, secs(t, 1.0), push, (5.0, 0.0)).is_empty());
+        assert!(motion_at(&mut r, secs(t, 29.9), push, (5.0, 0.0)).is_empty());
+        assert_eq!(
+            motion_at(&mut r, secs(t, 30.0), push, (5.0, 0.0)),
+            vec![wake("win")]
+        );
+        // Moving within the screen, or along the edge without pushing out,
+        // wakes nothing.
+        assert!(motion_at(&mut r, secs(t, 61.0), (1200.0, 500.0), (5.0, 0.0)).is_empty());
+        assert!(motion_at(&mut r, secs(t, 62.0), push, (0.0, 5.0)).is_empty());
+        assert_eq!(WAKE_INTERVAL, Duration::from_secs(30));
+    }
+
+    #[test]
+    fn nothing_is_woken_by_a_push_where_it_should_not_be() {
+        let t = Instant::now();
+        let push = (1511.0, 500.0);
+        // Turned off.
+        let mut r = waking(RouterConfig::default());
+        r.set_wake_on_push(false);
+        assert!(motion_at(&mut r, t, push, (5.0, 0.0)).is_empty());
+        // No device there can be woken.
+        let mut r = waking(RouterConfig::default());
+        r.set_wakeable([]);
+        assert!(motion_at(&mut r, t, push, (5.0, 0.0)).is_empty());
+        // The PC cannot be: the Mac mini is the one the cursor would go to,
+        // were it connected, as it would cross were the PC offline.
+        let mut r = waking(RouterConfig::default());
+        r.set_wakeable([id("mini")]);
+        assert_eq!(motion_at(&mut r, t, push, (5.0, 0.0)), vec![wake("mini")]);
+        // Nothing on that side.
+        let mut r = waking(RouterConfig::default());
+        assert!(motion_at(&mut r, t, (0.0, 500.0), (-5.0, 0.0)).is_empty());
+        // Never this machine.
+        let mut r = waking(RouterConfig::default());
+        r.set_wakeable([id("mac")]);
+        assert!(motion_at(&mut r, t, (0.0, 500.0), (-5.0, 0.0)).is_empty());
+        assert!(motion_at(&mut r, t, push, (5.0, 0.0)).is_empty());
+        // Locked, or sharing paused.
+        let mut r = waking(RouterConfig::default());
+        handle(&mut r, Event::SetLocked(true));
+        assert!(motion_at(&mut r, t, push, (5.0, 0.0)).is_empty());
+        let mut r = waking(RouterConfig::default());
+        handle(&mut r, Event::SetSharing(false));
+        assert!(motion_at(&mut r, t, push, (5.0, 0.0)).is_empty());
+        // A button held, as no crossing goes with one.
+        let mut r = waking(RouterConfig::default());
+        button(&mut r, true);
+        assert!(motion_at(&mut r, t, push, (5.0, 0.0)).is_empty());
+    }
+
+    #[test]
+    fn a_connected_device_is_crossed_to_or_left_alone_never_woken() {
+        let t = Instant::now();
+        let mut r = waking(RouterConfig::default());
+        handle(&mut r, Event::PeerConnected(id("win")));
+        assert!(matches!(
+            motion_at(&mut r, t, (1511.0, 500.0), (5.0, 0.0)).as_slice(),
+            [Action::Grab, Action::Enter { device, .. }] if *device == id("win")
+        ));
+        // Connected but out of reach, its screen locked: it is awake.
+        let mut r = waking(RouterConfig::default());
+        handle(&mut r, Event::PeerConnected(id("win")));
+        handle(&mut r, Event::PeerScreenLocked(id("win"), true));
+        assert!(motion_at(&mut r, t, (1511.0, 500.0), (5.0, 0.0)).is_empty());
+        // Gone again: it can be woken again.
+        handle(&mut r, Event::PeerLost(id("win")));
+        assert_eq!(
+            motion_at(&mut r, t, (1511.0, 500.0), (5.0, 0.0)),
+            vec![wake("win")]
+        );
+    }
+
+    #[test]
+    fn pushing_to_wake_waits_as_crossing_does() {
+        let mut r = waking(RouterConfig {
+            edge: EdgePolicy {
+                dwell_ms: 150,
+                ..EdgePolicy::default()
+            },
+            ..RouterConfig::default()
+        });
+        let t = Instant::now();
+        let push = (1511.0, 500.0);
+        assert!(motion_at(&mut r, t, push, (5.0, 0.0)).is_empty());
+        assert!(motion_at(&mut r, after(t, 100), push, (5.0, 0.0)).is_empty());
+        assert_eq!(
+            motion_at(&mut r, after(t, 150), push, (5.0, 0.0)),
+            vec![wake("win")]
+        );
+        // For the 30 seconds after, a push waits toward nothing.
+        assert!(motion_at(&mut r, after(t, 200), push, (5.0, 0.0)).is_empty());
+        assert!(!r.waiting_at_edge());
+        assert!(motion_at(&mut r, after(t, 400), push, (5.0, 0.0)).is_empty());
+        assert!(!r.waiting_at_edge());
+        // Backing off starts it over.
+        let t = secs(t, 40.0);
+        assert!(motion_at(&mut r, t, push, (5.0, 0.0)).is_empty());
+        assert!(motion_at(&mut r, after(t, 100), push, (-5.0, 0.0)).is_empty());
+        assert!(motion_at(&mut r, after(t, 160), push, (5.0, 0.0)).is_empty());
+        assert_eq!(
+            motion_at(&mut r, after(t, 310), push, (5.0, 0.0)),
+            vec![wake("win")]
+        );
+        // With a switch modifier, only while it is held.
+        let mut r = waking(RouterConfig {
+            edge: EdgePolicy {
+                switch_modifier: Some(Modifier::Shift),
+                ..EdgePolicy::default()
+            },
+            ..RouterConfig::default()
+        });
+        assert!(motion_at(&mut r, t, push, (5.0, 0.0)).is_empty());
+        key(&mut r, usage::LEFT_SHIFT, true);
+        assert_eq!(motion_at(&mut r, t, push, (5.0, 0.0)), vec![wake("win")]);
+    }
+
+    #[test]
+    fn pushing_from_another_device_wakes_too_but_not_in_relative_mode() {
+        let mut r = router();
+        let now = Instant::now();
+        r.handle(Event::PeerLost(id("mini")), now);
+        r.set_wakeable([id("mini")]);
+        r.set_wake_on_push(true);
+        r.set_relative_capable(id("win"), true);
+        enter_win(&mut r); // (4, 900) on the PC, canvas (1516, 900)
+        r.set_relative(true).unwrap();
+        let actions = motion_at(&mut r, now, (0.0, 0.0), (0.0, -2000.0));
+        assert!(
+            actions
+                .iter()
+                .all(|a| matches!(a, Action::RelativeMotion { .. })),
+            "{actions:?}"
+        );
+        r.set_relative(false).unwrap();
+        // The PC says where its pointer went, as relative mode ends there,
+        // clear of the corner.
+        handle(&mut r, Event::PointerAt(id("win"), Point::new(400.0, 10.0)));
+        // Up to the top of the PC's main display, under the Mac mini.
+        let actions = motion_at(&mut r, now, (0.0, 0.0), (0.0, -20.0));
+        assert_eq!(
+            actions,
+            vec![
+                Action::Motion {
+                    device: id("win"),
+                    position: Point::new(400.0, 0.0),
+                },
+                wake("mini"),
+            ]
+        );
+        assert!(r.is_remote(&id("win")));
+    }
+
+    #[test]
+    fn a_device_that_woke_and_slept_again_is_woken_again_at_once() {
+        let mut r = waking(RouterConfig::default());
+        let t = Instant::now();
+        let push = (1511.0, 500.0);
+        assert_eq!(motion_at(&mut r, t, push, (5.0, 0.0)), vec![wake("win")]);
+        // It wakes, connects, and goes to sleep again within the 30
+        // seconds.
+        r.handle(Event::PeerConnected(id("win")), secs(t, 5.0));
+        r.handle(Event::PeerLost(id("win")), secs(t, 10.0));
+        assert_eq!(
+            motion_at(&mut r, secs(t, 11.0), push, (5.0, 0.0)),
+            vec![wake("win")]
+        );
+        // Not woken again meanwhile: the 30 seconds stand.
+        assert!(motion_at(&mut r, secs(t, 12.0), push, (5.0, 0.0)).is_empty());
+    }
+
+    #[test]
+    fn a_movement_within_the_screens_looks_for_nothing_to_wake() {
+        let mut r = waking(RouterConfig::default());
+        let t = Instant::now();
+        // Up to the edge, not past it: within the screen.
+        assert!(motion_at(&mut r, t, (1500.0, 500.0), (11.0, 0.0)).is_empty());
+        assert!(motion_at(&mut r, t, (1511.0, 500.0), (0.0, 0.0)).is_empty());
+        // Past it, held back: a push.
+        assert_eq!(
+            motion_at(&mut r, t, (1511.0, 500.0), (1.0, 0.0)),
+            vec![wake("win")]
+        );
+    }
+
+    #[test]
+    fn a_new_layout_keeps_who_was_woken_lately() {
+        let mut r = waking(RouterConfig::default());
+        let t = Instant::now();
+        let push = (1511.0, 500.0);
+        assert_eq!(motion_at(&mut r, t, push, (5.0, 0.0)), vec![wake("win")]);
+        // Arranged anew, the PC where it was: the 30 seconds stand.
+        assert!(r.set_layout(desk()).unwrap().is_empty());
+        assert!(motion_at(&mut r, secs(t, 1.0), push, (5.0, 0.0)).is_empty());
+        assert_eq!(
+            motion_at(&mut r, secs(t, 30.0), push, (5.0, 0.0)),
+            vec![wake("win")]
+        );
+    }
+
+    #[test]
+    fn devices_that_can_no_longer_be_woken_are_forgotten() {
+        let mut r = waking(RouterConfig::default());
+        let t = Instant::now();
+        let push = (1511.0, 500.0);
+        assert_eq!(motion_at(&mut r, t, push, (5.0, 0.0)), vec![wake("win")]);
+        r.set_wakeable([]);
+        assert!(motion_at(&mut r, secs(t, 1.0), push, (5.0, 0.0)).is_empty());
+        // Told again how to wake it: the 30 seconds start afresh.
+        r.set_wakeable([id("win")]);
+        assert_eq!(
+            motion_at(&mut r, secs(t, 2.0), push, (5.0, 0.0)),
+            vec![wake("win")]
         );
     }
 

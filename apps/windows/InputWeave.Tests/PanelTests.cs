@@ -18,7 +18,8 @@ internal static class Sample
         bool noDevices = false, bool macFilesOff = false, Hotkeys? hotkeys = null, bool macScreenLocked = false,
         bool macLockScreenInput = false, bool dragsCarried = false, string relative = "", bool relativeAutomatic = false,
         ulong relativeEnds = 0, RelativeEndReason endReason = RelativeEndReason.Unspecified, bool relativeSupported = true,
-        bool macInputUnavailable = false, bool macSharingPaused = false)
+        bool macInputUnavailable = false, bool macSharingPaused = false, bool wakeSupported = false, bool macCanWake = false,
+        WakeState macWake = WakeState.None, ulong macOfflineSince = 0)
     {
         var status = new Status
         {
@@ -34,6 +35,7 @@ internal static class Sample
             RelativeMouseAutomatic = relativeAutomatic,
             RelativeEnds = relativeEnds,
             RelativeSupported = relativeSupported,
+            WakeSupported = wakeSupported,
             LastRelativeEnd = relativeEnds == 0 ? null : new RelativeEnd { DeviceId = "mac", Reason = endReason },
         };
         if (missingPermission)
@@ -51,6 +53,9 @@ internal static class Sample
                 LockScreenInput = macLockScreenInput,
                 InputUnavailable = macInputUnavailable,
                 SharingPaused = macSharingPaused,
+                CanWake = macCanWake,
+                Wake = macWake,
+                OfflineSinceUnixMs = macOfflineSince,
             });
         }
         return new AgentSnapshot

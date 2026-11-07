@@ -376,6 +376,24 @@
   <data name="RelativeMinutesAgo" xml:space="preserve">
     <value>{0} 分鐘前</value>
   </data>
+  <data name="AgoMinute" xml:space="preserve">
+    <value>1 分鐘前</value>
+  </data>
+  <data name="AgoMinutes" xml:space="preserve">
+    <value>{0} 分鐘前</value>
+  </data>
+  <data name="AgoHour" xml:space="preserve">
+    <value>1 小時前</value>
+  </data>
+  <data name="AgoHours" xml:space="preserve">
+    <value>{0} 小時前</value>
+  </data>
+  <data name="AgoDay" xml:space="preserve">
+    <value>1 天前</value>
+  </data>
+  <data name="AgoDays" xml:space="preserve">
+    <value>{0} 天前</value>
+  </data>
 
   <!-- Sending files -->
   <data name="SendFilesTitle" xml:space="preserve">
@@ -430,6 +448,12 @@
   </data>
   <data name="ConnectionOffline" xml:space="preserve">
     <value>離線</value>
+  </data>
+  <data name="ConnectionOfflineSince" xml:space="preserve">
+    <value>離線・{0}</value>
+  </data>
+  <data name="ConnectionWaking" xml:space="preserve">
+    <value>正在喚醒…</value>
   </data>
   <data name="ConnectionThisComputer" xml:space="preserve">
     <value>這台電腦</value>
@@ -714,6 +738,15 @@
   <data name="GeneralEdgeGlowHint" xml:space="preserve">
     <value>游標離開或進入這台螢幕的地方，邊緣會短暫亮起縫線色的光。</value>
   </data>
+  <data name="GeneralWakeOnPush" xml:space="preserve">
+    <value>把游標推向睡眠中的電腦時喚醒它</value>
+  </data>
+  <data name="GeneralWakeOnPushHint" xml:space="preserve">
+    <value>游標推到睡眠中電腦那一側的螢幕邊緣時，送出網路喚醒，同一台 30 秒最多一次。只對打開網路喚醒的電腦有效，多半要接有線網路。</value>
+  </data>
+  <data name="GeneralWakeOnPushFailed" xml:space="preserve">
+    <value>無法變更這項設定。等背景服務有回應後再試一次。</value>
+  </data>
   <data name="GeneralShortcuts" xml:space="preserve">
     <value>快速鍵</value>
   </data>
@@ -827,6 +860,21 @@
   </data>
   <data name="InspectorCursorSpeedReset" xml:space="preserve">
     <value>重設</value>
+  </data>
+  <data name="WakeAction" xml:space="preserve">
+    <value>喚醒</value>
+  </data>
+  <data name="WakeNotWoken" xml:space="preserve">
+    <value>「{0}」沒有醒來。它可能沒有打開網路喚醒，或沒有接在有線網路上。</value>
+  </data>
+  <data name="WakeHowTo" xml:space="preserve">
+    <value>怎麼打開網路喚醒</value>
+  </data>
+  <data name="WakeHowToUrl" xml:space="preserve">
+    <value>https://inputweave.ctsite.cc/zh-Hant/user-guide#wake-for-network-access</value>
+  </data>
+  <data name="WakeNotTold" xml:space="preserve">
+    <value>「{0}」還沒告訴這台怎麼喚醒它；下次連上之後就能喚醒。</value>
   </data>
   <data name="DeviceFilesOff" xml:space="preserve">
     <value>已關閉和「{0}」互傳檔案。</value>
@@ -1176,6 +1224,12 @@
   </data>
   <data name="HudRelativeUnsupported" xml:space="preserve">
     <value>「{0}」的 InputWeave 版本不支援相對滑鼠。</value>
+  </data>
+  <data name="HudWaking" xml:space="preserve">
+    <value>正在喚醒「{0}」…</value>
+  </data>
+  <data name="HudAwake" xml:space="preserve">
+    <value>「{0}」醒來了。</value>
   </data>
   <data name="NavLicense" xml:space="preserve">
     <value>授權</value>

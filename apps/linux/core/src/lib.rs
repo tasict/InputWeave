@@ -32,6 +32,7 @@ pub mod text;
 pub mod transfer_text;
 pub mod tray_icon;
 pub mod trouble_text;
+pub mod wake;
 
 pub use iw_proto::app::v1 as proto;
 

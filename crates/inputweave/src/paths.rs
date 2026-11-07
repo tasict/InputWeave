@@ -151,6 +151,15 @@ pub fn license_file(devices_file: &Path) -> PathBuf {
         .join("license.toml")
 }
 
+/// How other devices told this one to wake them, beside the devices file
+/// (`wake_file`).
+pub fn wake_file(devices_file: &Path) -> PathBuf {
+    devices_file
+        .parent()
+        .unwrap_or(Path::new("."))
+        .join("wake.toml")
+}
+
 /// File transfers that finished are remembered next to the devices file,
 /// in `transfers.toml`. On Windows the broker remembers them instead, in
 /// the user's `%LOCALAPPDATA%\InputWeave`, and the agent removes this file

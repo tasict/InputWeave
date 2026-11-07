@@ -1,6 +1,7 @@
 //! The inspector beside the device lists (Devices, Arrangement): one
-//! computer's name, system, status and screens, how fast the cursor moves
-//! on it, what it shares with this one, the key swap, and removing it.
+//! computer's name, system, status (and waking it), screens, how fast the
+//! cursor moves on it, what it shares with this one, the key swap, and
+//! removing it.
 //!
 //! Its rows are made again only when what they are changes (another
 //! device, its screens, whether it is paired); otherwise every model
@@ -9,7 +10,7 @@
 
 use std::cell::{Cell, RefCell};
 use std::rc::Rc;
-use std::time::Duration;
+use std::time::{Duration, SystemTime};
 
 use adw::prelude::*;
 use gtk::glib;
@@ -20,7 +21,8 @@ use inputweave_app_core::proto::{
 };
 use inputweave_app_core::snapshot::Snapshot;
 use inputweave_app_core::text::keys;
-use inputweave_app_core::{device_text, ui};
+use inputweave_app_core::wake::{self, Glyph, Note};
+use inputweave_app_core::{device_text, log, ui};
 
 use super::{EntrySync, Quiet, row_button, set_subtitle, set_switch, set_text, value_label};
 use crate::strings::{t, tr};
@@ -35,10 +37,62 @@ struct Rows {
     /// The name could not be changed: the group says so until the next try.
     name_refused: Rc<Cell<bool>>,
     status: adw::ActionRow,
+    /// Another computer's.
+    wake: Option<WakeRow>,
     speed: Option<SpeedRow>,
     clipboard: Option<adw::SwitchRow>,
     files: Option<adw::SwitchRow>,
     swap: Option<adw::SwitchRow>,
+}
+
+/// What the status row of another computer shows of waking it: the moon
+/// while it can be woken, a spinner in its place while it is being woken,
+/// Wake, and under the status why it did not wake up (with how to turn
+/// waking on) or that it never said how.
+#[derive(Clone)]
+pub struct WakeRow {
+    pub moon: gtk::Image,
+    pub spinner: gtk::Spinner,
+    pub button: gtk::Button,
+    pub not_woken: gtk::Box,
+    pub not_woken_text: gtk::Label,
+    pub not_told: gtk::Label,
+}
+
+impl WakeRow {
+    fn show(&self, model: &Snapshot, id: &str, in_flight: bool) {
+        let glyph = wake::glyph(model, id);
+        self.moon.set_visible(glyph == Some(Glyph::Moon));
+        let spinning = glyph == Some(Glyph::Spinner);
+        self.spinner.set_visible(spinning);
+        if self.spinner.is_spinning() != spinning {
+            self.spinner.set_spinning(spinning);
+        }
+        let offer = wake::offer(model, id, in_flight);
+        self.button.set_visible(offer.is_some());
+        self.button.set_sensitive(offer == Some(true));
+        let (not_woken, not_told) = match wake::note(model, id) {
+            Some(Note::NotWoken(text)) => (Some(text), None),
+            Some(Note::NotToldYet(text)) => (None, Some(text)),
+            None => (None, None),
+        };
+        if let Some(text) = &not_woken {
+            let markup = format!(
+                "{}\n<a href=\"{}\">{}</a>",
+                glib::markup_escape_text(&tr(text)),
+                glib::markup_escape_text(&t(keys::WAKE_HOW_TO_URL)),
+                glib::markup_escape_text(&t(keys::WAKE_HOW_TO)),
+            );
+            if self.not_woken_text.label() != markup {
+                self.not_woken_text.set_markup(&markup);
+            }
+        }
+        self.not_woken.set_visible(not_woken.is_some());
+        if let Some(text) = &not_told {
+            set_text(&self.not_told, &tr(text));
+        }
+        self.not_told.set_visible(not_told.is_some());
+    }
 }
 
 /// How long the keys must leave the slider alone before the speed it shows
@@ -329,7 +383,14 @@ impl Inspector {
                 rows.names.set_description(calls_itself.as_deref());
             }
         }
-        set_subtitle(&rows.status, &tr(&device_text::status(model, id)));
+        set_subtitle(
+            &rows.status,
+            &tr(&device_text::status(model, id, SystemTime::now())),
+        );
+        if let Some(row) = &rows.wake {
+            let in_flight = self.ui.upgrade().is_some_and(|ui| ui.waking_asked(id));
+            row.show(model, id, in_flight);
+        }
         if let (Some(speed), Some(agent)) = (&rows.speed, cursor_speed::shown(model, id)) {
             speed.state.agent.set(agent);
             let mut draft = speed.state.draft.get();
@@ -357,6 +418,11 @@ impl Inspector {
     #[cfg(test)]
     pub fn status_row(&self) -> Option<adw::ActionRow> {
         self.rows.borrow().as_ref().map(|r| r.status.clone())
+    }
+
+    #[cfg(test)]
+    pub fn wake_widgets(&self) -> Option<WakeRow> {
+        self.rows.borrow().as_ref().and_then(|r| r.wake.clone())
     }
 
     #[cfg(test)]
@@ -489,6 +555,7 @@ impl Inspector {
         let status = property(&t(keys::INSPECTOR_STATUS));
         about.add(&system);
         about.add(&status);
+        let wake = (!this).then(|| self.wake_row(&about, &status, id));
         self.add(about);
 
         let screens = adw::PreferencesGroup::builder()
@@ -538,6 +605,7 @@ impl Inspector {
             names,
             name_refused,
             status,
+            wake,
             speed,
             clipboard: None,
             files: None,
@@ -642,6 +710,94 @@ impl Inspector {
 }
 
 impl Inspector {
+    /// The status row's part in waking another computer, `id`: the glyph
+    /// and Wake at its end, and the lines under it below the group.
+    fn wake_row(
+        &self,
+        group: &adw::PreferencesGroup,
+        status: &adw::ActionRow,
+        id: &str,
+    ) -> WakeRow {
+        // The status says it in words; the moon only goes with them.
+        let moon = gtk::Image::builder()
+            .icon_name(wake::MOON_ICON)
+            .accessible_role(gtk::AccessibleRole::Presentation)
+            .css_classes(["dim-label"])
+            .visible(false)
+            .build();
+        let spinner = gtk::Spinner::builder()
+            .valign(gtk::Align::Center)
+            .visible(false)
+            .build();
+        let button = row_button(&t(keys::WAKE));
+        button.add_css_class("suggested-action");
+        button.set_visible(false);
+        let (weak, device_id) = (self.ui.clone(), id.to_owned());
+        button.connect_clicked(move |_| {
+            if let Some(ui) = weak.upgrade() {
+                ui.wake_device(&device_id);
+            }
+        });
+        status.add_suffix(&moon);
+        status.add_suffix(&spinner);
+        status.add_suffix(&button);
+
+        let warning = gtk::Image::builder()
+            .icon_name("dialog-warning-symbolic")
+            .accessible_role(gtk::AccessibleRole::Presentation)
+            .css_classes(["warning"])
+            .valign(gtk::Align::Start)
+            .build();
+        let not_woken_text = gtk::Label::builder()
+            .wrap(true)
+            .xalign(0.0)
+            .hexpand(true)
+            .build();
+        not_woken_text.connect_activate_link(|label, uri| {
+            let window = label.root().and_downcast::<gtk::Window>();
+            gtk::UriLauncher::new(uri).launch(
+                window.as_ref(),
+                gtk::gio::Cancellable::NONE,
+                |result| {
+                    if let Err(e) = result {
+                        log::info(&format!("cannot open a link: {e}"));
+                    }
+                },
+            );
+            glib::Propagation::Stop
+        });
+        let not_woken = gtk::Box::builder()
+            .orientation(gtk::Orientation::Horizontal)
+            .spacing(8)
+            .margin_top(6)
+            .margin_start(12)
+            .margin_end(12)
+            .visible(false)
+            .build();
+        not_woken.append(&warning);
+        not_woken.append(&not_woken_text);
+        let not_told = gtk::Label::builder()
+            .wrap(true)
+            .xalign(0.0)
+            .margin_top(6)
+            .margin_start(12)
+            .margin_end(12)
+            .css_classes(["dim-label", "caption"])
+            .visible(false)
+            .build();
+        // Not rows: below the group's list, under the status.
+        group.add(&not_woken);
+        group.add(&not_told);
+        WakeRow {
+            moon,
+            spinner,
+            button,
+            not_woken,
+            not_woken_text,
+            not_told,
+        }
+    }
+
     /// The cursor speed state of `id`, as it was when last shown.
     fn speed_state(&self, id: &str) -> SpeedState {
         self.speeds

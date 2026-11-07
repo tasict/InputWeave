@@ -1,5 +1,6 @@
 using System.Collections.Concurrent;
 using Inputweave.App.V1;
+using InputWeave.Settings;
 using InputWeave.Support;
 
 namespace InputWeave.Agent;
@@ -576,6 +577,36 @@ public sealed class AgentModel : IAsyncDisposable
         }).ConfigureAwait(false));
 
     /// <summary>
+    /// Wakes another computer from sleep over the network, as it told this
+    /// one how to (DeviceStatus.can_wake); answered with the status once the
+    /// wake-up is sent, which says it is being woken. Until the answer comes
+    /// the computer is in <see cref="AgentSnapshot.WakesSent"/>. Refused
+    /// with "unknown_device", "connected", "no_wake_data" and "not_sent"
+    /// (it then did not wake up).
+    /// </summary>
+    public async Task WakeDeviceAsync(string deviceId)
+    {
+        Update(s => s with { WakesSent = s.WakesSent.Add(deviceId) });
+        try
+        {
+            Apply(await RequestAsync(new ClientMessage { WakeDevice = new WakeDevice { DeviceId = deviceId } })
+                .ConfigureAwait(false));
+        }
+        finally
+        {
+            Update(s => s with { WakesSent = s.WakesSent.Remove(deviceId) });
+        }
+    }
+
+    /// <summary>
+    /// Whether the cursor pushed against an edge toward a sleeping computer
+    /// that can be woken wakes it, at most every 30 seconds.
+    /// </summary>
+    public async Task SetWakeOnPushAsync(bool on) =>
+        Apply(await RequestAsync(new ClientMessage { SetWakeOnPush = new SetWakeOnPush { On = on } })
+            .ConfigureAwait(false));
+
+    /// <summary>
     /// Moves computers' desktop origins on the shared canvas. The service
     /// refuses positions that make screens overlap, as a whole.
     /// </summary>
@@ -744,6 +775,11 @@ public sealed class AgentModel : IAsyncDisposable
             if (after.Status.EdgeDwellMs != 0 && after.Status.EdgeDwellMs != after.LastSwitchDelayMs)
             {
                 after = after with { LastSwitchDelayMs = after.Status.EdgeDwellMs };
+            }
+            // A computer that left the status is not being asked to wake any more.
+            if (Wake.Kept(after.WakesSent, after.Status) is var kept && !ReferenceEquals(kept, after.WakesSent))
+            {
+                after = after with { WakesSent = kept };
             }
             snapshot = after;
         }

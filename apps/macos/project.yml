@@ -131,6 +131,8 @@ targets:
       - path: InputWeave/Settings/ConnectionText.swift
       - path: InputWeave/Settings/LoginWindowText.swift
       - path: InputWeave/Settings/CursorSpeed.swift
+      - path: InputWeave/Settings/WakeText.swift
+      - path: InputWeave/Support/AgoText.swift
       - path: InputWeave/Support/ProblemWatch.swift
       - path: InputWeave/Support/LaunchReveal.swift
       - path: InputWeave/Support/OutdatedService.swift
@@ -149,6 +151,9 @@ targets:
       - path: InputWeave/License/PolarClient.swift
       - path: InputWeave/License/LicenseController.swift
       - path: InputWeave/Generated
+      # The translations, for the tests that read words in each language.
+      - path: InputWeave/Localizable.xcstrings
+        buildPhase: resources
     dependencies:
       - package: SwiftProtobuf
     settings:

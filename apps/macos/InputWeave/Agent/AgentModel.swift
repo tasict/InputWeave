@@ -102,8 +102,13 @@ final class AgentModel {
     private(set) var status = AgentStatus() {
         didSet {
             if status.edgeDwellMs != 0 { lastSwitchDelayMs = status.edgeDwellMs }
+            // Only when there is one to forget, so other statuses leave it be.
+            if !wakeRequests.devices.isEmpty { wakeRequests.keep(status.devices.map(\.id)) }
         }
     }
+    /// The computers this app asked the service to wake, until it answered;
+    /// one no longer listed is forgotten.
+    private(set) var wakeRequests = WakeRequests()
     private(set) var pairing = PairingState()
     private(set) var nearby: [NearbyDevice] = []
     private(set) var arrangement = Arrangement()
@@ -513,6 +518,30 @@ final class AgentModel {
         set.deviceID = deviceID
         set.percent = UInt32(clamping: percent)
         if case .status(let status) = try await request(.setDeviceSpeed(set)) {
+            self.status = status
+        }
+    }
+
+    /// Wakes another computer from sleep over the network, as it told this
+    /// one how to (`DeviceStatus.can_wake`). Answered once the wake-up is
+    /// sent; how it goes shows in its `DeviceStatus.wake`. A refusal's code
+    /// says why ("unknown_device", "connected", "no_wake_data", "not_sent").
+    func wakeDevice(_ deviceID: String) async throws {
+        wakeRequests.begin(deviceID)
+        defer { wakeRequests.end(deviceID) }
+        var wake = Inputweave_App_V1_WakeDevice()
+        wake.deviceID = deviceID
+        if case .status(let status) = try await request(.wakeDevice(wake)) {
+            self.status = status
+        }
+    }
+
+    /// Whether pushing the cursor against an edge toward an offline
+    /// computer that can be woken wakes it.
+    func setWakeOnPush(_ on: Bool) async throws {
+        var set = Inputweave_App_V1_SetWakeOnPush()
+        set.on = on
+        if case .status(let status) = try await request(.setWakeOnPush(set)) {
             self.status = status
         }
     }

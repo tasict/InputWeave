@@ -1,11 +1,15 @@
+using System.Globalization;
 using Inputweave.App.V1;
 using InputWeave.Agent;
 using InputWeave.Panel;
 using InputWeave.Settings;
 using InputWeave.Support;
 using Microsoft.UI.Xaml;
+using Microsoft.UI.Xaml.Automation;
+using Microsoft.UI.Xaml.Automation.Peers;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Controls.Primitives;
+using Microsoft.UI.Xaml.Documents;
 using Microsoft.UI.Xaml.Input;
 
 namespace InputWeave.Main;
@@ -13,7 +17,9 @@ namespace InputWeave.Main;
 /// <summary>
 /// What the arrangement and device pages show about one computer, and its
 /// options: name, system, status with the
-/// latency, its screens, how fast the cursor moves on it, whether this
+/// latency (offline, Wake while it can be woken, with a spinner while it is
+/// being woken and a note under it when it didn't wake up or can't be
+/// woken yet), its screens, how fast the cursor moves on it, whether this
 /// computer shares its clipboard and files with it, swapping the modifier
 /// keys, and removing it. Another computer's name is a field: the name it
 /// has here only (RenameDevice), with the name it gives itself beneath once
@@ -34,6 +40,36 @@ internal sealed partial class DeviceInspector : UserControl
     private readonly StackPanel sharing = new();
     private readonly TextBlock system = Value();
     private readonly TextBlock status = Value();
+    /// <summary>Before the status while the computer is being woken; the status says so in words.</summary>
+    private readonly ProgressRing waking = new()
+    {
+        Width = 16,
+        Height = 16,
+        Margin = new Thickness(0, 0, 6, 0),
+        VerticalAlignment = VerticalAlignment.Center,
+    };
+    /// <summary>Before the status while the computer can be woken; the status says so in words.</summary>
+    private readonly FontIcon moon = new()
+    {
+        Glyph = Wake.MoonGlyph,
+        FontSize = 14,
+        Margin = new Thickness(0, 0, 6, 0),
+        VerticalAlignment = VerticalAlignment.Center,
+    };
+    private readonly Button wake;
+    /// <summary>Under the status: why the computer didn't wake up, or that it can't be woken yet.</summary>
+    private readonly Grid wakeNote = new() { Padding = new Thickness(16, 0, 16, 12) };
+    private readonly FontIcon wakeWarning = new()
+    {
+        Glyph = Wake.WarningGlyph,
+        FontSize = 14,
+        Foreground = Brand.System("SystemFillColorCautionBrush"),
+        VerticalAlignment = VerticalAlignment.Top,
+        Margin = new Thickness(0, 1, 8, 0),
+    };
+    private readonly TextBlock wakeNoteText = new() { Style = Ui.Style("CaptionTextBlockStyle"), TextWrapping = TextWrapping.Wrap };
+    /// <summary>The note shown, to build it again only when it changes.</summary>
+    private string shownNote = "";
     private readonly StackPanel screens = new();
     private readonly Border screensCard;
     private readonly TextBlock screensLater = Ui.Secondary(Strings.Get(TextKeys.InspectorScreensLater), caption: false);
@@ -102,6 +138,27 @@ internal sealed partial class DeviceInspector : UserControl
         renameRow.Children.Add(nameBox);
         renameRow.Children.Add(nameHint);
         nameRow = Ui.Row(new TextBlock { Text = Strings.Get(TextKeys.InspectorName) }, name);
+        wake = Ui.Button(Strings.Get(TextKeys.WakeAction), SendWake, accent: true);
+        wake.HorizontalAlignment = HorizontalAlignment.Right;
+        wake.Margin = new Thickness(0, 8, 0, 0);
+        AutomationProperties.SetAccessibilityView(waking, AccessibilityView.Raw);
+        AutomationProperties.SetAccessibilityView(moon, AccessibilityView.Raw);
+        AutomationProperties.SetAccessibilityView(wakeWarning, AccessibilityView.Raw);
+        var statusLine = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right };
+        statusLine.Children.Add(waking);
+        statusLine.Children.Add(moon);
+        statusLine.Children.Add(status);
+        var statusValue = new StackPanel();
+        statusValue.Children.Add(statusLine);
+        statusValue.Children.Add(wake);
+        wakeNote.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        wakeNote.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        wakeNote.Children.Add(wakeWarning);
+        Grid.SetColumn(wakeNoteText, 1);
+        wakeNote.Children.Add(wakeNoteText);
+        var statusRow = new StackPanel();
+        statusRow.Children.Add(Ui.Row(new TextBlock { Text = Strings.Get(TextKeys.InspectorStatus) }, statusValue));
+        statusRow.Children.Add(wakeNote);
         screensCard = Ui.Card(screens);
         speedCard = BuildSpeedCard();
         var remove = new Button { Content = Strings.Get(TextKeys.RemoveDevice) };
@@ -115,7 +172,7 @@ internal sealed partial class DeviceInspector : UserControl
         stack.Children.Add(Ui.Card(
             names,
             Ui.Row(new TextBlock { Text = Strings.Get(TextKeys.InspectorSystem) }, system),
-            Ui.Row(new TextBlock { Text = Strings.Get(TextKeys.InspectorStatus) }, status)));
+            statusRow));
         stack.Children.Add(Ui.Header(Strings.Get(TextKeys.InspectorScreens)));
         stack.Children.Add(screensCard);
         stack.Children.Add(screensLater);
@@ -138,10 +195,13 @@ internal sealed partial class DeviceInspector : UserControl
 
     public void Invalidate() => model = null;
 
-    public void Update(AgentSnapshot snapshot, string deviceId)
+    /// <summary>Shows <paramref name="deviceId"/> as <paramref name="snapshot"/> has it, as of <paramref name="now"/>.</summary>
+    public void Update(AgentSnapshot snapshot, string deviceId, DateTimeOffset now)
     {
         if (ReferenceEquals(snapshot, model) && deviceId == id)
         {
+            // Since when an offline computer is offline moves on.
+            ShowStatus(now);
             return;
         }
         bool otherDevice = deviceId != id;
@@ -190,7 +250,8 @@ internal sealed partial class DeviceInspector : UserControl
         }
         var os = arranged?.Os ?? device?.Os ?? "";
         system.Text = Strings.Text(DeviceText.Os(os));
-        status.Text = Strings.Text(DeviceText.Status(snapshot, deviceId));
+        ShowStatus(now);
+        ShowWake();
 
         var list = arranged?.Screens.ToList() ?? [];
         var key = string.Join(";", list.Select(s => $"{DeviceText.Resolution(s)}{s.Primary}"));
@@ -231,6 +292,66 @@ internal sealed partial class DeviceInspector : UserControl
             Ui.Set(swap, device.SwapGuiAndControl);
         }
     }
+
+    /// <summary>The status of the computer shown, as of <paramref name="now"/>.</summary>
+    private void ShowStatus(DateTimeOffset now)
+    {
+        if (model is null)
+        {
+            return;
+        }
+        var text = Strings.Text(DeviceText.Status(model, id, now, CultureInfo.CurrentCulture));
+        if (status.Text != text)
+        {
+            status.Text = text;
+        }
+    }
+
+    /// <summary>
+    /// Waking the computer shown: the spinner while it is being woken, else
+    /// the moon while it can be woken, Wake
+    /// while it can be (not while a wake-up is on its way), and the note
+    /// under the status.
+    /// </summary>
+    private void ShowWake()
+    {
+        if (model is null)
+        {
+            return;
+        }
+        bool spinning = Wake.Waking(model, id);
+        waking.IsActive = spinning;
+        waking.Visibility = spinning ? Visibility.Visible : Visibility.Collapsed;
+        moon.Visibility = Wake.MoonBeforeStatus(model, id) ? Visibility.Visible : Visibility.Collapsed;
+        wake.Visibility = Wake.Offered(model, id) ? Visibility.Visible : Visibility.Collapsed;
+        wake.IsEnabled = Wake.CanSend(model, id);
+
+        var note = Wake.Note(model, id);
+        var words = Wake.NoteText(model, id) is { } text ? Strings.Text(text) : "";
+        var key = $"{note}|{words}";
+        if (key == shownNote)
+        {
+            return;
+        }
+        shownNote = key;
+        wakeNote.Visibility = note == WakeNote.None ? Visibility.Collapsed : Visibility.Visible;
+        wakeWarning.Visibility = note == WakeNote.NotWoken ? Visibility.Visible : Visibility.Collapsed;
+        wakeNoteText.Foreground = Brand.System(note == WakeNote.NotWoken ? "TextFillColorPrimaryBrush" : "TextFillColorSecondaryBrush");
+        wakeNoteText.Inlines.Clear();
+        wakeNoteText.Inlines.Add(new Run { Text = words });
+        // Not woken: how to turn on wake for network access, in the user
+        // guide in the app's language.
+        if (note == WakeNote.NotWoken && Uri.TryCreate(Strings.Get(TextKeys.WakeHowToUrl), UriKind.Absolute, out var guide))
+        {
+            var link = new Hyperlink { NavigateUri = guide };
+            link.Inlines.Add(new Run { Text = Strings.Get(TextKeys.WakeHowTo) });
+            wakeNoteText.Inlines.Add(new Run { Text = " " });
+            wakeNoteText.Inlines.Add(link);
+        }
+    }
+
+    /// <summary>Wake: asks the service to wake the computer shown.</summary>
+    private void SendWake() => App.Instance.WakeDevice(id);
 
     /// <summary>
     /// The cursor speed row: its title, Reset and the speed above a slider

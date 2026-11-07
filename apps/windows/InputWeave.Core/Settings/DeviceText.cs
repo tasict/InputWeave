@@ -1,3 +1,4 @@
+using System.Globalization;
 using Inputweave.App.V1;
 using InputWeave.Agent;
 using InputWeave.Panel;
@@ -56,8 +57,12 @@ public static class DeviceText
     public static bool ScreenLocked(AgentSnapshot model, string id) =>
         model.Device(id) is { State: ConnectionState.Connected, ScreenLocked: true };
 
-    /// <summary>A computer's status: this one, connected with its latency or locked, or offline.</summary>
-    public static UiText Status(AgentSnapshot model, string id)
+    /// <summary>
+    /// A computer's status: this one, connected with its latency or locked,
+    /// or offline; being woken, or since when it is offline when it can be
+    /// woken (<see cref="Wake.OfflineStatus"/>), as of <paramref name="now"/>.
+    /// </summary>
+    public static UiText Status(AgentSnapshot model, string id, DateTimeOffset now, CultureInfo culture)
     {
         if (id == model.ThisDeviceId)
         {
@@ -65,7 +70,7 @@ public static class DeviceText
         }
         return model.Device(id) is { State: ConnectionState.Connected } device
             ? Connected(device.RttMs, device.ScreenLocked, device.LockScreenInput, device.InputUnavailable, device.SharingPaused)
-            : new(TextKeys.ConnectionOffline);
+            : Wake.OfflineStatus(model, id, now, culture) ?? new(TextKeys.ConnectionOffline);
     }
 
     /// <summary>The operating system's name; the device's type is not known, so no logo either.</summary>

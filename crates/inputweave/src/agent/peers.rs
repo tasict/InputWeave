@@ -10,11 +10,13 @@ use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime};
 
 use iw_core::layout::DeviceId;
 use iw_core::safety::Liveness;
-use iw_net::{Fingerprint, IncomingPeer, NetError, PeerEndpoint, Purpose, Session, close};
+use iw_net::{
+    Fingerprint, IncomingPeer, NetError, PeerEndpoint, Purpose, Session, SessionInfo, close,
+};
 use iw_proto::peer::v1::{Control, Heartbeat, Input, control};
 use tokio::sync::{Semaphore, mpsc};
 use tokio::task::{JoinHandle, JoinSet};
@@ -28,6 +30,7 @@ use super::lazy_clipboard::is_pull;
 use super::pairing::Pairing;
 use super::this_device::ThisDevice;
 use super::transfer::{self, Incoming};
+use super::wake::{self, WakeData};
 
 /// How often each side sends a heartbeat on the control stream.
 pub(crate) const HEARTBEAT: Duration = Duration::from_millis(250);
@@ -51,6 +54,36 @@ pub(crate) struct ClipboardLimits {
     pub(crate) pulls: PendingPulls,
 }
 
+/// Where a session learns how to wake this device over it.
+#[derive(Clone, Copy, Debug)]
+pub(crate) enum WakeSource {
+    /// The network interface the session runs on (`wake::here`).
+    Interfaces,
+    /// What it is told to say, in tests, where sessions run over the
+    /// loopback, which says nothing.
+    #[cfg(feature = "test-hooks")]
+    Fixed(WakeData),
+}
+
+impl WakeSource {
+    /// How the device at the other end of `session` wakes this one. Lists
+    /// the interfaces: off the async threads.
+    async fn wake_data(self, session: &SessionInfo) -> Option<WakeData> {
+        match self {
+            Self::Interfaces => {
+                let connection = &session.connection;
+                let (local, remote) = (connection.local_ip(), connection.remote_address());
+                tokio::task::spawn_blocking(move || wake::here(local, remote))
+                    .await
+                    .ok()
+                    .flatten()
+            }
+            #[cfg(feature = "test-hooks")]
+            Self::Fixed(data) => Some(data),
+        }
+    }
+}
+
 pub(crate) struct PeerContext {
     pub(crate) endpoint: Arc<PeerEndpoint>,
     pub(crate) local_addr: SocketAddr,
@@ -60,10 +93,12 @@ pub(crate) struct PeerContext {
     pub(crate) this: Arc<ThisDevice>,
     pub(crate) clipboard: ClipboardLimits,
     pub(crate) files: Arc<Files>,
+    wake: WakeSource,
     next_session: AtomicU64,
 }
 
 impl PeerContext {
+    #[allow(clippy::too_many_arguments)]
     pub(crate) fn new(
         endpoint: Arc<PeerEndpoint>,
         engine: mpsc::UnboundedSender<EngineEvent>,
@@ -72,6 +107,7 @@ impl PeerContext {
         this: Arc<ThisDevice>,
         clipboard: ClipboardLimits,
         files: Arc<Files>,
+        wake: WakeSource,
     ) -> Result<Self, NetError> {
         Ok(Self {
             local_addr: endpoint.local_addr()?,
@@ -82,6 +118,7 @@ impl PeerContext {
             this,
             clipboard,
             files,
+            wake,
             next_session: AtomicU64::new(1),
         })
     }
@@ -205,6 +242,88 @@ async fn dial_loop(ctx: Arc<PeerContext>, id: String) {
     }
 }
 
+/// When the peer of a session was last heard from, by the wall clock: the
+/// engine keeps it as when the device was last seen connected. Shared with
+/// the engine, and set at the heartbeat ticks only, so nothing is done for
+/// each message.
+#[derive(Debug)]
+pub(crate) struct LastHeard(Mutex<SystemTime>);
+
+impl LastHeard {
+    pub(crate) fn new(at: SystemTime) -> Self {
+        Self(Mutex::new(at))
+    }
+
+    pub(crate) fn get(&self) -> SystemTime {
+        *self.0.lock().unwrap()
+    }
+
+    fn set(&self, at: SystemTime) {
+        *self.0.lock().unwrap() = at;
+    }
+}
+
+/// Follows, from tick to tick, whether the peer was heard from since the
+/// last one: when liveness last saw it (an `Instant`) moved on. Then it was
+/// heard "now", which the wall clock says; an `Instant` is never turned
+/// into a wall clock time, as on macOS it stands still while the computer
+/// sleeps. So a session that ends after both computers slept says when the
+/// peer was last heard before, not when this one woke and gave up on it.
+#[derive(Debug)]
+struct HeardSince {
+    seen: Instant,
+}
+
+impl HeardSince {
+    fn new(seen: Instant) -> Self {
+        Self { seen }
+    }
+
+    /// At a tick at `now` on the wall clock, liveness having last seen the
+    /// peer at `last_seen`: the time to keep as last heard, if it was heard
+    /// since the last tick.
+    fn tick(&mut self, last_seen: Instant, now: SystemTime) -> Option<SystemTime> {
+        if last_seen == self.seen {
+            return None;
+        }
+        self.seen = last_seen;
+        Some(now)
+    }
+}
+
+/// Tells the device at the other end of `session` how to wake this one,
+/// as the session starts and again whenever that changes, looking every
+/// [`wake::RECHECK`]; nothing while there is no way (the interface has no
+/// hardware address). Ends once the engine lets go of the session (`link`
+/// gone); it is aborted as the session ends.
+async fn tell_how_to_wake(
+    source: WakeSource,
+    session: SessionInfo,
+    link: mpsc::WeakUnboundedSender<Outbound>,
+) {
+    let mut told: Option<WakeData> = None;
+    loop {
+        let now = source.wake_data(&session).await;
+        if let Some(data) = now.filter(|data| told != Some(*data)) {
+            let Some(link) = link.upgrade() else {
+                return;
+            };
+            let msg = Control {
+                msg: Some(control::Msg::WakeInfo(data.to_proto())),
+            };
+            if link.send(Outbound::Control(msg)).is_err() {
+                return;
+            }
+            debug!(?data, "told a device how to wake this one");
+            told = Some(data);
+        }
+        tokio::time::sleep(wake::RECHECK).await;
+        if link.strong_count() == 0 {
+            return;
+        }
+    }
+}
+
 fn log_failure(what: &str, e: &NetError) {
     match e {
         NetError::Untrusted(_) | NetError::Incompatible { .. } => {
@@ -254,6 +373,10 @@ async fn run_session(
         mut control_rx,
     } = session;
     let (tx, mut rx) = mpsc::unbounded_channel();
+    // Weak: the engine ends the session by dropping its sender.
+    let wake_link = tx.downgrade();
+    let started = Instant::now();
+    let heard = Arc::new(LastHeard::new(SystemTime::now()));
     if ctx
         .engine
         .send(EngineEvent::PeerUp {
@@ -262,6 +385,7 @@ async fn run_session(
             session: id,
             version: info.version,
             link: tx,
+            heard: heard.clone(),
         })
         .is_err()
     {
@@ -270,7 +394,7 @@ async fn run_session(
     info!(%device, version = info.version, "session established");
     ctx.files.session_up(&device, &info);
 
-    let liveness = Arc::new(Mutex::new(Liveness::new(Instant::now(), PEER_TIMEOUT)));
+    let liveness = Arc::new(Mutex::new(Liveness::new(started, PEER_TIMEOUT)));
     let seen = {
         let liveness = liveness.clone();
         move || liveness.lock().unwrap().seen(Instant::now())
@@ -289,6 +413,14 @@ async fn run_session(
         }
     };
 
+    // Not one of the session's tasks, any of which ending ends it: telling
+    // how to wake this device ending, or failing, leaves the session be. It
+    // goes with the session.
+    let _telling = AbortOnDrop(tokio::spawn(tell_how_to_wake(
+        ctx.wake,
+        info.clone(),
+        wake_link,
+    )));
     let mut tasks = JoinSet::new();
     tasks.spawn({
         let (seen, forward) = (seen.clone(), forward.clone());
@@ -406,11 +538,19 @@ async fn run_session(
             let mut seq = 0;
             let mut input_tx = None;
             let mut rtt_reported: Option<Instant> = None;
+            let mut heard_since = HeardSince::new(started);
             loop {
                 tokio::select! {
                     _ = ticks.tick() => {
                         let now = Instant::now();
-                        if liveness.lock().unwrap().is_expired(now) {
+                        let (expired, last_seen) = {
+                            let liveness = liveness.lock().unwrap();
+                            (liveness.is_expired(now), liveness.last_seen())
+                        };
+                        if let Some(at) = heard_since.tick(last_seen, SystemTime::now()) {
+                            heard.set(at);
+                        }
+                        if expired {
                             warn!("peer missed its heartbeats");
                             info.close(close::TIMEOUT, b"heartbeat timeout");
                             break;
@@ -483,4 +623,48 @@ async fn run_session(
         device,
         session: id,
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_peer_gone_silent_was_last_heard_when_it_was_last_heard() {
+        let start = Instant::now();
+        let wall = SystemTime::UNIX_EPOCH + Duration::from_secs(1_762_480_000);
+        let at = |ms: u64| wall + Duration::from_millis(ms);
+        let mut heard = HeardSince::new(start);
+        // Nothing yet beyond the start.
+        assert_eq!(heard.tick(start, at(0)), None);
+        // Heard at each of these ticks.
+        let mut liveness = Liveness::new(start, PEER_TIMEOUT);
+        let mut last = None;
+        for tick in 1..=4u64 {
+            liveness.seen(start + HEARTBEAT * tick as u32);
+            last = heard.tick(liveness.last_seen(), at(250 * tick)).or(last);
+        }
+        assert_eq!(last, Some(at(1000)));
+        // Then silence: both computers slept the night through, this one
+        // woke, its ticks find nothing new and it gives up on the peer.
+        // What it heard last stays when it was heard, not when it gave up.
+        let woke = at(1000) + Duration::from_secs(8 * 3600);
+        for ms in [0, 250, 500, 750, 1000, 1250] {
+            assert_eq!(
+                heard.tick(liveness.last_seen(), woke + Duration::from_millis(ms)),
+                None
+            );
+        }
+        assert!(liveness.is_expired(start + HEARTBEAT * 4 + PEER_TIMEOUT * 2));
+        assert_eq!(last, Some(at(1000)));
+    }
+
+    #[test]
+    fn last_heard_is_shared() {
+        let wall = SystemTime::UNIX_EPOCH + Duration::from_secs(5);
+        let heard = Arc::new(LastHeard::new(wall));
+        let engine_side = heard.clone();
+        heard.set(wall + Duration::from_secs(1));
+        assert_eq!(engine_side.get(), wall + Duration::from_secs(1));
+    }
 }

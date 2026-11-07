@@ -538,6 +538,45 @@ final class HUDControllerTests: XCTestCase {
             "The desktop took the keyboard and mouse back to this computer.")
     }
 
+    func testTellsOfAComputerBeingWokenAndWakingUp() {
+        func mini(
+            _ wake: WakeState, connected: Bool = false, supported: Bool = true, link: AgentModel.Link = .connected
+        ) -> AgentModel {
+            var status = model().status
+            status.wakeSupported = supported
+            var mini = DeviceStatus()
+            mini.id = "mini"
+            mini.name = "Mac mini"
+            mini.state = connected ? .connected : .offline
+            mini.canWake = !connected
+            mini.wake = wake
+            status.devices.append(mini)
+            return AgentModel.sample(status: status, link: link)
+        }
+        let hud = HUDController(model: model(), defaults: defaults)
+        let now = Date()
+        // Being woken as the app connects: only remembered.
+        XCTAssertNil(hud.message(for: mini(.waking), at: now))
+        XCTAssertEqual(hud.message(for: mini(WakeState.none, connected: true), at: now), "Mac mini is awake.")
+        XCTAssertNil(hud.message(for: mini(WakeState.none), at: now))
+        XCTAssertEqual(hud.message(for: mini(.waking), at: now), "Waking Mac mini…")
+        XCTAssertNil(hud.message(for: mini(.notWoken), at: now))
+        // The service out of reach and back: its first status is only
+        // remembered again.
+        XCTAssertNil(hud.message(for: mini(WakeState.none, link: .connecting), at: now))
+        XCTAssertNil(hud.message(for: mini(.waking), at: now))
+        XCTAssertEqual(hud.message(for: mini(WakeState.none, connected: true), at: now), "Mac mini is awake.")
+        // Locked at the same moment: that is told instead.
+        var locked = mini(.waking).status
+        locked.locked = true
+        XCTAssertEqual(
+            hud.message(for: AgentModel.sample(status: locked), at: now), "Locked to this computer. Press ⌃⌥⇧L to unlock.")
+        // A service from before waking tells nothing of it.
+        let older = HUDController(model: model(), defaults: defaults)
+        XCTAssertNil(older.message(for: mini(WakeState.none, supported: false), at: now))
+        XCTAssertNil(older.message(for: mini(.waking, supported: false), at: now))
+    }
+
     func testARefusalShownFirstLeavesWhatAGameDidUntold() {
         let hud = HUDController(model: model(), defaults: defaults)
         defaults.set(3, forKey: Preferences.takeBackHints)

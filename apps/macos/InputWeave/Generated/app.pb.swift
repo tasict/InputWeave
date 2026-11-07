@@ -291,6 +291,52 @@ nonisolated enum Inputweave_App_V1_PermissionAsk: SwiftProtobuf.Enum, Swift.Case
 
 }
 
+/// Whether a device is being woken (DeviceStatus.wake).
+nonisolated enum Inputweave_App_V1_WakeState: SwiftProtobuf.Enum, Swift.CaseIterable {
+  typealias RawValue = Int
+  case none // = 0
+
+  /// A wake-up went to it less than two minutes ago (WakeDevice, or the
+  /// cursor pushed toward it: SetWakeOnPush), and it has not connected
+  /// since. Once it connects, the apps say it is awake.
+  case waking // = 1
+
+  /// It did not connect within two minutes of the last wake-up: the apps say
+  /// it didn't wake up, until it connects or is woken again.
+  case notWoken // = 2
+  case UNRECOGNIZED(Int)
+
+  init() {
+    self = .none
+  }
+
+  init?(rawValue: Int) {
+    switch rawValue {
+    case 0: self = .none
+    case 1: self = .waking
+    case 2: self = .notWoken
+    default: self = .UNRECOGNIZED(rawValue)
+    }
+  }
+
+  var rawValue: Int {
+    switch self {
+    case .none: return 0
+    case .waking: return 1
+    case .notWoken: return 2
+    case .UNRECOGNIZED(let i): return i
+    }
+  }
+
+  // The compiler won't synthesize support with the UNRECOGNIZED case.
+  static let allCases: [Inputweave_App_V1_WakeState] = [
+    .none,
+    .waking,
+    .notWoken,
+  ]
+
+}
+
 /// Why the keyboard and mouse came back to this device.
 nonisolated enum Inputweave_App_V1_ReturnReason: SwiftProtobuf.Enum, Swift.CaseIterable {
   typealias RawValue = Int
@@ -1778,6 +1824,48 @@ nonisolated struct Inputweave_App_V1_SetDeviceSpeed: Sendable {
   init() {}
 }
 
+/// Wakes another device from sleep over the network (Wake-on-LAN), as it
+/// told this one how to (DeviceStatus.can_wake): a magic packet goes by UDP
+/// to port 9 of the broadcast address of the network it is on and of
+/// 255.255.255.255. Its DeviceStatus.wake is then WAKE_STATE_WAKING until it
+/// connects, for two minutes at most, and WAKE_STATE_NOT_WOKEN after that.
+/// Sending again while it is being woken sends once more and starts the two
+/// minutes over. Answered with Status once sent. Refused with
+/// "unknown_device" for a device not trusted here (this one included),
+/// "connected" while it is connected, "no_wake_data" for one that never told
+/// this one how to wake it, and "not_sent" when no packet could be sent, as
+/// without a network (its wake state is then WAKE_STATE_NOT_WOKEN).
+nonisolated struct Inputweave_App_V1_WakeDevice: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  var deviceID: String = String()
+
+  var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  init() {}
+}
+
+/// Wakes an offline device that can be woken (DeviceStatus.can_wake) when the
+/// cursor pushes against an edge toward it, as it would to cross there were
+/// that device connected: waiting at the edge (SetEdgeOptions) and the switch
+/// modifier (SetSwitchModifier) apply as for crossing, and nothing is woken
+/// in relative mode, while the cursor is locked or sharing is paused. At most
+/// every 30 seconds for each device. Off by default; remembered. Answered
+/// with Status.
+nonisolated struct Inputweave_App_V1_SetWakeOnPush: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  var on: Bool = false
+
+  var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  init() {}
+}
+
 /// Lets other devices control this Mac at the login window, or stops them;
 /// off by default, remembered. Once it is on, the agent the installer sets
 /// up for the login window runs as this device the next time the login
@@ -2579,6 +2667,22 @@ nonisolated struct Inputweave_App_V1_ClientMessage: Sendable {
     set {command = .setDeviceSpeed(newValue)}
   }
 
+  var wakeDevice: Inputweave_App_V1_WakeDevice {
+    get {
+      if case .wakeDevice(let v)? = command {return v}
+      return Inputweave_App_V1_WakeDevice()
+    }
+    set {command = .wakeDevice(newValue)}
+  }
+
+  var setWakeOnPush: Inputweave_App_V1_SetWakeOnPush {
+    get {
+      if case .setWakeOnPush(let v)? = command {return v}
+      return Inputweave_App_V1_SetWakeOnPush()
+    }
+    set {command = .setWakeOnPush(newValue)}
+  }
+
   var unknownFields = SwiftProtobuf.UnknownStorage()
 
   nonisolated enum OneOf_Command: Equatable, Sendable {
@@ -2631,6 +2735,8 @@ nonisolated struct Inputweave_App_V1_ClientMessage: Sendable {
     case recordLicenseResult(Inputweave_App_V1_RecordLicenseResult)
     case removeLicense(Inputweave_App_V1_RemoveLicense)
     case setDeviceSpeed(Inputweave_App_V1_SetDeviceSpeed)
+    case wakeDevice(Inputweave_App_V1_WakeDevice)
+    case setWakeOnPush(Inputweave_App_V1_SetWakeOnPush)
 
   }
 
@@ -2777,6 +2883,30 @@ nonisolated struct Inputweave_App_V1_DeviceStatus: @unchecked Sendable {
   var speedPercent: UInt32 {
     get {_storage._speedPercent}
     set {_uniqueStorage()._speedPercent = newValue}
+  }
+
+  /// It told this device how to wake it from sleep (WakeDevice), and it is
+  /// offline now, so the apps offer to wake it. False while it is connected,
+  /// for a device that never said (an agent before waking, or one whose
+  /// network interface has no hardware address, as over a VPN), and from
+  /// agents before waking (Status.wake_supported).
+  var canWake: Bool {
+    get {_storage._canWake}
+    set {_uniqueStorage()._canWake = newValue}
+  }
+
+  /// Whether it is being woken.
+  var wake: Inputweave_App_V1_WakeState {
+    get {_storage._wake}
+    set {_uniqueStorage()._wake = newValue}
+  }
+
+  /// When it went offline, in milliseconds since 1970, as this device saw it
+  /// go; 0 while it is connected, and when not known: kept only for a device
+  /// that told this one how to wake it, and only from when it did.
+  var offlineSinceUnixMs: UInt64 {
+    get {_storage._offlineSinceUnixMs}
+    set {_uniqueStorage()._offlineSinceUnixMs = newValue}
   }
 
   var unknownFields = SwiftProtobuf.UnknownStorage()
@@ -3088,6 +3218,20 @@ nonisolated struct Inputweave_App_V1_Status: @unchecked Sendable {
   var hasLicense: Bool {_storage._license != nil}
   /// Clears the value of `license`. Subsequent reads from it will return its default value.
   mutating func clearLicense() {_uniqueStorage()._license = nil}
+
+  /// This agent can wake other devices: WakeDevice, SetWakeOnPush and the
+  /// wake fields of DeviceStatus. Agents from before leave it false, and the
+  /// apps then show nothing of waking.
+  var wakeSupported: Bool {
+    get {_storage._wakeSupported}
+    set {_uniqueStorage()._wakeSupported = newValue}
+  }
+
+  /// See SetWakeOnPush.
+  var wakeOnPush: Bool {
+    get {_storage._wakeOnPush}
+    set {_uniqueStorage()._wakeOnPush = newValue}
+  }
 
   var unknownFields = SwiftProtobuf.UnknownStorage()
 
@@ -4184,6 +4328,10 @@ nonisolated extension Inputweave_App_V1_Permission: SwiftProtobuf._ProtoNameProv
 
 nonisolated extension Inputweave_App_V1_PermissionAsk: SwiftProtobuf._ProtoNameProviding {
   static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{2}\0PERMISSION_ASK_NOT_ASKABLE\0\u{1}PERMISSION_ASK_ASKABLE\0\u{1}PERMISSION_ASK_ASKING\0\u{1}PERMISSION_ASK_DENIED\0\u{1}PERMISSION_ASK_FAILED\0\u{1}PERMISSION_ASK_RESTORING\0\u{1}PERMISSION_ASK_STOPPED\0")
+}
+
+nonisolated extension Inputweave_App_V1_WakeState: SwiftProtobuf._ProtoNameProviding {
+  static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{2}\0WAKE_STATE_NONE\0\u{1}WAKE_STATE_WAKING\0\u{1}WAKE_STATE_NOT_WOKEN\0")
 }
 
 nonisolated extension Inputweave_App_V1_ReturnReason: SwiftProtobuf._ProtoNameProviding {
@@ -5500,6 +5648,66 @@ nonisolated extension Inputweave_App_V1_SetDeviceSpeed: SwiftProtobuf.Message, S
   }
 }
 
+nonisolated extension Inputweave_App_V1_WakeDevice: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  static let protoMessageName: String = _protobuf_package + ".WakeDevice"
+  static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}device_id\0")
+
+  mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeSingularStringField(value: &self.deviceID) }()
+      default: break
+      }
+    }
+  }
+
+  func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    if !self.deviceID.isEmpty {
+      try visitor.visitSingularStringField(value: self.deviceID, fieldNumber: 1)
+    }
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  static func ==(lhs: Inputweave_App_V1_WakeDevice, rhs: Inputweave_App_V1_WakeDevice) -> Bool {
+    if lhs.deviceID != rhs.deviceID {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
+nonisolated extension Inputweave_App_V1_SetWakeOnPush: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  static let protoMessageName: String = _protobuf_package + ".SetWakeOnPush"
+  static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}on\0")
+
+  mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeSingularBoolField(value: &self.on) }()
+      default: break
+      }
+    }
+  }
+
+  func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    if self.on != false {
+      try visitor.visitSingularBoolField(value: self.on, fieldNumber: 1)
+    }
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  static func ==(lhs: Inputweave_App_V1_SetWakeOnPush, rhs: Inputweave_App_V1_SetWakeOnPush) -> Bool {
+    if lhs.on != rhs.on {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
 nonisolated extension Inputweave_App_V1_SetLoginWindowAccess: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   static let protoMessageName: String = _protobuf_package + ".SetLoginWindowAccess"
   static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}on\0")
@@ -6088,7 +6296,7 @@ nonisolated extension Inputweave_App_V1_RemoveLicense: SwiftProtobuf.Message, Sw
 
 nonisolated extension Inputweave_App_V1_ClientMessage: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   static let protoMessageName: String = _protobuf_package + ".ClientMessage"
-  static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}request_id\0\u{1}hello\0\u{3}get_status\0\u{3}set_sharing\0\u{3}start_pairing\0\u{3}submit_pairing_code\0\u{3}cancel_pairing\0\u{1}unpair\0\u{3}get_nearby\0\u{3}get_pairing\0\u{3}get_arrangement\0\u{3}set_arrangement\0\u{3}set_device_name\0\u{3}set_device_options\0\u{3}set_clipboard_sync\0\u{3}send_files\0\u{3}cancel_transfer\0\u{3}answer_file_offer\0\u{3}get_transfers\0\u{3}set_file_settings\0\u{3}get_diagnostics\0\u{3}set_locked\0\u{3}jump_to\0\u{3}set_edge_options\0\u{3}set_preview_sharing\0\u{3}remove_transfer\0\u{3}clear_transfers\0\u{3}begin_drag\0\u{3}end_drag\0\u{3}accept_drag\0\u{3}decline_drag\0\u{3}set_hotkeys\0\u{3}set_switch_modifier\0\u{3}identify_screens\0\u{3}rename_device\0\u{3}set_device_sharing\0\u{3}set_login_window_access\0\u{3}clipboard_files_placed\0\u{3}paste_clipboard_files\0\u{3}clipboard_files_gone\0\u{3}clipboard_files_place\0\u{3}user_quit_app\0\u{3}set_relative_mouse\0\u{3}set_relative_auto\0\u{3}request_folder_access\0\u{3}request_permission\0\u{3}set_license_key\0\u{3}record_license_result\0\u{3}remove_license\0\u{3}set_device_speed\0")
+  static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}request_id\0\u{1}hello\0\u{3}get_status\0\u{3}set_sharing\0\u{3}start_pairing\0\u{3}submit_pairing_code\0\u{3}cancel_pairing\0\u{1}unpair\0\u{3}get_nearby\0\u{3}get_pairing\0\u{3}get_arrangement\0\u{3}set_arrangement\0\u{3}set_device_name\0\u{3}set_device_options\0\u{3}set_clipboard_sync\0\u{3}send_files\0\u{3}cancel_transfer\0\u{3}answer_file_offer\0\u{3}get_transfers\0\u{3}set_file_settings\0\u{3}get_diagnostics\0\u{3}set_locked\0\u{3}jump_to\0\u{3}set_edge_options\0\u{3}set_preview_sharing\0\u{3}remove_transfer\0\u{3}clear_transfers\0\u{3}begin_drag\0\u{3}end_drag\0\u{3}accept_drag\0\u{3}decline_drag\0\u{3}set_hotkeys\0\u{3}set_switch_modifier\0\u{3}identify_screens\0\u{3}rename_device\0\u{3}set_device_sharing\0\u{3}set_login_window_access\0\u{3}clipboard_files_placed\0\u{3}paste_clipboard_files\0\u{3}clipboard_files_gone\0\u{3}clipboard_files_place\0\u{3}user_quit_app\0\u{3}set_relative_mouse\0\u{3}set_relative_auto\0\u{3}request_folder_access\0\u{3}request_permission\0\u{3}set_license_key\0\u{3}record_license_result\0\u{3}remove_license\0\u{3}set_device_speed\0\u{3}wake_device\0\u{3}set_wake_on_push\0")
 
   mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -6734,6 +6942,32 @@ nonisolated extension Inputweave_App_V1_ClientMessage: SwiftProtobuf.Message, Sw
           self.command = .setDeviceSpeed(v)
         }
       }()
+      case 51: try {
+        var v: Inputweave_App_V1_WakeDevice?
+        var hadOneofValue = false
+        if let current = self.command {
+          hadOneofValue = true
+          if case .wakeDevice(let m) = current {v = m}
+        }
+        try decoder.decodeSingularMessageField(value: &v)
+        if let v = v {
+          if hadOneofValue {try decoder.handleConflictingOneOf()}
+          self.command = .wakeDevice(v)
+        }
+      }()
+      case 52: try {
+        var v: Inputweave_App_V1_SetWakeOnPush?
+        var hadOneofValue = false
+        if let current = self.command {
+          hadOneofValue = true
+          if case .setWakeOnPush(let m) = current {v = m}
+        }
+        try decoder.decodeSingularMessageField(value: &v)
+        if let v = v {
+          if hadOneofValue {try decoder.handleConflictingOneOf()}
+          self.command = .setWakeOnPush(v)
+        }
+      }()
       default: break
       }
     }
@@ -6944,6 +7178,14 @@ nonisolated extension Inputweave_App_V1_ClientMessage: SwiftProtobuf.Message, Sw
       guard case .setDeviceSpeed(let v)? = self.command else { preconditionFailure() }
       try visitor.visitSingularMessageField(value: v, fieldNumber: 50)
     }()
+    case .wakeDevice?: try {
+      guard case .wakeDevice(let v)? = self.command else { preconditionFailure() }
+      try visitor.visitSingularMessageField(value: v, fieldNumber: 51)
+    }()
+    case .setWakeOnPush?: try {
+      guard case .setWakeOnPush(let v)? = self.command else { preconditionFailure() }
+      try visitor.visitSingularMessageField(value: v, fieldNumber: 52)
+    }()
     case nil: break
     }
     try unknownFields.traverse(visitor: &visitor)
@@ -7009,7 +7251,7 @@ nonisolated extension Inputweave_App_V1_PermissionStatus: SwiftProtobuf.Message,
 
 nonisolated extension Inputweave_App_V1_DeviceStatus: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   static let protoMessageName: String = _protobuf_package + ".DeviceStatus"
-  static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}id\0\u{1}name\0\u{1}state\0\u{1}paired\0\u{1}os\0\u{3}swap_gui_and_control\0\u{3}rtt_ms\0\u{3}jump_slot\0\u{3}reported_name\0\u{3}clipboard_off\0\u{3}files_off\0\u{3}screen_locked\0\u{3}lock_screen_input\0\u{3}pointer_captured\0\u{3}input_unavailable\0\u{3}sharing_paused\0\u{3}speed_percent\0")
+  static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}id\0\u{1}name\0\u{1}state\0\u{1}paired\0\u{1}os\0\u{3}swap_gui_and_control\0\u{3}rtt_ms\0\u{3}jump_slot\0\u{3}reported_name\0\u{3}clipboard_off\0\u{3}files_off\0\u{3}screen_locked\0\u{3}lock_screen_input\0\u{3}pointer_captured\0\u{3}input_unavailable\0\u{3}sharing_paused\0\u{3}speed_percent\0\u{3}can_wake\0\u{1}wake\0\u{3}offline_since_unix_ms\0")
 
   fileprivate class _StorageClass {
     var _id: String = String()
@@ -7029,6 +7271,9 @@ nonisolated extension Inputweave_App_V1_DeviceStatus: SwiftProtobuf.Message, Swi
     var _inputUnavailable: Bool = false
     var _sharingPaused: Bool = false
     var _speedPercent: UInt32 = 0
+    var _canWake: Bool = false
+    var _wake: Inputweave_App_V1_WakeState = .none
+    var _offlineSinceUnixMs: UInt64 = 0
 
       // This property is used as the initial default value for new instances of the type.
       // The type itself is protecting the reference to its storage via CoW semantics.
@@ -7056,6 +7301,9 @@ nonisolated extension Inputweave_App_V1_DeviceStatus: SwiftProtobuf.Message, Swi
       _inputUnavailable = source._inputUnavailable
       _sharingPaused = source._sharingPaused
       _speedPercent = source._speedPercent
+      _canWake = source._canWake
+      _wake = source._wake
+      _offlineSinceUnixMs = source._offlineSinceUnixMs
     }
   }
 
@@ -7091,6 +7339,9 @@ nonisolated extension Inputweave_App_V1_DeviceStatus: SwiftProtobuf.Message, Swi
         case 15: try { try decoder.decodeSingularBoolField(value: &_storage._inputUnavailable) }()
         case 16: try { try decoder.decodeSingularBoolField(value: &_storage._sharingPaused) }()
         case 17: try { try decoder.decodeSingularUInt32Field(value: &_storage._speedPercent) }()
+        case 18: try { try decoder.decodeSingularBoolField(value: &_storage._canWake) }()
+        case 19: try { try decoder.decodeSingularEnumField(value: &_storage._wake) }()
+        case 20: try { try decoder.decodeSingularUInt64Field(value: &_storage._offlineSinceUnixMs) }()
         default: break
         }
       }
@@ -7150,6 +7401,15 @@ nonisolated extension Inputweave_App_V1_DeviceStatus: SwiftProtobuf.Message, Swi
       if _storage._speedPercent != 0 {
         try visitor.visitSingularUInt32Field(value: _storage._speedPercent, fieldNumber: 17)
       }
+      if _storage._canWake != false {
+        try visitor.visitSingularBoolField(value: _storage._canWake, fieldNumber: 18)
+      }
+      if _storage._wake != .none {
+        try visitor.visitSingularEnumField(value: _storage._wake, fieldNumber: 19)
+      }
+      if _storage._offlineSinceUnixMs != 0 {
+        try visitor.visitSingularUInt64Field(value: _storage._offlineSinceUnixMs, fieldNumber: 20)
+      }
     }
     try unknownFields.traverse(visitor: &visitor)
   }
@@ -7176,6 +7436,9 @@ nonisolated extension Inputweave_App_V1_DeviceStatus: SwiftProtobuf.Message, Swi
         if _storage._inputUnavailable != rhs_storage._inputUnavailable {return false}
         if _storage._sharingPaused != rhs_storage._sharingPaused {return false}
         if _storage._speedPercent != rhs_storage._speedPercent {return false}
+        if _storage._canWake != rhs_storage._canWake {return false}
+        if _storage._wake != rhs_storage._wake {return false}
+        if _storage._offlineSinceUnixMs != rhs_storage._offlineSinceUnixMs {return false}
         return true
       }
       if !storagesAreEqual {return false}
@@ -7187,7 +7450,7 @@ nonisolated extension Inputweave_App_V1_DeviceStatus: SwiftProtobuf.Message, Swi
 
 nonisolated extension Inputweave_App_V1_Status: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   static let protoMessageName: String = _protobuf_package + ".Status"
-  static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}sharing\0\u{3}this_device_id\0\u{3}active_device_id\0\u{1}devices\0\u{3}controlled_by_device_id\0\u{3}this_device_name\0\u{1}capturing\0\u{1}permissions\0\u{3}secure_input\0\u{3}control_returns\0\u{3}last_return\0\u{3}last_return_device_id\0\u{3}clipboard_sync\0\u{3}last_clipboard\0\u{1}locked\0\u{3}edge_dwell_ms\0\u{3}default_dwell_ms\0\u{3}preview_sharing\0\u{3}desktop_pictures_available\0\u{1}dragging\0\u{1}hotkeys\0\u{3}switch_modifier\0\u{3}screen_locked\0\u{3}lock_screen_input\0\u{3}login_window_access\0\u{3}drags_carried\0\u{3}relative_mouse\0\u{3}relative_mouse_automatic\0\u{3}relative_auto\0\u{3}pointer_captured\0\u{3}relative_ends\0\u{3}last_relative_end\0\u{3}relative_supported\0\u{3}folder_access\0\u{3}folder_access_asked\0\u{3}folder_access_round\0\u{1}session\0\u{3}cursor_leaves_at_edges_only\0\u{1}firewall\0\u{1}license\0")
+  static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}sharing\0\u{3}this_device_id\0\u{3}active_device_id\0\u{1}devices\0\u{3}controlled_by_device_id\0\u{3}this_device_name\0\u{1}capturing\0\u{1}permissions\0\u{3}secure_input\0\u{3}control_returns\0\u{3}last_return\0\u{3}last_return_device_id\0\u{3}clipboard_sync\0\u{3}last_clipboard\0\u{1}locked\0\u{3}edge_dwell_ms\0\u{3}default_dwell_ms\0\u{3}preview_sharing\0\u{3}desktop_pictures_available\0\u{1}dragging\0\u{1}hotkeys\0\u{3}switch_modifier\0\u{3}screen_locked\0\u{3}lock_screen_input\0\u{3}login_window_access\0\u{3}drags_carried\0\u{3}relative_mouse\0\u{3}relative_mouse_automatic\0\u{3}relative_auto\0\u{3}pointer_captured\0\u{3}relative_ends\0\u{3}last_relative_end\0\u{3}relative_supported\0\u{3}folder_access\0\u{3}folder_access_asked\0\u{3}folder_access_round\0\u{1}session\0\u{3}cursor_leaves_at_edges_only\0\u{1}firewall\0\u{1}license\0\u{3}wake_supported\0\u{3}wake_on_push\0")
 
   fileprivate class _StorageClass {
     var _sharing: Bool = false
@@ -7230,6 +7493,8 @@ nonisolated extension Inputweave_App_V1_Status: SwiftProtobuf.Message, SwiftProt
     var _cursorLeavesAtEdgesOnly: Bool = false
     var _firewall: Inputweave_App_V1_FirewallStatus? = nil
     var _license: Inputweave_App_V1_License? = nil
+    var _wakeSupported: Bool = false
+    var _wakeOnPush: Bool = false
 
       // This property is used as the initial default value for new instances of the type.
       // The type itself is protecting the reference to its storage via CoW semantics.
@@ -7280,6 +7545,8 @@ nonisolated extension Inputweave_App_V1_Status: SwiftProtobuf.Message, SwiftProt
       _cursorLeavesAtEdgesOnly = source._cursorLeavesAtEdgesOnly
       _firewall = source._firewall
       _license = source._license
+      _wakeSupported = source._wakeSupported
+      _wakeOnPush = source._wakeOnPush
     }
   }
 
@@ -7338,6 +7605,8 @@ nonisolated extension Inputweave_App_V1_Status: SwiftProtobuf.Message, SwiftProt
         case 38: try { try decoder.decodeSingularBoolField(value: &_storage._cursorLeavesAtEdgesOnly) }()
         case 39: try { try decoder.decodeSingularMessageField(value: &_storage._firewall) }()
         case 40: try { try decoder.decodeSingularMessageField(value: &_storage._license) }()
+        case 41: try { try decoder.decodeSingularBoolField(value: &_storage._wakeSupported) }()
+        case 42: try { try decoder.decodeSingularBoolField(value: &_storage._wakeOnPush) }()
         default: break
         }
       }
@@ -7470,6 +7739,12 @@ nonisolated extension Inputweave_App_V1_Status: SwiftProtobuf.Message, SwiftProt
       try { if let v = _storage._license {
         try visitor.visitSingularMessageField(value: v, fieldNumber: 40)
       } }()
+      if _storage._wakeSupported != false {
+        try visitor.visitSingularBoolField(value: _storage._wakeSupported, fieldNumber: 41)
+      }
+      if _storage._wakeOnPush != false {
+        try visitor.visitSingularBoolField(value: _storage._wakeOnPush, fieldNumber: 42)
+      }
     }
     try unknownFields.traverse(visitor: &visitor)
   }
@@ -7519,6 +7794,8 @@ nonisolated extension Inputweave_App_V1_Status: SwiftProtobuf.Message, SwiftProt
         if _storage._cursorLeavesAtEdgesOnly != rhs_storage._cursorLeavesAtEdgesOnly {return false}
         if _storage._firewall != rhs_storage._firewall {return false}
         if _storage._license != rhs_storage._license {return false}
+        if _storage._wakeSupported != rhs_storage._wakeSupported {return false}
+        if _storage._wakeOnPush != rhs_storage._wakeOnPush {return false}
         return true
       }
       if !storagesAreEqual {return false}

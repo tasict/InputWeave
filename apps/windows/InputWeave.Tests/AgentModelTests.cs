@@ -348,6 +348,88 @@ public class AgentModelTests
     }
 
     [Fact]
+    public async Task WakesAComputerAndHoldsWakeUntilTheServiceAnswers()
+    {
+        var agent = new FakeAgent();
+        agent.Status.WakeSupported = true;
+        var mac = agent.Status.Devices[0];
+        (mac.State, mac.CanWake, mac.OfflineSinceUnixMs) = (ConnectionState.Offline, true, 1);
+        agent.Status.Devices.Add(new DeviceStatus { Id = "imac", Name = "iMac", State = ConnectionState.Offline, Paired = true });
+        agent.Status.Devices.Add(new DeviceStatus { Id = "mini", Name = "Mac mini", State = ConnectionState.Connected, Paired = true });
+        await using var model = agent.Model();
+        model.Start();
+        await Eventually("a connection", () => model.Snapshot.Link == AgentLink.Connected);
+        Assert.True(Wake.CanSend(model.Snapshot, "mac"));
+
+        // On its way: Wake waits for the answer.
+        var gate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        agent.WakeGate = gate;
+        var waking = model.WakeDeviceAsync("mac");
+        await Eventually("the request on its way", () => model.Snapshot.WakesSent.Contains("mac"));
+        Assert.True(Wake.Offered(model.Snapshot, "mac"));
+        Assert.False(Wake.CanSend(model.Snapshot, "mac"));
+        gate.SetResult();
+        await waking;
+        agent.WakeGate = null;
+        Assert.Equal("mac", agent.Received[^1].WakeDevice.DeviceId);
+        Assert.Empty(model.Snapshot.WakesSent);
+        // Answered with the status: it is being woken.
+        Assert.Equal(WakeState.Waking, model.Snapshot.Device("mac")!.Wake);
+        Assert.False(Wake.CanSend(model.Snapshot, "mac"));
+
+        // Refused, it is let go of all the same.
+        Assert.Equal("unknown_device", (await Assert.ThrowsAsync<AgentRefusal>(() => model.WakeDeviceAsync("ghost"))).Code);
+        Assert.Equal("no_wake_data", (await Assert.ThrowsAsync<AgentRefusal>(() => model.WakeDeviceAsync("imac"))).Code);
+        Assert.Equal("connected", (await Assert.ThrowsAsync<AgentRefusal>(() => model.WakeDeviceAsync("mini"))).Code);
+        Assert.Empty(model.Snapshot.WakesSent);
+        // Not sent: the status says it didn't wake up, and it can be tried again.
+        agent.WakeUnsent = true;
+        Assert.Equal("not_sent", (await Assert.ThrowsAsync<AgentRefusal>(() => model.WakeDeviceAsync("mac"))).Code);
+        await Eventually("the status after", () => model.Snapshot.Device("mac")!.Wake == WakeState.NotWoken);
+        Assert.True(Wake.CanSend(model.Snapshot, "mac"));
+        Assert.Equal(WakeNote.NotWoken, Wake.Note(model.Snapshot, "mac"));
+    }
+
+    [Fact]
+    public async Task ForgetsAWakeUpOnItsWayForAComputerThatLeftTheStatus()
+    {
+        var agent = new FakeAgent();
+        agent.Status.WakeSupported = true;
+        (agent.Status.Devices[0].State, agent.Status.Devices[0].CanWake) = (ConnectionState.Offline, true);
+        await using var model = agent.Model();
+        model.Start();
+        await Eventually("a connection", () => model.Snapshot.Link == AgentLink.Connected);
+        var gate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        agent.WakeGate = gate;
+        var waking = model.WakeDeviceAsync("mac");
+        await Eventually("the request on its way", () => model.Snapshot.WakesSent.Contains("mac"));
+        // Unpaired meanwhile.
+        var without = agent.Status.Clone();
+        without.Devices.Clear();
+        await agent.SendAsync(new Event { StatusChanged = without });
+        await Eventually("the request forgotten", () => model.Snapshot.WakesSent.IsEmpty);
+        gate.SetResult();
+        await waking;
+        Assert.Empty(model.Snapshot.WakesSent);
+    }
+
+    [Fact]
+    public async Task SetsWakingAsTheCursorIsPushedTowardAComputer()
+    {
+        var agent = new FakeAgent();
+        agent.Status.WakeSupported = true;
+        await using var model = agent.Model();
+        model.Start();
+        await Eventually("a connection", () => model.Snapshot.Link == AgentLink.Connected);
+        Assert.False(model.Snapshot.Status.WakeOnPush);
+        await model.SetWakeOnPushAsync(true);
+        Assert.True(agent.Received[^1].SetWakeOnPush.On);
+        Assert.True(model.Snapshot.Status.WakeOnPush);
+        await model.SetWakeOnPushAsync(false);
+        Assert.False(model.Snapshot.Status.WakeOnPush);
+    }
+
+    [Fact]
     public async Task TakesFinishedTransfersOffTheHistory()
     {
         var agent = new FakeAgent();

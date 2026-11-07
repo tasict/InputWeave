@@ -1,17 +1,18 @@
 //! What the HUD says, as the macOS
 //! app's `HUDController` and the Windows app's `HudWatch`: why the keyboard
 //! and mouse came back, the cursor being locked or unlocked, relative mode
-//! starting and ending, and the take-back
-//! hint the first three times this computer takes control of another. It
-//! compares each state with the one before, so only a change is news; the
-//! first state seen after the app starts is only remembered, and so is
-//! relative mode in the first state after the service is reached again.
-//! Where the HUD shows (an overlay, or a notification) is the app's.
+//! starting and ending, a computer being woken and waking up, and the
+//! take-back hint the first three times this computer takes control of
+//! another. It compares each state with the one before, so only a change is
+//! news; the first state seen after the app starts is only remembered, and
+//! so are relative mode and waking in the first state after the service is
+//! reached again. Where the HUD shows (an overlay, or a notification) is
+//! the app's.
 
 use std::collections::HashMap;
 use std::time::{Duration, SystemTime};
 
-use iw_proto::app::v1::{RelativeEndReason, ReturnReason};
+use iw_proto::app::v1::{ConnectionState, RelativeEndReason, ReturnReason, WakeState};
 
 use crate::snapshot::{Link, Snapshot};
 use crate::text::{UiText, keys};
@@ -46,6 +47,9 @@ pub struct HudWatch {
     relative_ends: u64,
     seen_refusal: u64,
     told: HashMap<String, Told>,
+    wake_primed: bool,
+    /// Each other device's wake state as last seen.
+    wakes: HashMap<String, WakeState>,
 }
 
 impl HudWatch {
@@ -61,6 +65,7 @@ impl HudWatch {
         if snapshot.link != Link::Connected {
             // A restarted service starts over; what it says first is no news.
             self.relative_primed = false;
+            self.wake_primed = false;
             return None;
         }
         let status = &snapshot.status;
@@ -81,6 +86,7 @@ impl HudWatch {
         self.relative_device = status.relative_mouse.clone();
         self.relative_ends = status.relative_ends;
         self.seen_refusal = snapshot.relative_refusals;
+        let wake = self.wake_message(snapshot);
         if first {
             return None;
         }
@@ -116,6 +122,9 @@ impl HudWatch {
         }
         if status.locked != locked_before {
             return Some(lock_message(snapshot));
+        }
+        if wake.is_some() {
+            return wake;
         }
         let dragging = status
             .dragging
@@ -169,6 +178,39 @@ impl HudWatch {
             )),
             _ => None,
         }
+    }
+
+    /// A device being woken ("Waking Mac mini…": its wake state became
+    /// WAKING), or connected after it was ("Mac mini is awake."), from a
+    /// service that wakes devices. Remembers every other device's state,
+    /// whatever it says, and forgets devices no longer listed; in the first
+    /// state after the service is reached it only remembers. Of two devices
+    /// at once, the first in the list, as the other apps tell it.
+    fn wake_message(&mut self, snapshot: &Snapshot) -> Option<UiText> {
+        let status = &snapshot.status;
+        let primed = std::mem::replace(&mut self.wake_primed, true);
+        let before = std::mem::take(&mut self.wakes);
+        let mut note = None;
+        for device in &status.devices {
+            if device.id == status.this_device_id {
+                continue;
+            }
+            let wake = device.wake();
+            self.wakes.insert(device.id.clone(), wake);
+            if !primed || !status.wake_supported {
+                continue;
+            }
+            let was = before.get(&device.id).copied().unwrap_or(WakeState::None);
+            if note.is_some() {
+                continue;
+            }
+            if wake == WakeState::Waking && was != WakeState::Waking {
+                note = Some(ui!(keys::HUD_WAKING, snapshot.name_of(&device.id)));
+            } else if was == WakeState::Waking && device.state() == ConnectionState::Connected {
+                note = Some(ui!(keys::HUD_AWAKE, snapshot.name_of(&device.id)));
+            }
+        }
+        note
     }
 
     /// Whether to tell relative mode beginning (`entered`) or ending by
@@ -1030,5 +1072,206 @@ mod tests {
             watch.update(&model(Model::default()), &mut hints, start()),
             Some(ui!(keys::HUD_UNLOCKED))
         );
+    }
+
+    /// The sample with a Mac mini in `state` and `wake`, from a service
+    /// that wakes devices.
+    fn mini(state: ConnectionState, wake: WakeState) -> Snapshot {
+        let mut m = model(Model::default());
+        m.status.wake_supported = true;
+        m.status.devices.push(DeviceStatus {
+            id: "mini".into(),
+            name: "Mac mini".into(),
+            state: state as i32,
+            can_wake: state != ConnectionState::Connected,
+            wake: wake as i32,
+            ..Default::default()
+        });
+        m
+    }
+
+    const ASLEEP: ConnectionState = ConnectionState::Offline;
+    const AWAKE: ConnectionState = ConnectionState::Connected;
+
+    #[test]
+    fn says_a_computer_is_being_woken_and_when_it_woke_up() {
+        let mut watch = HudWatch::default();
+        let mut hints = 3;
+        assert_eq!(
+            watch.update(&mini(ASLEEP, WakeState::None), &mut hints, start()),
+            None
+        );
+        let waking = Some(ui!(keys::HUD_WAKING, "Mac mini"));
+        assert_eq!(
+            watch.update(&mini(ASLEEP, WakeState::Waking), &mut hints, start()),
+            waking
+        );
+        // Still being woken: said once.
+        assert_eq!(
+            watch.update(&mini(ASLEEP, WakeState::Waking), &mut hints, start()),
+            None
+        );
+        let awake = Some(ui!(keys::HUD_AWAKE, "Mac mini"));
+        assert_eq!(
+            watch.update(&mini(AWAKE, WakeState::None), &mut hints, start()),
+            awake
+        );
+        assert_eq!(
+            watch.update(&mini(AWAKE, WakeState::None), &mut hints, start()),
+            None
+        );
+        // Asleep again, woken again: said again.
+        watch.update(&mini(ASLEEP, WakeState::None), &mut hints, start());
+        assert_eq!(
+            watch.update(&mini(ASLEEP, WakeState::Waking), &mut hints, start()),
+            waking
+        );
+        // It did not wake up: no note (the inspector says so); woken again
+        // from there, said again.
+        assert_eq!(
+            watch.update(&mini(ASLEEP, WakeState::NotWoken), &mut hints, start()),
+            None
+        );
+        assert_eq!(
+            watch.update(&mini(ASLEEP, WakeState::Waking), &mut hints, start()),
+            waking
+        );
+        // Connecting after it was given up on is not waking up.
+        watch.update(&mini(ASLEEP, WakeState::NotWoken), &mut hints, start());
+        assert_eq!(
+            watch.update(&mini(AWAKE, WakeState::None), &mut hints, start()),
+            None
+        );
+        // In both languages.
+        let zh = crate::text::Catalog::for_language(crate::text::Language::ChineseTaiwan);
+        assert_eq!(
+            waking.map(|t| (t.to_string(), zh.render(&t))),
+            Some(("Waking Mac mini…".into(), "正在喚醒「Mac mini」…".into()))
+        );
+        assert_eq!(
+            awake.map(|t| (t.to_string(), zh.render(&t))),
+            Some(("Mac mini is awake.".into(), "「Mac mini」醒來了。".into()))
+        );
+    }
+
+    #[test]
+    fn waking_already_under_way_is_only_remembered() {
+        // When the app starts.
+        let mut watch = HudWatch::default();
+        let mut hints = 3;
+        assert_eq!(
+            watch.update(&mini(ASLEEP, WakeState::Waking), &mut hints, start()),
+            None
+        );
+        assert_eq!(
+            watch.update(&mini(AWAKE, WakeState::None), &mut hints, start()),
+            Some(ui!(keys::HUD_AWAKE, "Mac mini"))
+        );
+        // When the service is reached again.
+        watch.update(&mini(ASLEEP, WakeState::None), &mut hints, start());
+        let mut away = mini(ASLEEP, WakeState::None);
+        away.link = Link::Connecting;
+        assert_eq!(watch.update(&away, &mut hints, start()), None);
+        assert_eq!(
+            watch.update(&mini(ASLEEP, WakeState::Waking), &mut hints, start()),
+            None
+        );
+        assert_eq!(
+            watch.update(&mini(ASLEEP, WakeState::Waking), &mut hints, start()),
+            None
+        );
+        assert_eq!(
+            watch.update(&mini(AWAKE, WakeState::None), &mut hints, start()),
+            Some(ui!(keys::HUD_AWAKE, "Mac mini"))
+        );
+    }
+
+    #[test]
+    fn a_device_gone_from_the_list_is_forgotten() {
+        let mut watch = HudWatch::default();
+        let mut hints = 3;
+        watch.update(&mini(ASLEEP, WakeState::None), &mut hints, start());
+        watch.update(&mini(ASLEEP, WakeState::Waking), &mut hints, start());
+        // Unpaired while being woken, paired again: it connecting is not
+        // waking up.
+        watch.update(&model(Model::default()), &mut hints, start());
+        assert_eq!(
+            watch.update(&mini(AWAKE, WakeState::None), &mut hints, start()),
+            None
+        );
+    }
+
+    #[test]
+    fn nothing_of_waking_from_a_service_before_it() {
+        let old = |state, wake| {
+            let mut m = mini(state, wake);
+            m.status.wake_supported = false;
+            m
+        };
+        let mut watch = HudWatch::default();
+        let mut hints = 3;
+        watch.update(&old(ASLEEP, WakeState::None), &mut hints, start());
+        assert_eq!(
+            watch.update(&old(ASLEEP, WakeState::Waking), &mut hints, start()),
+            None
+        );
+        assert_eq!(
+            watch.update(&old(AWAKE, WakeState::None), &mut hints, start()),
+            None
+        );
+    }
+
+    #[test]
+    fn the_keyboard_and_mouse_coming_back_comes_first() {
+        let mut watch = HudWatch::default();
+        let mut hints = 3;
+        watch.update(&mini(ASLEEP, WakeState::None), &mut hints, start());
+        let mut both = mini(ASLEEP, WakeState::Waking);
+        both.status.control_returns = 1;
+        both.status.last_return = ReturnReason::Hotkey as i32;
+        assert_eq!(
+            watch.update(&both, &mut hints, start()),
+            Some(ui!(keys::HUD_BACK_HERE))
+        );
+        // The waking was seen all the same: not said later.
+        assert_eq!(watch.update(&both, &mut hints, start()), None);
+        // Before the take-back hint, which waits for another time.
+        let mut hints = 0;
+        let mut watch = HudWatch::default();
+        watch.update(&mini(ASLEEP, WakeState::None), &mut hints, start());
+        let mut there = mini(ASLEEP, WakeState::Waking);
+        there.status.active_device_id = "mac".into();
+        assert_eq!(
+            watch.update(&there, &mut hints, start()),
+            Some(ui!(keys::HUD_WAKING, "Mac mini"))
+        );
+        assert_eq!(hints, 0);
+    }
+
+    #[test]
+    fn of_several_at_once_the_first_in_the_status_is_named() {
+        let both = |wake: WakeState, mini_first: bool| {
+            let mut m = mini(ASLEEP, wake);
+            let mut pc = m.status.devices.last().cloned().unwrap();
+            pc.id = "pc".into();
+            pc.name = "Studio PC".into();
+            if mini_first {
+                m.status.devices.push(pc);
+            } else {
+                let at = m.status.devices.len() - 1;
+                m.status.devices.insert(at, pc);
+            }
+            m
+        };
+        for (mini_first, named) in [(true, "Mac mini"), (false, "Studio PC")] {
+            let mut watch = HudWatch::default();
+            let mut hints = 3;
+            watch.update(&both(WakeState::None, mini_first), &mut hints, start());
+            assert_eq!(
+                watch.update(&both(WakeState::Waking, mini_first), &mut hints, start()),
+                Some(ui!(keys::HUD_WAKING, named)),
+                "{named}"
+            );
+        }
     }
 }

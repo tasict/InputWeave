@@ -8,12 +8,13 @@ namespace InputWeave.Overlay;
 /// Decides what the HUD says, as the
 /// macOS app's HUDController: why the keyboard and mouse came back, the
 /// cursor being locked or unlocked, relative mode starting and ending,
-/// and the take-back hint the first three
-/// times this computer takes control of another. It compares each state
+/// the take-back hint the first three
+/// times this computer takes control of another, and another computer
+/// being woken and waking up. It compares each state
 /// with the one before, so only a change is news; the first state seen
-/// after the app starts is only remembered, and so is relative mode in the
-/// first state after the service is reached again. Windows has no secure
-/// keyboard entry, so there is no note for it.
+/// after the app starts is only remembered, and so are relative mode and
+/// waking in the first state after the service is reached again. Windows
+/// has no secure keyboard entry, so there is no note for it.
 /// </summary>
 public sealed class HudWatch
 {
@@ -36,6 +37,9 @@ public sealed class HudWatch
     private ulong relativeEnds;
     private ulong seenRefusal;
     private readonly Dictionary<string, Told> told = [];
+    private bool wakePrimed;
+    /// <summary>How far waking each other computer was in the last state; a connected one counts as not being woken.</summary>
+    private readonly Dictionary<string, WakeState> wakes = [];
 
     /// <summary>What was told about relative mode beginning or ending by itself on a computer.</summary>
     private sealed class Told
@@ -56,6 +60,7 @@ public sealed class HudWatch
         {
             // A restarted service starts over; what it says first is no news.
             relativePrimed = false;
+            wakePrimed = false;
             return null;
         }
         var status = snapshot.Status;
@@ -76,6 +81,8 @@ public sealed class HudWatch
         relativeDevice = status.RelativeMouse;
         relativeEnds = status.RelativeEnds;
         seenRefusal = snapshot.RelativeRefusal?.Serial ?? 0;
+        // Taken in now, so a note told below does not leave waking behind.
+        var woken = WakeMessage(snapshot);
         if (first)
         {
             return null;
@@ -105,6 +112,11 @@ public sealed class HudWatch
         {
             return LockMessage(snapshot);
         }
+        // Waking before the take-back hint, as the other apps have it.
+        if (woken is not null)
+        {
+            return woken;
+        }
         // A drag taken across says where it goes instead (DragHud).
         bool dragging = status.Dragging is { DeviceId.Length: > 0 };
         if (controlling && !controllingBefore && hintsShown < HintTimes && !dragging)
@@ -113,6 +125,54 @@ public sealed class HudWatch
             return snapshot.TakeBackReminder;
         }
         return null;
+    }
+
+    /// <summary>
+    /// Another computer starting to be woken ("Waking X…", also as Wake is
+    /// pressed, since the service answers with that state), or connecting
+    /// while it was: it woke up ("X is awake."). Only from a service that can wake
+    /// computers; the first state after it is reached again is only
+    /// remembered. Computers that left the status are forgotten.
+    /// </summary>
+    private UiText? WakeMessage(AgentSnapshot snapshot)
+    {
+        var status = snapshot.Status;
+        bool primed = wakePrimed;
+        wakePrimed = true;
+        if (!snapshot.WakeSupported)
+        {
+            wakes.Clear();
+            return null;
+        }
+        UiText? message = null;
+        foreach (var device in status.Devices)
+        {
+            if (device.Id == status.ThisDeviceId)
+            {
+                continue;
+            }
+            bool connected = device.State == ConnectionState.Connected;
+            var now = connected ? WakeState.None : device.Wake;
+            var before = wakes.TryGetValue(device.Id, out var was) ? was : WakeState.None;
+            wakes[device.Id] = now;
+            if (!primed || message is not null)
+            {
+                continue;
+            }
+            if (before == WakeState.Waking && connected)
+            {
+                message = new UiText(TextKeys.HudAwake, snapshot.NameOf(device.Id));
+            }
+            else if (now == WakeState.Waking && before != WakeState.Waking)
+            {
+                message = new UiText(TextKeys.HudWaking, snapshot.NameOf(device.Id));
+            }
+        }
+        foreach (var gone in wakes.Keys.Where(id => status.Devices.All(d => d.Id != id)).ToList())
+        {
+            wakes.Remove(gone);
+        }
+        return message;
     }
 
     /// <summary>

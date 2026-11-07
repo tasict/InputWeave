@@ -301,13 +301,16 @@ impl MainWindow {
         &self.window
     }
 
-    #[cfg(test)]
     pub fn arrangement(&self) -> &Rc<pages::arrangement::Arrangement> {
         &self.arrangement
     }
 
     pub fn general(&self) -> &pages::general::General {
         &self.general
+    }
+
+    pub fn devices(&self) -> &pages::devices::Devices {
+        &self.devices
     }
 
     pub fn troubleshooting(&self) -> &pages::troubleshooting::Troubleshooting {

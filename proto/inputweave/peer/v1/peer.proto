@@ -393,6 +393,26 @@ message LicenseInfo {
   bool licensed = 2;
 }
 
+// How to wake the sender from sleep over the network (Wake-on-LAN): the
+// hardware address of the network interface its session with the receiver
+// runs on, and the broadcast address of that interface's IPv4 network. Sent
+// once the session starts and again when either changes; never when that
+// interface has no hardware address, as a VPN's or a tunnel's. The receiver
+// keeps the latest it got, to wake the sender while it is offline, and
+// forgets it as the sender is unpaired. A receiver drops one whose mac is
+// not 6 bytes, or is all zeros or a group address, or whose broadcast is
+// neither empty nor 4 bytes of an address below 224.0.0.0 outside 0/8 and
+// 127/8 (255.255.255.255 counts as empty), and takes at most one every few
+// seconds. Receivers before this message ignore it, as they do any message
+// they do not know.
+message WakeInfo {
+  bytes mac = 1;
+  // Empty when the interface has no IPv4 network with a broadcast address
+  // (IPv6 only, a /31 or /32): the receiver then sends to 255.255.255.255
+  // alone.
+  bytes broadcast = 2;
+}
+
 // Messages on the reliable, ordered control stream.
 message Control {
   reserved 5, 6;
@@ -419,6 +439,7 @@ message Control {
     PointerCaptured pointer_captured = 22;
     PointerAt pointer_at = 23;
     LicenseInfo license_info = 24;
+    WakeInfo wake_info = 25;
   }
 }
 

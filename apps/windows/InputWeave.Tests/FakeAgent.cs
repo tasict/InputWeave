@@ -143,6 +143,12 @@ internal sealed class FakeAgent
     /// <summary>Promises of files on the clipboard the fake no longer waits for.</summary>
     public HashSet<ulong> GaveUpOn { get; } = [];
 
+    /// <summary>While set, a request to wake a computer is answered only once this completes.</summary>
+    public TaskCompletionSource? WakeGate { get; set; }
+
+    /// <summary>No wake-up can be sent, as without a network.</summary>
+    public bool WakeUnsent { get; set; }
+
     /// <summary>Whether the app said the user quit it.</summary>
     public bool UserQuit { get; private set; }
     private readonly List<ClientMessage> received = [];
@@ -214,11 +220,20 @@ internal sealed class FakeAgent
                 {
                     received.Add(request);
                 }
+                if (request.CommandCase == ClientMessage.CommandOneofCase.WakeDevice && WakeGate is { } held)
+                {
+                    await held.Task;
+                }
                 var response = Answer(request);
                 response.RequestId = request.RequestId;
                 await agent.WriteAsync(Frame.Encode(new AgentMessage { Response = response }));
                 // As the agent does, after it answers: identifying the
                 // screens shows them here too.
+                // A wake-up that could not be sent leaves the computer not woken, which the status says.
+                if (request.CommandCase == ClientMessage.CommandOneofCase.WakeDevice && response.Error?.Code == "not_sent")
+                {
+                    await agent.WriteAsync(Frame.Encode(new AgentMessage { Event = new Event { StatusChanged = Status } }));
+                }
                 if (request.CommandCase == ClientMessage.CommandOneofCase.IdentifyScreens && response.ResultCase == Response.ResultOneofCase.Status)
                 {
                     await agent.WriteAsync(Frame.Encode(new AgentMessage
@@ -382,6 +397,27 @@ internal sealed class FakeAgent
                 {
                     device.SpeedPercent = speed.Percent;
                 }
+                return new Response { Status = Status };
+            case ClientMessage.CommandOneofCase.WakeDevice:
+                var sleeper = Status.Devices.FirstOrDefault(d => d.Id == request.WakeDevice.DeviceId);
+                if (sleeper is null)
+                {
+                    return Refuse("unknown_device", "no such trusted device");
+                }
+                if (sleeper.State == ConnectionState.Connected)
+                {
+                    return Refuse("connected", "the device is connected");
+                }
+                if (!sleeper.CanWake)
+                {
+                    return Refuse("no_wake_data", "the device never said how to wake it");
+                }
+                Status = Status.Clone();
+                Status.Devices.First(d => d.Id == sleeper.Id).Wake = WakeUnsent ? WakeState.NotWoken : WakeState.Waking;
+                return WakeUnsent ? Refuse("not_sent", "no network to send the wake-up on") : new Response { Status = Status };
+            case ClientMessage.CommandOneofCase.SetWakeOnPush:
+                Status = Status.Clone();
+                Status.WakeOnPush = request.SetWakeOnPush.On;
                 return new Response { Status = Status };
             case ClientMessage.CommandOneofCase.SendFiles when Status.Devices.Any(d => d.Id == request.SendFiles.DeviceId && d.FilesOff):
                 return Refuse("files_off", "files are turned off with that device");

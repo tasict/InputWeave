@@ -89,6 +89,11 @@ impl Liveness {
     pub fn is_expired(&self, now: Instant) -> bool {
         now.saturating_duration_since(self.last_seen) > self.timeout
     }
+
+    /// When the peer was last heard from, as `seen` was told.
+    pub fn last_seen(&self) -> Instant {
+        self.last_seen
+    }
 }
 
 #[cfg(test)]

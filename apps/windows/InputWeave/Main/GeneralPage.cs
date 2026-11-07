@@ -14,8 +14,9 @@ namespace InputWeave.Main;
 /// <summary>
 /// This computer's name, opening at login, the icon and File Explorer's
 /// Send To, clipboard sync, sharing the desktop picture, switching (waiting
-/// at the edge, a modifier to hold, relative mode turning on by itself for
-/// games), the shortcuts with their recorder, and updates.
+/// at the edge, a modifier to hold, the edge glow, waking a sleeping
+/// computer as the cursor is pushed toward it, relative mode turning on by
+/// itself for games), the shortcuts with their recorder, and updates.
 /// </summary>
 internal sealed partial class GeneralPage : UserControl, IMainPage
 {
@@ -32,6 +33,11 @@ internal sealed partial class GeneralPage : UserControl, IMainPage
     private readonly ComboBox switchModifier = new() { MinWidth = 220 };
     /// <summary>The app's own setting, not the service's.</summary>
     private readonly ToggleSwitch edgeGlow;
+    private readonly ToggleSwitch wakeOnPush;
+    private readonly TextBlock wakeOnPushHint = Ui.Secondary(Strings.Get(TextKeys.GeneralWakeOnPushHint));
+    /// <summary>The wake switch and the line above it, shown when the service can wake computers.</summary>
+    private readonly UIElement[] wakeOnPushRow;
+    private readonly WakeOnPushSwitch wakeOnPushState = new();
     private readonly ToggleSwitch relativeAuto;
     private readonly TextBlock relativeAutoHint = Ui.Secondary(Strings.Get(TextKeys.GeneralRelativeAutoHint));
     /// <summary>The relative mode switch and the line above it, shown when the service has relative mode.</summary>
@@ -96,6 +102,11 @@ internal sealed partial class GeneralPage : UserControl, IMainPage
         };
         autoUpdate = Ui.Switch(Strings.Get(TextKeys.UpdatesAuto), Preferences.CheckForUpdates, on => Preferences.CheckForUpdates = on);
         edgeGlow = Ui.Switch(Strings.Get(TextKeys.GeneralEdgeGlow), Preferences.ShowEdgeGlow, on => Preferences.ShowEdgeGlow = on);
+        wakeOnPush = Ui.Switch(Strings.Get(TextKeys.GeneralWakeOnPush), false, on => SetWakeOnPush(on));
+        var wakeWords = new StackPanel { Spacing = 2, VerticalAlignment = VerticalAlignment.Center };
+        wakeWords.Children.Add(new TextBlock { Text = Strings.Get(TextKeys.GeneralWakeOnPush), TextWrapping = TextWrapping.Wrap });
+        wakeWords.Children.Add(wakeOnPushHint);
+        wakeOnPushRow = [Ui.Divider(), Ui.Row(wakeWords, wakeOnPush)];
         relativeAuto = Ui.Switch(Strings.Get(TextKeys.GeneralRelativeAuto), true, on => SetRelativeAuto(on));
         relativeAutoHint.TextWrapping = TextWrapping.Wrap;
         var relativeWords = new StackPanel { Spacing = 2, VerticalAlignment = VerticalAlignment.Center };
@@ -129,6 +140,10 @@ internal sealed partial class GeneralPage : UserControl, IMainPage
         switching.Children.Add(Ui.Row(Strings.Get(TextKeys.SwitchModifierTitle), Strings.Get(TextKeys.SwitchModifierHint), switchModifier));
         switching.Children.Add(Ui.Divider());
         switching.Children.Add(Ui.Row(Strings.Get(TextKeys.GeneralEdgeGlow), Strings.Get(TextKeys.GeneralEdgeGlowHint), edgeGlow));
+        foreach (var element in wakeOnPushRow)
+        {
+            switching.Children.Add(element);
+        }
         foreach (var element in relativeAutoRow)
         {
             switching.Children.Add(element);
@@ -187,6 +202,14 @@ internal sealed partial class GeneralPage : UserControl, IMainPage
         switchModifier.SelectedIndex = Math.Clamp((int)status.SwitchModifier, 0, ShortcutText.SwitchChoices.Count - 1);
         switchModifier.IsEnabled = snapshot.Link == AgentLink.Connected;
         updating = false;
+        // A service from before waking has no wake switch.
+        foreach (var element in wakeOnPushRow)
+        {
+            element.Visibility = Wake.SwitchShown(snapshot) ? Visibility.Visible : Visibility.Collapsed;
+        }
+        Ui.Set(wakeOnPush, wakeOnPushState.Update(snapshot));
+        wakeOnPush.IsEnabled = snapshot.Link == AgentLink.Connected;
+        ShowWakeOnPushHint();
         // A service from before relative mode has no such switch.
         foreach (var element in relativeAutoRow)
         {
@@ -263,6 +286,32 @@ internal sealed partial class GeneralPage : UserControl, IMainPage
             Ui.Set(relativeAuto, model?.Status.RelativeAuto ?? !on);
         }
         ShowRelativeAutoHint();
+    }
+
+    /// <summary>Turns waking a computer as the cursor is pushed toward it on or off, and says so under the switch when the service does not take it.</summary>
+    private async void SetWakeOnPush(bool on)
+    {
+        try
+        {
+            await App.Instance.Model.SetWakeOnPushAsync(on);
+            wakeOnPushState.Answered(taken: true);
+        }
+        catch (Exception e)
+        {
+            AppLog.Info($"wake on push {on}: {e.Message}");
+            wakeOnPushState.Answered(taken: false);
+            // The switch moved without the service agreeing.
+            Ui.Set(wakeOnPush, model?.Status.WakeOnPush ?? !on);
+        }
+        ShowWakeOnPushHint();
+    }
+
+    /// <summary>The line under the wake switch: what it does, or that the service did not take it.</summary>
+    private void ShowWakeOnPushHint()
+    {
+        wakeOnPushHint.Text = Strings.Text(wakeOnPushState.Hint);
+        wakeOnPushHint.Foreground = Brand.System(
+            wakeOnPushState.Refused ? "SystemFillColorCriticalBrush" : "TextFillColorSecondaryBrush");
     }
 
     /// <summary>

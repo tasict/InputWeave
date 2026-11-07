@@ -12318,3 +12318,404 @@ async fn ctl_enters_and_removes_a_license_over_ipc() {
 
     mac.agent.shutdown().await;
 }
+
+/// How the PC says to wake it, in the tests: over the loopback its network
+/// interfaces say nothing. Its network's broadcast address is in a range
+/// kept for documentation, so on no network the test runs on.
+#[cfg(unix)]
+fn pc_wake() -> agent::WakeData {
+    agent::WakeData::new(
+        [0x3c, 0x22, 0xfb, 0x10, 0x20, 0x30],
+        Some(std::net::Ipv4Addr::new(198, 51, 100, 255)),
+    )
+    .unwrap()
+}
+
+/// Where wake-ups go in the tests, in place of the broadcast addresses.
+async fn wake_receiver() -> tokio::net::UdpSocket {
+    tokio::net::UdpSocket::bind("127.0.0.1:0").await.unwrap()
+}
+
+/// The next `count` packets `receiver` gets.
+#[cfg(unix)]
+async fn wake_ups(receiver: &tokio::net::UdpSocket, count: usize) -> Vec<Vec<u8>> {
+    let mut packets = Vec::new();
+    let mut buf = [0u8; 512];
+    for _ in 0..count {
+        let (n, _) = tokio::time::timeout(TIMEOUT, receiver.recv_from(&mut buf))
+            .await
+            .expect("timed out waiting for a wake-up")
+            .unwrap();
+        packets.push(buf[..n].to_vec());
+    }
+    packets
+}
+
+/// No packet comes for a moment.
+async fn no_wake_up(receiver: &tokio::net::UdpSocket) {
+    let mut buf = [0u8; 512];
+    let next = tokio::time::timeout(Duration::from_millis(300), receiver.recv_from(&mut buf)).await;
+    assert!(next.is_err(), "a wake-up was sent: {next:?}");
+}
+
+/// The magic packet for `mac`: six 0xFF, then the address 16 times.
+#[cfg(unix)]
+fn magic(mac: [u8; 6]) -> Vec<u8> {
+    let mut packet = vec![0xff; 6];
+    for _ in 0..16 {
+        packet.extend_from_slice(&mac);
+    }
+    packet
+}
+
+/// What the wake file beside the devices file `devices` holds.
+#[cfg(unix)]
+fn wake_kept(devices: &std::path::Path) -> inputweave::wake_file::WakeFile {
+    inputweave::wake_file::WakeFile::load(&inputweave::paths::wake_file(devices))
+}
+
+/// Waits until the wake file beside the devices file `devices` holds how to
+/// wake `id`; the devices file itself never does.
+#[cfg(unix)]
+async fn kept_how_to_wake(devices: &std::path::Path, id: &str) -> inputweave::wake_file::KnownWake {
+    let deadline = tokio::time::Instant::now() + TIMEOUT;
+    loop {
+        if let Some(known) = wake_kept(devices).devices.get(id) {
+            let text = std::fs::read_to_string(devices).unwrap_or_default();
+            assert!(!text.contains("wake"), "{text}");
+            return *known;
+        }
+        assert!(
+            tokio::time::Instant::now() < deadline,
+            "{} never said how to wake {id}",
+            devices.display()
+        );
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+}
+
+/// How the Mac says to wake it, in the tests.
+#[cfg(unix)]
+fn mac_wake() -> agent::WakeData {
+    agent::WakeData::new([0x02, 0x11, 0x22, 0x33, 0x44, 0x55], None).unwrap()
+}
+
+#[cfg(unix)]
+#[tokio::test(flavor = "multi_thread")]
+async fn a_paired_device_says_how_to_wake_it_and_is_woken_while_offline() {
+    use inputweave::agent::WakeState;
+    use iw_proto::app::v1 as app;
+
+    // The Mac sleeps and is woken; it dials, so once awake it finds the PC
+    // where it was.
+    let dir = tempfile::tempdir().unwrap();
+    let socket = dir.path().join("agent.sock");
+    // Each in a folder of its own, as the files beside them are.
+    let mac_file = dir.path().join("mac").join("devices.toml");
+    let win_file = dir.path().join("win").join("devices.toml");
+    let (mac_key, win_key) = (dir.path().join("mac-id"), dir.path().join("win-id"));
+    let receiver = wake_receiver().await;
+    let target = receiver.local_addr().unwrap();
+    let win_spec = win();
+    let win_options = || Options {
+        ipc_socket: Some(socket.clone()),
+        devices_file: Some(win_file.clone()),
+        wake_target: Some(target),
+        wake_wait: Some(Duration::from_secs(3)),
+        ..Options::default()
+    };
+    let start_mac = || async {
+        start_with(
+            &mac(),
+            Identity::load_or_generate(&mac_key).unwrap(),
+            &[],
+            &[],
+            Options {
+                devices_file: Some(mac_file.clone()),
+                wake_info: Some(mac_wake()),
+                ..Options::default()
+            },
+        )
+        .await
+    };
+    let win = start_with(
+        &win_spec,
+        Identity::load_or_generate(&win_key).unwrap(),
+        &[],
+        &[],
+        win_options(),
+    )
+    .await;
+    let mac = start_mac().await;
+    pair(&mac, &win).await;
+    connected(&win, "mac").await;
+
+    // The Mac said how to wake it; the PC keeps it. Connected, it is not
+    // offered.
+    let known = kept_how_to_wake(&win_file, "mac").await;
+    assert_eq!(known.data, mac_wake());
+    let status = win.agent.status();
+    let laptop = status.device("mac").unwrap();
+    assert!(!laptop.can_wake && laptop.offline_since.is_none());
+    assert_eq!(laptop.wake, WakeState::None);
+    // Over the loopback the PC's own interfaces say nothing.
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    assert!(wake_kept(&mac_file).devices.is_empty());
+    let mut client = inputweave::ctl::Client::connect(&socket).await.unwrap();
+    assert_eq!(refusal(client.wake("mac").await), "connected");
+    assert_eq!(refusal(client.wake("win").await), "unknown_device");
+    assert_eq!(refusal(client.wake("ghost").await), "unknown_device");
+
+    // The Mac goes to sleep.
+    let before = std::time::SystemTime::now();
+    mac.agent.shutdown().await;
+    let status = wait_status(&win, |s| s.device("mac").is_some_and(|d| d.can_wake)).await;
+    let since = status
+        .device("mac")
+        .unwrap()
+        .offline_since
+        .expect("offline since it went");
+    assert!(since >= before - Duration::from_secs(1), "{since:?}");
+    let proto = client.status().await.unwrap();
+    let laptop = proto.devices.iter().find(|d| d.id == "mac").unwrap();
+    assert!(laptop.can_wake && proto.wake_supported);
+    assert!(laptop.offline_since_unix_ms > 0);
+    assert_eq!(laptop.wake(), app::WakeState::None);
+
+    // Woken over IPC, as the apps do: the magic packet goes to
+    // 255.255.255.255 alone (here the test's), as the Mac named no network
+    // of its own, and the Mac is being woken.
+    let status = client.wake("mac").await.unwrap();
+    let laptop = status.devices.iter().find(|d| d.id == "mac").unwrap();
+    assert_eq!(laptop.wake(), app::WakeState::Waking);
+    assert_eq!(wake_ups(&receiver, 1).await, vec![magic(mac_wake().mac())]);
+    no_wake_up(&receiver).await;
+    // It does not connect in time: it did not wake up.
+    let status = wait_status(&win, |s| {
+        s.device("mac")
+            .is_some_and(|d| d.wake == WakeState::NotWoken)
+    })
+    .await;
+    assert!(status.device("mac").unwrap().can_wake);
+    let output = run_ctl(&socket, &["status"]).await;
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains("did not wake up; offline since"),
+        "{stdout}"
+    );
+
+    // Again from the command line, as a user would; this time it wakes up
+    // and connects in time.
+    let output = run_ctl(&socket, &["wake", "mac"]).await;
+    assert!(output.status.success(), "ctl failed: {output:?}");
+    assert_eq!(wake_ups(&receiver, 1).await.len(), 1);
+    assert_eq!(
+        win.agent.status().device("mac").unwrap().wake,
+        WakeState::Waking
+    );
+    let mac = start_mac().await;
+    let status = connected(&win, "mac").await;
+    let laptop = status.device("mac").unwrap();
+    assert_eq!(laptop.wake, WakeState::None);
+    assert!(!laptop.can_wake && laptop.offline_since.is_none());
+    let output = run_ctl(&socket, &["wake", "mac"]).await;
+    assert!(!output.status.success(), "{output:?}");
+    assert!(
+        String::from_utf8_lossy(&output.stderr).contains("connected"),
+        "{output:?}"
+    );
+    drop(client);
+
+    // Asleep again, and the PC restarts: it still knows how, and since when.
+    mac.agent.shutdown().await;
+    let status = wait_status(&win, |s| s.device("mac").is_some_and(|d| d.can_wake)).await;
+    let since = status.device("mac").unwrap().offline_since.unwrap();
+    win.agent.shutdown().await;
+    let win = start_with(
+        &win_spec,
+        Identity::load_or_generate(&win_key).unwrap(),
+        &[],
+        &[],
+        win_options(),
+    )
+    .await;
+    let laptop = win.agent.status().device("mac").cloned().unwrap();
+    assert!(laptop.can_wake && laptop.wake == WakeState::None);
+    let secs =
+        |t: std::time::SystemTime| t.duration_since(std::time::UNIX_EPOCH).unwrap().as_secs();
+    assert_eq!(laptop.offline_since.map(secs), Some(secs(since)));
+
+    // Unpaired, it is forgotten.
+    win.agent.unpair("mac").unwrap();
+    wait_status(&win, |s| s.device("mac").is_none()).await;
+    assert!(wake_kept(&win_file).devices.is_empty());
+    assert!(matches!(
+        win.agent.wake("mac").await,
+        Err(inputweave::agent::WakeError::Unknown(_))
+    ));
+    win.agent.shutdown().await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_device_that_never_said_how_to_wake_it_is_not_woken() {
+    use inputweave::agent::WakeError;
+
+    let receiver = wake_receiver().await;
+    let target = receiver.local_addr().unwrap();
+    let nodes = desk_with(&[mac(), win()], |spec| Options {
+        wake_target: (spec.id == "mac").then_some(target),
+        ..Options::default()
+    })
+    .await;
+    assert_eq!(
+        nodes[0].agent.wake("win").await,
+        Err(WakeError::Connected("win".to_owned()))
+    );
+    let [mac, win] = <[Node; 2]>::try_from(nodes).ok().unwrap();
+    win.agent.shutdown().await;
+    let status = wait_status(&mac, |s| s.device("win").is_some_and(|d| !d.connected)).await;
+    let pc = status.device("win").unwrap();
+    assert!(!pc.can_wake && pc.offline_since.is_none());
+    assert_eq!(
+        mac.agent.wake("win").await,
+        Err(WakeError::NoWakeData("win".to_owned()))
+    );
+    // Nor by pushing toward it.
+    mac.agent.set_wake_on_push(true).await;
+    assert!(mac.agent.status().wake_on_push);
+    motion(&mac, (1511.0, 500.0), (5.0, 0.0));
+    no_wake_up(&receiver).await;
+    mac.agent.shutdown().await;
+}
+
+#[cfg(unix)]
+#[tokio::test(flavor = "multi_thread")]
+async fn pushing_the_cursor_toward_a_sleeping_device_wakes_it_when_turned_on() {
+    use inputweave::agent::WakeState;
+
+    let dir = tempfile::tempdir().unwrap();
+    let socket = dir.path().join("agent.sock");
+    let file = dir.path().join("devices.toml");
+    let receiver = wake_receiver().await;
+    let target = receiver.local_addr().unwrap();
+    let nodes = desk_with(&[mac(), win()], |spec| Options {
+        ipc_socket: (spec.id == "mac").then(|| socket.clone()),
+        devices_file: (spec.id == "mac").then(|| file.clone()),
+        wake_target: (spec.id == "mac").then_some(target),
+        wake_info: (spec.id == "win").then(pc_wake),
+        ..Options::default()
+    })
+    .await;
+    kept_how_to_wake(&file, "win").await;
+    let [mac, win] = <[Node; 2]>::try_from(nodes).ok().unwrap();
+    win.agent.shutdown().await;
+    wait_status(&mac, |s| s.device("win").is_some_and(|d| d.can_wake)).await;
+
+    // Off by default: pushing toward it wakes nothing.
+    assert!(!mac.agent.status().wake_on_push);
+    motion(&mac, (1511.0, 500.0), (5.0, 0.0));
+    no_wake_up(&receiver).await;
+
+    // Turned on from the command line, and remembered.
+    let output = run_ctl(&socket, &["wake", "--push", "on"]).await;
+    assert!(output.status.success(), "ctl failed: {output:?}");
+    assert!(
+        String::from_utf8_lossy(&output.stdout).contains("waking by pushing the cursor: on"),
+        "{output:?}"
+    );
+    assert!(mac.agent.status().wake_on_push);
+    assert!(wake_kept(&file).wake_on_push);
+    motion(&mac, (1511.0, 500.0), (5.0, 0.0));
+    // To 255.255.255.255 alone (here the test's): the broadcast address
+    // the PC named is on no network of the Mac's.
+    assert_eq!(wake_ups(&receiver, 1).await, vec![magic(pc_wake().mac())]);
+    no_wake_up(&receiver).await;
+    wait_status(&mac, |s| {
+        s.device("win").is_some_and(|d| d.wake == WakeState::Waking)
+    })
+    .await;
+    assert_eq!(mac.agent.status().cursor_on, "mac");
+    // Again at once: not before 30 seconds.
+    motion(&mac, (1511.0, 500.0), (5.0, 0.0));
+    no_wake_up(&receiver).await;
+    // Nor once the layout is made anew, a display plugged in on the left.
+    mac.displays.set(vec![
+        display("builtin", 0.0, 0.0, 1512.0, 982.0, true),
+        display("external", -1920.0, 0.0, 1920.0, 1080.0, false),
+    ]);
+    wait_arrangement(&mac, |a| {
+        a.device("mac").is_some_and(|d| d.displays.len() == 2)
+    })
+    .await;
+    motion(&mac, (1511.0, 500.0), (5.0, 0.0));
+    no_wake_up(&receiver).await;
+
+    // Off again over IPC, as the apps do.
+    let mut client = inputweave::ctl::Client::connect(&socket).await.unwrap();
+    let status = client.set_wake_on_push(false).await.unwrap();
+    assert!(!status.wake_on_push);
+    assert!(!wake_kept(&file).wake_on_push);
+    mac.agent.shutdown().await;
+}
+
+#[cfg(unix)]
+#[tokio::test(flavor = "multi_thread")]
+async fn a_push_soon_after_wake_was_pressed_sends_none() {
+    use inputweave::agent::WakeState;
+
+    let receiver = wake_receiver().await;
+    let target = receiver.local_addr().unwrap();
+    let nodes = desk_with(&[mac(), win()], |spec| Options {
+        wake_target: (spec.id == "mac").then_some(target),
+        wake_info: (spec.id == "win").then(pc_wake),
+        ..Options::default()
+    })
+    .await;
+    let [mac, win] = <[Node; 2]>::try_from(nodes).ok().unwrap();
+    win.agent.shutdown().await;
+    wait_status(&mac, |s| s.device("win").is_some_and(|d| d.can_wake)).await;
+    mac.agent.set_wake_on_push(true).await;
+
+    // Wake pressed in an app: sent.
+    mac.agent.wake("win").await.unwrap();
+    assert_eq!(wake_ups(&receiver, 1).await, vec![magic(pc_wake().mac())]);
+    // Pushing toward it seconds later, as the router has not woken it:
+    // the wake-up that went counts, and none goes again.
+    motion(&mac, (1511.0, 500.0), (5.0, 0.0));
+    no_wake_up(&receiver).await;
+    assert_eq!(
+        mac.agent.status().device("win").unwrap().wake,
+        WakeState::Waking
+    );
+    // Asked for again, from an app or the command line: it goes.
+    mac.agent.wake("win").await.unwrap();
+    assert_eq!(wake_ups(&receiver, 1).await, vec![magic(pc_wake().mac())]);
+    mac.agent.shutdown().await;
+}
+
+#[cfg(unix)]
+#[tokio::test(flavor = "multi_thread")]
+async fn a_wake_up_that_cannot_be_sent_is_answered_once_the_status_says_so() {
+    use inputweave::agent::{WakeError, WakeState};
+
+    // An IPv6 address, from the IPv4 socket wake-ups go from: no wake-up
+    // can be sent.
+    let nowhere: SocketAddr = "[::1]:9".parse().unwrap();
+    let nodes = desk_with(&[mac(), win()], |spec| Options {
+        wake_target: (spec.id == "mac").then_some(nowhere),
+        wake_info: (spec.id == "win").then(pc_wake),
+        ..Options::default()
+    })
+    .await;
+    let [mac, win] = <[Node; 2]>::try_from(nodes).ok().unwrap();
+    win.agent.shutdown().await;
+    wait_status(&mac, |s| s.device("win").is_some_and(|d| d.can_wake)).await;
+    let refused = mac.agent.wake("win").await;
+    assert!(matches!(refused, Err(WakeError::NotSent(_))), "{refused:?}");
+    // The status already says so when the answer comes.
+    assert_eq!(
+        mac.agent.status().device("win").unwrap().wake,
+        WakeState::NotWoken
+    );
+    mac.agent.shutdown().await;
+}

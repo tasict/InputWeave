@@ -880,6 +880,21 @@ public partial class App : Application
     /// <summary>Has this computer and every connected one show their names on their screens.</summary>
     internal void IdentifyScreens() => Send("identify screens", Model.IdentifyScreensAsync);
 
+    /// <summary>
+    /// Wakes another computer from sleep (Wake in the inspector and on the
+    /// canvas), unless it is being woken or a wake-up for it is on its way
+    /// already, as a menu opened before may still offer. The status the
+    /// service answers with says how it goes, the HUD included; a refusal
+    /// is only logged.
+    /// </summary>
+    internal void WakeDevice(string id)
+    {
+        if (Settings.Wake.CanSend(Model.Snapshot, id))
+        {
+            Send($"wake {id}", () => Model.WakeDeviceAsync(id));
+        }
+    }
+
     private void ToggleLock()
     {
         var locked = !Model.Snapshot.Status.Locked;

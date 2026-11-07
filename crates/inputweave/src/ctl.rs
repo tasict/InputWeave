@@ -13,8 +13,8 @@ use iw_proto::app::v1::{
     RemoveTransfer, RenameDevice, RequestFolderAccess, RequestPermission, Response, SendFiles,
     SetArrangement, SetDeviceSharing, SetDeviceSpeed, SetEdgeOptions, SetHotkeys, SetLicenseKey,
     SetLocked, SetLoginWindowAccess, SetRelativeAuto, SetRelativeMouse, SetSwitchModifier,
-    StartPairing, SubmitPairingCode, SwitchModifier, TransferState, Unpair, agent_message,
-    client_message::Command, event, response, start_pairing,
+    SetWakeOnPush, StartPairing, SubmitPairingCode, SwitchModifier, TransferState, Unpair,
+    WakeDevice, WakeState, agent_message, client_message::Command, event, response, start_pairing,
 };
 
 use crate::agent::{Access, UserFolder};
@@ -175,6 +175,21 @@ impl Client {
     /// holds the pointer, or not.
     pub async fn set_relative_auto(&mut self, on: bool) -> Result<app::Status, CtlError> {
         self.status_request(Command::SetRelativeAuto(SetRelativeAuto { on }))
+            .await
+    }
+
+    /// Sends a wake-up to an offline device that told this one how to wake
+    /// it. Answered once it is sent.
+    pub async fn wake(&mut self, device_id: &str) -> Result<app::Status, CtlError> {
+        let wake = Command::WakeDevice(WakeDevice {
+            device_id: device_id.to_owned(),
+        });
+        self.status_request(wake).await
+    }
+
+    /// Has pushing the cursor toward an offline device wake it, or not.
+    pub async fn set_wake_on_push(&mut self, on: bool) -> Result<app::Status, CtlError> {
+        self.status_request(Command::SetWakeOnPush(SetWakeOnPush { on }))
             .await
     }
 
@@ -1071,6 +1086,9 @@ pub fn format_status(status: &app::Status) -> String {
             switch_modifier_name(status.switch_modifier())
         ));
     }
+    if status.wake_on_push {
+        out.push_str("waking:         pushing the cursor toward a sleeping device wakes it\n");
+    }
     if let Some(hotkeys) = &status.hotkeys {
         let jump = if hotkeys.jump_modifiers.is_empty() {
             "off".to_owned()
@@ -1192,6 +1210,7 @@ pub fn format_status(status: &app::Status) -> String {
         if d.pointer_captured {
             notes.push("an app holds the pointer".to_owned());
         }
+        notes.extend(format_wake(d));
         out.push_str(&format!(
             "  {:<16} {:<24} {:<18} {}\n",
             d.id,
@@ -1201,6 +1220,26 @@ pub fn format_status(status: &app::Status) -> String {
         ));
     }
     out
+}
+
+/// What a device's status says of waking it: whether it can be, whether it
+/// is being woken or did not wake up, and since when it is offline.
+pub fn format_wake(device: &app::DeviceStatus) -> Vec<String> {
+    let mut notes = Vec::new();
+    match device.wake() {
+        WakeState::Waking => notes.push("waking".to_owned()),
+        WakeState::NotWoken => notes.push("did not wake up".to_owned()),
+        WakeState::None if device.can_wake => notes.push("can be woken".to_owned()),
+        WakeState::None => {}
+    }
+    // A time the system's clock cannot hold says nothing more than offline.
+    if device.offline_since_unix_ms > 0
+        && let Some(since) =
+            UNIX_EPOCH.checked_add(Duration::from_millis(device.offline_since_unix_ms))
+    {
+        notes.push(format!("offline since {}", crate::agent::utc(since)));
+    }
+    notes
 }
 
 pub fn format_arrangement(arrangement: &app::Arrangement) -> String {
@@ -1732,6 +1771,36 @@ mod tests {
             format_status(&status)
         );
         status.devices[0].sharing_paused = false;
+        status.devices[0].can_wake = true;
+        status.devices[0].offline_since_unix_ms = 1_762_480_000_000;
+        assert!(
+            format_status(&status)
+                .contains("paired; jump 2; can be woken; offline since 2025-11-07 01:46:40 UTC\n"),
+            "{}",
+            format_status(&status)
+        );
+        // A time out of the clock's range (Windows' is the smallest) is no
+        // more than offline, and never a panic.
+        status.devices[0].offline_since_unix_ms = u64::MAX;
+        assert!(format_status(&status).contains("paired; jump 2; can be woken"));
+        status.devices[0].offline_since_unix_ms = 1_762_480_000_000;
+        status.devices[0].set_wake(WakeState::Waking);
+        assert!(format_status(&status).contains("paired; jump 2; waking; offline since"));
+        status.devices[0].set_wake(WakeState::NotWoken);
+        assert!(format_status(&status).contains("paired; jump 2; did not wake up; offline"));
+        status.devices[0] = app::DeviceStatus {
+            can_wake: false,
+            offline_since_unix_ms: 0,
+            ..status.devices[0].clone()
+        };
+        status.devices[0].set_wake(WakeState::None);
+        assert!(!format_status(&status).contains("waking:"));
+        status.wake_on_push = true;
+        assert!(
+            format_status(&status)
+                .contains("waking:         pushing the cursor toward a sleeping device wakes it\n")
+        );
+        status.wake_on_push = false;
         status.set_switch_modifier(SwitchModifier::Shift);
         assert!(
             format_status(&status).contains("switching:      only while shift is held\n"),

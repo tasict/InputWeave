@@ -59,6 +59,8 @@ fn gtk_behaviour() {
     shortcuts_are_recorded_and_refusals_said(&ui);
     the_double_press_switch_follows_the_agent(&ui);
     the_cursor_speed_row_sends_and_follows_the_agent(&ui);
+    waking_is_offered_sent_and_said(&ui);
+    the_wake_on_push_switch_follows_the_agent(&ui);
     synced_is_said_only_for_changes_while_shown(&ui);
     rows_show_ampersands_and_angle_brackets_as_they_are(&ui);
     the_license_page_follows_the_agent_and_sends_keys(&ui);
@@ -755,6 +757,326 @@ fn the_double_press_switch_follows_the_agent(ui: &Rc<Ui>) {
     );
     assert!(!switch.has_css_class("iw-failed"));
     window.destroy();
+}
+
+/// The sample with the ThinkPad (asleep two hours) in `wake`, said to be
+/// wakeable or not.
+fn thinkpad(wake: inputweave_app_core::proto::WakeState, can_wake: bool) -> Snapshot {
+    let mut model = sample::snapshot(SystemTime::now());
+    let laptop = model
+        .status
+        .devices
+        .iter_mut()
+        .find(|d| d.id == "laptop")
+        .expect("the sample's ThinkPad");
+    laptop.wake = wake as i32;
+    laptop.can_wake = can_wake;
+    model
+}
+
+/// A menu's items as (label, action), a section starting with ("—", "").
+fn menu_entries(menu: &gtk::gio::MenuModel) -> Vec<(String, String)> {
+    use gtk::gio;
+    let attribute = |i: i32, name: &str| {
+        menu.item_attribute_value(i, name, Some(gtk::glib::VariantTy::STRING))
+            .and_then(|v| v.get::<String>())
+            .unwrap_or_default()
+    };
+    let mut entries = Vec::new();
+    for i in 0..menu.n_items() {
+        if let Some(section) = menu.item_link(i, gio::MENU_LINK_SECTION) {
+            entries.push(("—".to_owned(), String::new()));
+            entries.extend(menu_entries(&section));
+        } else {
+            entries.push((
+                attribute(i, gio::MENU_ATTRIBUTE_LABEL),
+                attribute(i, gio::MENU_ATTRIBUTE_ACTION),
+            ));
+        }
+    }
+    entries
+}
+
+/// Waking another computer: its status, the moon and the spinner, Wake
+/// sent once and off while it is on its way or the computer is being woken,
+/// the lines under the status, the list's moon, the arrangement's menu, and
+/// none of it for a connected computer, this one or from a service before
+/// waking.
+fn waking_is_offered_sent_and_said(ui: &Rc<Ui>) {
+    use crate::strings::t;
+    use inputweave_app_core::proto::{WakeDevice, WakeState};
+    use inputweave_app_core::text::keys;
+    use std::sync::Arc;
+    ui.agent.record_fixed();
+    let inspector = Inspector::new(ui);
+    let window = window_with(inspector.widget());
+    let show = |model: &Snapshot, id: &str| {
+        ui.agent.show_fixed(model.clone());
+        inspector.update(model, Some(id));
+    };
+    let wake_laptop = || {
+        Command::WakeDevice(WakeDevice {
+            device_id: "laptop".into(),
+        })
+    };
+
+    // Asleep, and it said how to wake it.
+    let model = thinkpad(WakeState::None, true);
+    show(&model, "laptop");
+    settle();
+    let status = inspector.status_row().expect("built");
+    let row = inspector.wake_widgets().expect("another computer's");
+    assert_eq!(status.subtitle().as_deref(), Some("Offline · 2 hours ago"));
+    assert!(row.moon.is_visible() && !row.spinner.is_visible());
+    assert!(row.button.is_visible() && row.button.is_sensitive());
+    assert!(row.button.has_css_class("suggested-action"));
+    assert_eq!(row.button.label().as_deref(), Some(t(keys::WAKE).as_str()));
+    assert!(!row.not_woken.is_visible() && !row.not_told.is_visible());
+
+    // Pressed: sent once, and off until the service answers.
+    let before = ui.agent.sent().len();
+    row.button.emit_clicked();
+    inspector.update(&model, Some("laptop"));
+    assert!(!row.button.is_sensitive(), "off while on its way");
+    row.button.emit_clicked();
+    settle();
+    assert_eq!(ui.agent.sent()[before..], [wake_laptop()]);
+    inspector.update(&model, Some("laptop"));
+    assert!(row.button.is_sensitive(), "answered");
+
+    // Being woken: the spinner in the moon's place, Wake off.
+    let model = thinkpad(WakeState::Waking, true);
+    show(&model, "laptop");
+    assert_eq!(status.subtitle().as_deref(), Some("Waking…"));
+    assert!(row.spinner.is_visible() && row.spinner.is_spinning());
+    assert!(!row.moon.is_visible());
+    assert!(row.button.is_visible() && !row.button.is_sensitive());
+    let before = ui.agent.sent().len();
+    ui.wake_device("laptop");
+    settle();
+    assert_eq!(ui.agent.sent().len(), before, "not while being woken");
+
+    // Not woken: why, and how to turn waking on; Wake tries again.
+    let model = thinkpad(WakeState::NotWoken, true);
+    show(&model, "laptop");
+    assert_eq!(status.subtitle().as_deref(), Some("Offline · 2 hours ago"));
+    assert!(row.moon.is_visible());
+    assert!(!row.spinner.is_visible() && !row.spinner.is_spinning());
+    assert!(row.button.is_sensitive());
+    assert!(row.not_woken.is_visible() && !row.not_told.is_visible());
+    let markup = row.not_woken_text.label().to_string();
+    assert!(
+        markup.starts_with("ThinkPad didn’t wake up. Wake for network access may be off on it"),
+        "{markup}"
+    );
+    assert!(
+        markup.contains(
+            "<a href=\"https://inputweave.ctsite.cc/user-guide#wake-for-network-access\">How to turn on wake for network access</a>"
+        ),
+        "{markup}"
+    );
+    let before = ui.agent.sent().len();
+    row.button.emit_clicked();
+    settle();
+    assert_eq!(ui.agent.sent()[before..], [wake_laptop()]);
+
+    // It never said how: no Wake, a line saying so.
+    let model = thinkpad(WakeState::None, false);
+    show(&model, "laptop");
+    assert_eq!(status.subtitle().as_deref(), Some("Offline"));
+    assert!(!row.moon.is_visible() && !row.spinner.is_visible());
+    assert!(!row.button.is_visible());
+    assert!(!row.not_woken.is_visible() && row.not_told.is_visible());
+    assert_eq!(
+        row.not_told.text(),
+        "ThinkPad hasn’t told this computer how to wake it yet. You can wake it after it connects again."
+    );
+
+    // A service before waking: nothing of it.
+    let mut old = thinkpad(WakeState::NotWoken, true);
+    old.status.wake_supported = false;
+    show(&old, "laptop");
+    assert_eq!(status.subtitle().as_deref(), Some("Offline"));
+    assert!(!row.moon.is_visible() && !row.spinner.is_visible());
+    assert!(!row.button.is_visible());
+    assert!(!row.not_woken.is_visible() && !row.not_told.is_visible());
+
+    // Connected, or this computer: nothing either.
+    let model = thinkpad(WakeState::None, true);
+    show(&model, "mac");
+    let row = inspector.wake_widgets().expect("another computer's");
+    assert!(!row.moon.is_visible() && !row.spinner.is_visible());
+    assert!(!row.button.is_visible());
+    assert!(!row.not_woken.is_visible() && !row.not_told.is_visible());
+    show(&model, "me");
+    assert!(inspector.wake_widgets().is_none());
+    window.destroy();
+
+    // The devices list: the moon after the name, the status beside it.
+    let devices = crate::pages::devices::Devices::new(ui);
+    let window = window_with(devices.widget());
+    devices.update(&model);
+    assert_eq!(devices.list().moon_shown("laptop"), Some(true));
+    assert_eq!(devices.list().moon_shown("mac"), Some(false));
+    assert_eq!(
+        devices.list().status_of("laptop").as_deref(),
+        Some("Offline · 2 hours ago")
+    );
+    devices.update(&thinkpad(WakeState::Waking, true));
+    assert_eq!(devices.list().moon_shown("laptop"), Some(true));
+    assert_eq!(
+        devices.list().status_of("laptop").as_deref(),
+        Some("Waking…")
+    );
+    devices.update(&thinkpad(WakeState::None, false));
+    assert_eq!(devices.list().moon_shown("laptop"), Some(false));
+    devices.update(&old);
+    assert_eq!(devices.list().moon_shown("laptop"), Some(false));
+    assert_eq!(
+        devices.list().status_of("laptop").as_deref(),
+        Some("Offline")
+    );
+    window.destroy();
+
+    // The arrangement's menu: Wake after a separator, off while being
+    // woken; not for a connected computer or this one.
+    let canvas = ArrangementCanvas::new(ui);
+    let window = window_with(canvas.widget());
+    let menu = |model: &Snapshot, id: &str| {
+        ui.agent.show_fixed(model.clone());
+        canvas.update(&Arc::new(model.clone()));
+        menu_entries(canvas.menu_for_tests(id).expect("a model").upcast_ref())
+    };
+    let entry = |label: &str, action: &str| (label.to_owned(), action.to_owned());
+    let here = t(keys::CANVAS_MOVE_CURSOR_HERE);
+    let wake = t(keys::WAKE);
+    let model = thinkpad(WakeState::None, true);
+    assert_eq!(
+        menu(&model, "laptop"),
+        [
+            entry(&here, "canvas.none"),
+            entry("—", ""),
+            entry(&wake, "canvas.wake")
+        ]
+    );
+    let before = ui.agent.sent().len();
+    canvas
+        .widget()
+        .activate_action("canvas.wake", Some(&"laptop".to_variant()))
+        .expect("the canvas's wake");
+    settle();
+    assert_eq!(ui.agent.sent()[before..], [wake_laptop()]);
+    assert_eq!(
+        menu(&thinkpad(WakeState::Waking, true), "laptop"),
+        [
+            entry(&here, "canvas.none"),
+            entry("—", ""),
+            entry(&wake, "canvas.none")
+        ]
+    );
+    assert_eq!(
+        menu(&thinkpad(WakeState::None, false), "laptop"),
+        [entry(&here, "canvas.none")]
+    );
+    assert_eq!(menu(&old, "laptop"), [entry(&here, "canvas.none")]);
+    assert_eq!(menu(&model, "mac"), [entry(&here, "canvas.jump")]);
+    assert_eq!(menu(&model, "me"), [entry(&here, "canvas.none")]);
+    window.destroy();
+    ui.agent.show_fixed(sample::snapshot(SystemTime::now()));
+}
+
+/// The General switch for waking a computer the cursor pushes toward: shown
+/// from a service that wakes devices, sent, and back with the refusal said
+/// in red when refused, until the service reports another value.
+fn the_wake_on_push_switch_follows_the_agent(ui: &Rc<Ui>) {
+    use crate::strings::t;
+    use inputweave_app_core::proto::SetWakeOnPush;
+    use inputweave_app_core::service::ServiceState;
+    use inputweave_app_core::text::keys;
+    ui.agent.record_fixed();
+    let general = crate::pages::general::General::new(ui);
+    let window = window_with(general.widget());
+    let switch = general.wake_on_push_row().clone();
+    let mut model = sample::snapshot(SystemTime::now());
+    let show = |model: &Snapshot| {
+        ui.agent.show_fixed(model.clone());
+        general.update(model, ServiceState::Running);
+    };
+    let sent = |before: usize| -> Vec<bool> {
+        ui.agent.sent()[before..]
+            .iter()
+            .filter_map(|c| match c {
+                Command::SetWakeOnPush(SetWakeOnPush { on }) => Some(*on),
+                _ => None,
+            })
+            .collect()
+    };
+    show(&model);
+    assert!(switch.is_visible() && !switch.is_active());
+    assert_eq!(
+        switch.subtitle().unwrap_or_default(),
+        t(keys::GENERAL_WAKE_ON_PUSH_HINT)
+    );
+
+    // Turned on: sent; the service still says off, so it goes back.
+    let before = ui.agent.sent().len();
+    switch.set_active(true);
+    settle();
+    assert_eq!(sent(before), [true]);
+    show(&model);
+    assert!(!switch.is_active());
+    // Taken: it follows the service.
+    model.status.wake_on_push = true;
+    show(&model);
+    assert!(switch.is_active());
+
+    // Refused: back, and said in red until the service reports another
+    // value.
+    ui.agent.refuse_next("timeout");
+    let before = ui.agent.sent().len();
+    switch.set_active(false);
+    settle();
+    assert_eq!(sent(before), [false]);
+    show(&model);
+    assert!(switch.is_active(), "back to what the service says");
+    assert_eq!(
+        switch.subtitle().unwrap_or_default(),
+        t(keys::GENERAL_RELATIVE_AUTO_FAILED)
+    );
+    assert!(switch.has_css_class("iw-failed"));
+    show(&model);
+    assert!(switch.has_css_class("iw-failed"), "still said");
+    model.status.wake_on_push = false;
+    show(&model);
+    assert!(!switch.is_active());
+    assert!(!switch.has_css_class("iw-failed"));
+    assert_eq!(
+        switch.subtitle().unwrap_or_default(),
+        t(keys::GENERAL_WAKE_ON_PUSH_HINT)
+    );
+
+    // On Wayland a push never reaches the service: off limits, saying why.
+    model.status.cursor_leaves_at_edges_only = true;
+    show(&model);
+    assert!(switch.is_visible() && !switch.is_sensitive());
+    assert_eq!(
+        switch.subtitle().unwrap_or_default(),
+        t(keys::GENERAL_WAKE_ON_PUSH_EDGES_ONLY)
+    );
+    model.status.cursor_leaves_at_edges_only = false;
+    show(&model);
+    assert!(switch.is_sensitive());
+    assert_eq!(
+        switch.subtitle().unwrap_or_default(),
+        t(keys::GENERAL_WAKE_ON_PUSH_HINT)
+    );
+
+    // A service before waking: no switch.
+    model.status.wake_supported = false;
+    show(&model);
+    assert!(!switch.is_visible());
+    window.destroy();
+    ui.agent.show_fixed(sample::snapshot(SystemTime::now()));
 }
 
 fn entry_rows_are_left_alone_while_edited() {

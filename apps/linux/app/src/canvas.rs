@@ -6,8 +6,8 @@
 //! the one they are on. The user drags whole computers, which snap to each
 //! other's edges and spring back if they would overlap; arrow keys nudge
 //! the selected one and Ctrl+Z undoes a move; the right-click menu moves
-//! the cursor there and renames another computer. Files dropped on a
-//! computer that takes them go to it. The geometry is
+//! the cursor there, renames another computer and wakes one asleep. Files
+//! dropped on a computer that takes them go to it. The geometry is
 //! `inputweave_app_core::canvas`; this draws it with cairo.
 
 use std::cell::{Cell, RefCell};
@@ -24,7 +24,7 @@ use inputweave_app_core::proto::{
 };
 use inputweave_app_core::snapshot::Snapshot;
 use inputweave_app_core::text::keys;
-use inputweave_app_core::{device_text, log};
+use inputweave_app_core::{device_text, log, wake};
 
 use crate::strings::{t, tr};
 use crate::style::{self, Brand};
@@ -46,6 +46,8 @@ const NAME_HEIGHT: f64 = 20.0;
 const NAME_PADDING: f64 = 7.0;
 /// The least the name keeps before the jump shortcut beside it is left out.
 const LEAST_NAME: f64 = 40.0;
+/// The moon after the name of a computer asleep, square.
+const MOON_SIZE: f64 = 10.0;
 const SPRING_TIME: Duration = Duration::from_millis(200);
 const SHAKE_TIME: Duration = Duration::from_millis(300);
 const SEW_TIME: Duration = Duration::from_millis(240);
@@ -53,6 +55,15 @@ const SEW_TIME: Duration = Duration::from_millis(240);
 /// cursor is.
 const PULSE_SCALE: f64 = 1.15;
 const PULSE_TIME: Duration = Duration::from_millis(400);
+
+/// What goes after a computer's name.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum NameGlyph {
+    /// Its screen is locked.
+    Padlock,
+    /// It is asleep and can be woken.
+    Moon,
+}
 
 struct Drag {
     id: String,
@@ -102,7 +113,13 @@ pub struct ArrangementCanvas {
     on_selected: RefCell<Option<Handler<Option<String>>>>,
     on_rename: RefCell<Option<Handler<String>>>,
     ui: Weak<Ui>,
+    /// The moon as last drawn, for the scale and color it was drawn at:
+    /// looked up in the icon theme only when either changes.
+    moon_node: RefCell<Option<(MoonKey, gtk::gsk::RenderNode)>>,
 }
+
+/// What the moon is drawn for: the scale factor and the text color.
+type MoonKey = (i32, [f32; 4]);
 
 /// libadwaita 1.6's StyleManager property with the user's accent color.
 const ACCENT_PROPERTY: &str = "accent-color-rgba";
@@ -147,6 +164,7 @@ impl ArrangementCanvas {
             on_selected: RefCell::new(None),
             on_rename: RefCell::new(None),
             ui: Rc::downgrade(ui),
+            moon_node: RefCell::new(None),
         });
         canvas.connect();
         canvas
@@ -301,6 +319,17 @@ impl ArrangementCanvas {
             }
         });
         actions.add_action(&rename);
+        let wake = gio::SimpleAction::new("wake", Some(glib::VariantTy::STRING));
+        let weak = Rc::downgrade(self);
+        wake.connect_activate(move |_, id| {
+            if let (Some(canvas), Some(id)) =
+                (weak.upgrade(), id.and_then(|v| v.str().map(str::to_owned)))
+                && let Some(ui) = canvas.ui.upgrade()
+            {
+                ui.wake_device(&id);
+            }
+        });
+        actions.add_action(&wake);
         self.area.insert_action_group("canvas", Some(&actions));
 
         // Redraw for the theme: the brand colors and high contrast.
@@ -612,10 +641,21 @@ impl ArrangementCanvas {
         let Some(model) = self.state.borrow().model.clone() else {
             return;
         };
+        let menu = self.menu_for(&model, &id);
+        self.menu.set_menu_model(Some(&menu));
+        self.menu
+            .set_pointing_to(Some(&gdk::Rectangle::new(x as i32, y as i32, 1, 1)));
+        self.menu.popup();
+    }
+
+    /// The right-click menu of `id`: Move Cursor Here, Rename… for another
+    /// computer, and below them Wake for one asleep that can be woken (off
+    /// while it is being woken).
+    fn menu_for(&self, model: &Snapshot, id: &str) -> gio::Menu {
         let menu = gio::Menu::new();
         let jump = gio::MenuItem::new(Some(&t(keys::CANVAS_MOVE_CURSOR_HERE)), None);
         jump.set_action_and_target_value(
-            Some(if model.can_jump(&id) {
+            Some(if model.can_jump(id) {
                 "canvas.jump"
             } else {
                 "canvas.none"
@@ -628,16 +668,29 @@ impl ArrangementCanvas {
         // General.
         if self.on_rename.borrow().is_some()
             && id != model.this_device_id()
-            && model.device(&id).is_some()
+            && model.device(id).is_some()
         {
             let rename = gio::MenuItem::new(Some(&t(keys::CANVAS_RENAME)), None);
             rename.set_action_and_target_value(Some("canvas.rename"), Some(&id.to_variant()));
             menu.append_item(&rename);
         }
-        self.menu.set_menu_model(Some(&menu));
-        self.menu
-            .set_pointing_to(Some(&gdk::Rectangle::new(x as i32, y as i32, 1, 1)));
-        self.menu.popup();
+        let in_flight = self.ui.upgrade().is_some_and(|ui| ui.waking_asked(id));
+        if let Some(enabled) = wake::offer(model, id, in_flight) {
+            let item = gio::MenuItem::new(Some(&t(keys::WAKE)), None);
+            item.set_action_and_target_value(
+                Some(if enabled {
+                    "canvas.wake"
+                } else {
+                    "canvas.none"
+                }),
+                Some(&id.to_variant()),
+            );
+            // A section of its own: after a separator.
+            let section = gio::Menu::new();
+            section.append_item(&item);
+            menu.append_section(None, &section);
+        }
+        menu
     }
 
     /// Moves the cursor to a computer. Refusals the window already
@@ -924,9 +977,15 @@ impl ArrangementCanvas {
                 }
                 let name = info.map_or_else(|| device.id.clone(), |d| d.name.clone());
                 let jump = info.and_then(|d| model.jump_shortcut(d.jump_slot));
-                let locked = model.device(&device.id).is_some_and(|d| d.screen_locked);
+                let glyph = if model.device(&device.id).is_some_and(|d| d.screen_locked) {
+                    Some(NameGlyph::Padlock)
+                } else if wake::shows_moon(model, &device.id) {
+                    Some(NameGlyph::Moon)
+                } else {
+                    None
+                };
                 if let Some(tile) = tiles.get(device.main_screen) {
-                    self.draw_name(cr, &name, jump.as_deref(), locked, tile, brand)?;
+                    self.draw_name(cr, &name, jump.as_deref(), glyph, tile, brand)?;
                 }
                 Ok(())
             })?;
@@ -1085,24 +1144,29 @@ impl ArrangementCanvas {
         Ok(())
     }
 
-    /// The computer's name, a padlock while its screen is locked and,
-    /// beside them dimmer, the shortcut that jumps there, where the name
-    /// keeps room enough (`canvas::name_beside`).
+    /// The computer's name, a padlock while its screen is locked or the
+    /// moon while it is asleep and can be woken and, beside them dimmer,
+    /// the shortcut that jumps there, where the name keeps room enough
+    /// (`canvas::name_beside`).
     fn draw_name(
         &self,
         cr: &cairo::Context,
         name: &str,
         jump: Option<&str>,
-        locked: bool,
+        glyph: Option<NameGlyph>,
         tile: &Rect,
         brand: &Brand,
     ) -> Result<(), cairo::Error> {
         let label_width = (tile.width - 2.0 * NAME_INSET).max(40.0);
         let mut room = label_width - 2.0 * NAME_PADDING;
         let spacing = 5.0;
-        const LOCK_WIDTH: f64 = 8.0;
-        if locked {
-            room -= LOCK_WIDTH + spacing;
+        let glyph_width = match glyph {
+            Some(NameGlyph::Padlock) => 8.0,
+            Some(NameGlyph::Moon) => MOON_SIZE,
+            None => 0.0,
+        };
+        if glyph.is_some() {
+            room -= glyph_width + spacing;
         }
         let shortcut = jump.map(|j| {
             let layout = self.area.create_pango_layout(Some(j));
@@ -1124,8 +1188,8 @@ impl ArrangementCanvas {
         name_layout.set_ellipsize(pango::EllipsizeMode::End);
         let name_drawn = f64::from(name_layout.pixel_size().0).min(name_width.max(1.0));
         let mut width = name_drawn + 2.0 * NAME_PADDING;
-        if locked {
-            width += LOCK_WIDTH + spacing;
+        if glyph.is_some() {
+            width += glyph_width + spacing;
         }
         if shows_shortcut {
             width += shortcut_width.ceil() + spacing;
@@ -1147,9 +1211,13 @@ impl ArrangementCanvas {
             cr.move_to(x, center(&name_layout));
             pangocairo::functions::show_layout(cr, &name_layout);
             x += name_drawn + spacing;
-            if locked {
-                padlock(cr, x, pill.mid_y())?;
-                x += LOCK_WIDTH + spacing;
+            match glyph {
+                Some(NameGlyph::Padlock) => padlock(cr, x, pill.mid_y())?,
+                Some(NameGlyph::Moon) => self.moon(cr, x, pill.mid_y())?,
+                None => {}
+            }
+            if glyph.is_some() {
+                x += glyph_width + spacing;
             }
             if shows_shortcut && let Some(layout) = &shortcut {
                 self.text_color_alpha(cr, 0.6);
@@ -1252,6 +1320,42 @@ impl ArrangementCanvas {
         self.text_color_alpha(cr, 1.0);
     }
 
+    /// The moon (`wake::MOON_ICON`, from the icon theme) in the text color,
+    /// [`MOON_SIZE`] square, from `x` and centered on `y`. Made once for
+    /// each scale factor and color, not for every tile at every draw.
+    fn moon(&self, cr: &cairo::Context, x: f64, y: f64) -> Result<(), cairo::Error> {
+        let scale = self.area.scale_factor();
+        let color = self.area.color();
+        let key = (
+            scale,
+            [color.red(), color.green(), color.blue(), color.alpha()],
+        );
+        let mut cached = self.moon_node.borrow_mut();
+        if cached
+            .as_ref()
+            .is_none_or(|(drawn_for, _)| *drawn_for != key)
+        {
+            let icon = gtk::IconTheme::for_display(&self.area.display()).lookup_icon(
+                wake::MOON_ICON,
+                &[],
+                MOON_SIZE as i32,
+                scale,
+                gtk::TextDirection::None,
+                gtk::IconLookupFlags::empty(),
+            );
+            let snapshot = gtk::Snapshot::new();
+            icon.snapshot_symbolic(&snapshot, MOON_SIZE, MOON_SIZE, &[color]);
+            *cached = snapshot.to_node().map(|node| (key, node));
+        }
+        if let Some((_, node)) = cached.as_ref() {
+            cr.save()?;
+            cr.translate(x, y - MOON_SIZE / 2.0);
+            node.draw(cr);
+            cr.restore()?;
+        }
+        Ok(())
+    }
+
     fn text_color_alpha(&self, cr: &cairo::Context, alpha: f64) {
         let c = self.area.color();
         cr.set_source_rgba(
@@ -1292,6 +1396,12 @@ impl ArrangementCanvas {
     /// Whether a computer is springing back after a refused move.
     pub fn springing(&self) -> bool {
         self.state.borrow().spring.is_some()
+    }
+
+    /// The right-click menu of `id`, as it would open now.
+    pub fn menu_for_tests(&self, id: &str) -> Option<gio::Menu> {
+        let model = self.state.borrow().model.clone()?;
+        Some(self.menu_for(&model, id))
     }
 }
 

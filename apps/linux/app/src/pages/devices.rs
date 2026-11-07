@@ -1,14 +1,15 @@
 //! Devices: the other computers, with their status, latency and jump
-//! shortcut, and the inspector for the one selected; an empty state while
-//! there are none.
+//! shortcut (and the moon of one that can be woken), and the inspector for
+//! the one selected; an empty state while there are none.
 
 use std::cell::RefCell;
 use std::rc::Rc;
+use std::time::SystemTime;
 
 use adw::prelude::*;
-use inputweave_app_core::device_text;
 use inputweave_app_core::snapshot::Snapshot;
 use inputweave_app_core::text::keys;
+use inputweave_app_core::{device_text, wake};
 
 use super::inspector::Inspector;
 use super::{set_subtitle, set_title};
@@ -18,8 +19,19 @@ use crate::ui::Ui;
 /// A list of computers whose rows are kept while the same ones are listed.
 pub struct DeviceList {
     pub list: gtk::ListBox,
-    rows: RefCell<Vec<(String, adw::ActionRow, gtk::Label, gtk::Image)>>,
+    rows: RefCell<Vec<ListRow>>,
     pub selected: RefCell<Option<String>>,
+}
+
+/// One computer's row: its name and status, then at its end the moon while
+/// it can be woken, the keyboard and mouse while they are on it, and its
+/// jump shortcut.
+struct ListRow {
+    id: String,
+    row: adw::ActionRow,
+    shortcut: gtk::Label,
+    here: gtk::Image,
+    moon: gtk::Image,
 }
 
 impl DeviceList {
@@ -40,12 +52,12 @@ impl DeviceList {
     pub fn update(&self, model: &Snapshot, ids: &[String], subtitle: impl Fn(&str) -> String) {
         let same = {
             let rows = self.rows.borrow();
-            rows.len() == ids.len() && rows.iter().zip(ids).all(|(r, id)| r.0 == *id)
+            rows.len() == ids.len() && rows.iter().zip(ids).all(|(r, id)| r.id == *id)
         };
         if !same {
             let mut rows = self.rows.borrow_mut();
-            for (_, row, _, _) in rows.drain(..) {
-                self.list.remove(&row);
+            for row in rows.drain(..) {
+                self.list.remove(&row.row);
             }
             for id in ids {
                 let row = adw::ActionRow::builder()
@@ -58,15 +70,35 @@ impl DeviceList {
                 row.add_prefix(&icon);
                 let shortcut = super::value_label("");
                 shortcut.add_css_class("iw-shortcut");
+                // The status says it in words; the moon only goes with them.
+                let moon = gtk::Image::builder()
+                    .icon_name(wake::MOON_ICON)
+                    .accessible_role(gtk::AccessibleRole::Presentation)
+                    .css_classes(["dim-label"])
+                    .build();
+                row.add_suffix(&moon);
                 row.add_suffix(&here);
                 row.add_suffix(&shortcut);
                 self.list.append(&row);
-                rows.push((id.clone(), row, shortcut, here));
+                rows.push(ListRow {
+                    id: id.clone(),
+                    row,
+                    shortcut,
+                    here,
+                    moon,
+                });
             }
         }
         let cursor = model.cursor_device_id().to_owned();
         let selected = self.selected.borrow().clone();
-        for (id, row, shortcut, here) in self.rows.borrow().iter() {
+        for ListRow {
+            id,
+            row,
+            shortcut,
+            here,
+            moon,
+        } in self.rows.borrow().iter()
+        {
             set_title(row, &model.name_of(id));
             set_subtitle(row, &subtitle(id));
             let slot = model
@@ -77,6 +109,7 @@ impl DeviceList {
             super::set_text(shortcut, &model.jump_shortcut(slot).unwrap_or_default());
             here.set_visible(*id == cursor);
             here.set_tooltip_text(Some(&t(keys::KEYBOARD_MOUSE_HERE)));
+            moon.set_visible(wake::shows_moon(model, id));
             if selected.as_deref() == Some(id.as_str())
                 && self.list.selected_row().as_ref() != Some(row.upcast_ref())
             {
@@ -109,8 +142,28 @@ impl DeviceList {
         self.rows
             .borrow()
             .iter()
-            .find(|(_, r, _, _)| r.upcast_ref::<gtk::ListBoxRow>() == row)
-            .map(|(id, ..)| id.clone())
+            .find(|r| r.row.upcast_ref::<gtk::ListBoxRow>() == row)
+            .map(|r| r.id.clone())
+    }
+
+    /// Whether the moon shows after `id`'s name.
+    #[cfg(test)]
+    pub fn moon_shown(&self, id: &str) -> Option<bool> {
+        self.rows
+            .borrow()
+            .iter()
+            .find(|r| r.id == id)
+            .map(|r| r.moon.is_visible())
+    }
+
+    /// `id`'s status, as its row says it.
+    #[cfg(test)]
+    pub fn status_of(&self, id: &str) -> Option<String> {
+        self.rows
+            .borrow()
+            .iter()
+            .find(|r| r.id == id)
+            .and_then(|r| r.row.subtitle().map(|s| s.to_string()))
     }
 }
 
@@ -189,6 +242,16 @@ impl Devices {
         &self.stack
     }
 
+    /// Selects `id`, as a click on its row does; shown with the next model.
+    pub fn select(&self, id: &str) {
+        *self.list.selected.borrow_mut() = Some(id.to_owned());
+    }
+
+    #[cfg(test)]
+    pub fn list(&self) -> &Rc<DeviceList> {
+        &self.list
+    }
+
     pub fn update(&self, model: &Snapshot) {
         let ids: Vec<String> = model.status.devices.iter().map(|d| d.id.clone()).collect();
         let empty = ids.is_empty();
@@ -202,8 +265,9 @@ impl Devices {
                 *selected = ids.first().cloned();
             }
         }
+        let now = SystemTime::now();
         self.list
-            .update(model, &ids, |id| tr(&device_text::status(model, id)));
+            .update(model, &ids, |id| tr(&device_text::status(model, id, now)));
         self.inspector
             .update(model, self.list.selected.borrow().as_deref());
     }

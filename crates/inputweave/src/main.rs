@@ -137,6 +137,18 @@ enum CtlCommand {
         #[arg(long, conflicts_with = "state")]
         auto: Option<OnOff>,
     },
+    /// Send a wake-up over the network (Wake-on-LAN) to an offline device
+    /// that told this one how to wake it, as the app's Wake does. With
+    /// --push, whether pushing the cursor toward such a device wakes it.
+    Wake {
+        /// A device id as `ctl status` lists it.
+        #[arg(required_unless_present = "push")]
+        device: Option<String>,
+        /// Wake an offline device when the cursor pushes against the edge
+        /// toward it, at most every 30 seconds; off unless turned on.
+        #[arg(long, conflicts_with = "device")]
+        push: Option<OnOff>,
+    },
     /// Move the cursor to the middle of a device's main display.
     Jump {
         /// A device id as `ctl status` lists it, or this device's.
@@ -618,10 +630,15 @@ fn run_agent(config: Option<PathBuf>) -> Result<(), String> {
         paste_wait: None,
         app_clipboard_wait: None,
         paste_stall: None,
+        wake_wait: None,
         #[cfg(feature = "test-hooks")]
         lose_relative_motion: 0,
         #[cfg(feature = "test-hooks")]
         omit_crossing_spots: false,
+        #[cfg(feature = "test-hooks")]
+        wake_info: None,
+        #[cfg(feature = "test-hooks")]
+        wake_target: None,
     };
 
     // AppKit asks for clipboard content promised to other apps through the
@@ -1040,6 +1057,27 @@ fn ctl(socket: Option<PathBuf>, command: CtlCommand) -> Result<(), String> {
                 }
                 .map_err(fail)?;
                 println!("relative mouse: {}", ctl::format_relative(&status));
+            }
+            CtlCommand::Wake { device, push } => {
+                let mut client = ctl::Client::connect(&socket).await.map_err(fail)?;
+                match (device, push) {
+                    (_, Some(push)) => {
+                        let status = client
+                            .set_wake_on_push(matches!(push, OnOff::On))
+                            .await
+                            .map_err(fail)?;
+                        let state = if status.wake_on_push { "on" } else { "off" };
+                        println!("waking by pushing the cursor: {state}");
+                    }
+                    (Some(device), None) => {
+                        client.wake(&device).await.map_err(fail)?;
+                        println!(
+                            "Sent {device} a wake-up. It is being woken for two minutes, or until \
+                             it connects (`inputweave ctl status`)."
+                        );
+                    }
+                    (None, None) => unreachable!("clap requires one"),
+                }
             }
             CtlCommand::Jump { device } => {
                 let mut client = ctl::Client::connect(&socket).await.map_err(fail)?;

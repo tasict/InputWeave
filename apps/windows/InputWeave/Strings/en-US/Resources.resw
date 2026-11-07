@@ -411,6 +411,27 @@
   <data name="RelativeMinutesAgo" xml:space="preserve">
     <value>{0} min ago</value>
   </data>
+  <data name="AgoMinute" xml:space="preserve">
+    <value>1 minute ago</value>
+  </data>
+  <data name="AgoMinutes" xml:space="preserve">
+    <value>{0} minutes ago</value>
+    <comment>{0} is a number of minutes, 2 or more.</comment>
+  </data>
+  <data name="AgoHour" xml:space="preserve">
+    <value>1 hour ago</value>
+  </data>
+  <data name="AgoHours" xml:space="preserve">
+    <value>{0} hours ago</value>
+    <comment>{0} is a number of hours, 2 or more.</comment>
+  </data>
+  <data name="AgoDay" xml:space="preserve">
+    <value>1 day ago</value>
+  </data>
+  <data name="AgoDays" xml:space="preserve">
+    <value>{0} days ago</value>
+    <comment>{0} is a number of days, 2 or more.</comment>
+  </data>
 
   <!-- Sending files -->
   <data name="SendFilesTitle" xml:space="preserve">
@@ -472,6 +493,13 @@
   </data>
   <data name="ConnectionOffline" xml:space="preserve">
     <value>Offline</value>
+  </data>
+  <data name="ConnectionOfflineSince" xml:space="preserve">
+    <value>Offline · {0}</value>
+    <comment>{0} is how long ago it went offline, such as "2 hours ago" or "just now".</comment>
+  </data>
+  <data name="ConnectionWaking" xml:space="preserve">
+    <value>Waking…</value>
   </data>
   <data name="ConnectionThisComputer" xml:space="preserve">
     <value>This computer</value>
@@ -774,6 +802,15 @@
   <data name="GeneralEdgeGlowHint" xml:space="preserve">
     <value>A short glow in the seam color shows where the cursor left this computer’s screen, or came in.</value>
   </data>
+  <data name="GeneralWakeOnPush" xml:space="preserve">
+    <value>Wake a sleeping computer when you push the cursor toward it</value>
+  </data>
+  <data name="GeneralWakeOnPushHint" xml:space="preserve">
+    <value>When the cursor pushes against the edge on a sleeping computer’s side, InputWeave sends it a wake-up, at most every 30 seconds. Works only on computers with wake for network access on, usually over a wired network.</value>
+  </data>
+  <data name="GeneralWakeOnPushFailed" xml:space="preserve">
+    <value>The setting could not be changed. Try again once the background service responds.</value>
+  </data>
   <data name="GeneralShortcuts" xml:space="preserve">
     <value>Shortcuts</value>
   </data>
@@ -896,6 +933,25 @@
   </data>
   <data name="InspectorCursorSpeedReset" xml:space="preserve">
     <value>Reset</value>
+  </data>
+  <data name="WakeAction" xml:space="preserve">
+    <value>Wake</value>
+    <comment>Wakes another computer from sleep over the network.</comment>
+  </data>
+  <data name="WakeNotWoken" xml:space="preserve">
+    <value>{0} didn’t wake up. Wake for network access may be off on it, or it may not be on a wired network.</value>
+    <comment>{0} is the other computer's name.</comment>
+  </data>
+  <data name="WakeHowTo" xml:space="preserve">
+    <value>How to turn on wake for network access</value>
+  </data>
+  <data name="WakeHowToUrl" xml:space="preserve">
+    <value>https://inputweave.ctsite.cc/user-guide#wake-for-network-access</value>
+    <comment>The user guide in this language, at its part on wake for network access.</comment>
+  </data>
+  <data name="WakeNotTold" xml:space="preserve">
+    <value>{0} hasn’t told this computer how to wake it yet. You can wake it after it connects again.</value>
+    <comment>{0} is the other computer's name.</comment>
   </data>
   <data name="DeviceFilesOff" xml:space="preserve">
     <value>Files with “{0}” are turned off.</value>
@@ -1274,6 +1330,14 @@
   </data>
   <data name="HudRelativeUnsupported" xml:space="preserve">
     <value>InputWeave on “{0}” doesn't support relative mouse.</value>
+  </data>
+  <data name="HudWaking" xml:space="preserve">
+    <value>Waking {0}…</value>
+    <comment>{0} is the name of the computer being woken.</comment>
+  </data>
+  <data name="HudAwake" xml:space="preserve">
+    <value>{0} is awake.</value>
+    <comment>{0} is the name of the computer that woke up.</comment>
   </data>
   <data name="NavLicense" xml:space="preserve">
     <value>License</value>

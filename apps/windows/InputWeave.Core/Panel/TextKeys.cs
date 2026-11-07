@@ -131,6 +131,12 @@ public static class TextKeys
     public const string ClipboardKindText = "ClipboardKindText";
     public const string RelativeJustNow = "RelativeJustNow";
     public const string RelativeMinutesAgo = "RelativeMinutesAgo";
+    public const string AgoMinute = "AgoMinute";
+    public const string AgoMinutes = "AgoMinutes";
+    public const string AgoHour = "AgoHour";
+    public const string AgoHours = "AgoHours";
+    public const string AgoDay = "AgoDay";
+    public const string AgoDays = "AgoDays";
 
     // Sending files.
     public const string SendFilesTitle = "SendFilesTitle";
@@ -152,6 +158,8 @@ public static class TextKeys
     public const string ConnectionPeerPaused = "ConnectionPeerPaused";
     public const string ConnectionPeerPausedRtt = "ConnectionPeerPausedRtt";
     public const string ConnectionOffline = "ConnectionOffline";
+    public const string ConnectionOfflineSince = "ConnectionOfflineSince";
+    public const string ConnectionWaking = "ConnectionWaking";
     public const string ConnectionThisComputer = "ConnectionThisComputer";
     public const string OsUnknown = "OsUnknown";
     public const string ScreenMain = "ScreenMain";
@@ -251,6 +259,9 @@ public static class TextKeys
     public const string GeneralWaitHint = "GeneralWaitHint";
     public const string GeneralEdgeGlow = "GeneralEdgeGlow";
     public const string GeneralEdgeGlowHint = "GeneralEdgeGlowHint";
+    public const string GeneralWakeOnPush = "GeneralWakeOnPush";
+    public const string GeneralWakeOnPushHint = "GeneralWakeOnPushHint";
+    public const string GeneralWakeOnPushFailed = "GeneralWakeOnPushFailed";
     public const string GeneralRelativeAuto = "GeneralRelativeAuto";
     public const string GeneralRelativeAutoHint = "GeneralRelativeAutoHint";
     public const string GeneralRelativeAutoHintNoShortcut = "GeneralRelativeAutoHintNoShortcut";
@@ -298,6 +309,15 @@ public static class TextKeys
     public const string InspectorCursorSpeed = "InspectorCursorSpeed";
     public const string InspectorCursorSpeedHint = "InspectorCursorSpeedHint";
     public const string InspectorCursorSpeedReset = "InspectorCursorSpeedReset";
+
+    // Waking another computer from sleep.
+    public const string WakeAction = "WakeAction";
+    public const string WakeNotWoken = "WakeNotWoken";
+    public const string WakeHowTo = "WakeHowTo";
+    public const string WakeHowToUrl = "WakeHowToUrl";
+    public const string WakeNotTold = "WakeNotTold";
+    public const string HudWaking = "HudWaking";
+    public const string HudAwake = "HudAwake";
     public const string DeviceFilesOff = "DeviceFilesOff";
     public const string DeviceFilesOffShort = "DeviceFilesOffShort";
     public const string TroubleProblems = "TroubleProblems";

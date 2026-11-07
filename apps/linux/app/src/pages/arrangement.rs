@@ -136,6 +136,12 @@ impl Arrangement {
         &self.root
     }
 
+    /// Selects `id` on the canvas, as a click does; the inspector shows it
+    /// with the next model.
+    pub fn select(&self, id: &str) {
+        self.canvas.select(Some(id.to_owned()));
+    }
+
     /// Takes in every model, whether the page is `shown` or not, so
     /// "Synced to N devices" is said only for changes made while it is.
     pub fn follow(&self, model: &Snapshot, shown: bool) {

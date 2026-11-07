@@ -781,6 +781,17 @@ async fn respond(
                 Err(e) => error(e.code(), &e.to_string()),
             }
         }
+        Command::WakeDevice(wake) => match super::wake_device(&ctx.engine, &wake.device_id).await {
+            Ok(()) => status(),
+            Err(e) => error(e.code(), &e.to_string()),
+        },
+        Command::SetWakeOnPush(set) => {
+            if super::set_wake_on_push(&ctx.engine, set.on).await {
+                status()
+            } else {
+                error("agent_stopping", "the agent is stopping")
+            }
+        }
         Command::SetLoginWindowAccess(set) => {
             if let Err(e) = super::set_login_window_access(
                 &ctx.directory,

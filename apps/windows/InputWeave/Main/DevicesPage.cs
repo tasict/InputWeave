@@ -1,3 +1,4 @@
+using System.Globalization;
 using Inputweave.App.V1;
 using InputWeave.Agent;
 using InputWeave.Panel;
@@ -12,8 +13,9 @@ using Microsoft.UI.Xaml.Shapes;
 namespace InputWeave.Main;
 
 /// <summary>
-/// Every trusted computer with how it is connected, the same inspector as
-/// the arrangement page, and the way to add more.
+/// Every trusted computer with how it is connected (since when it is
+/// offline, with a moon after its name, when it can be woken), the same
+/// inspector as the arrangement page, and the way to add more.
 /// </summary>
 internal sealed partial class DevicesPage : UserControl, IMainPage
 {
@@ -22,8 +24,10 @@ internal sealed partial class DevicesPage : UserControl, IMainPage
     private readonly Grid devices;
     private readonly StackPanel empty;
     private AgentSnapshot? model;
+    private DateTimeOffset now = DateTimeOffset.UtcNow;
     private string? selection;
     private string shownList = "";
+    private List<string> shownStatuses = [];
     private bool filling;
 
     public DevicesPage()
@@ -104,12 +108,17 @@ internal sealed partial class DevicesPage : UserControl, IMainPage
 
     public void Update(AgentSnapshot snapshot, ServiceState service, DateTimeOffset now)
     {
-        if (ReferenceEquals(snapshot, model))
+        this.now = now;
+        var all = snapshot.Status.Devices;
+        // Each computer's status as of now: since when an offline one is
+        // offline moves on without the service saying anything.
+        var statuses = all.Select(d => Strings.Text(DeviceText.Status(snapshot, d.Id, now, CultureInfo.CurrentCulture))).ToList();
+        if (ReferenceEquals(snapshot, model) && statuses.SequenceEqual(shownStatuses))
         {
             return;
         }
         model = snapshot;
-        var all = snapshot.Status.Devices;
+        shownStatuses = statuses;
         empty.Visibility = all.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
         devices.Visibility = all.Count == 0 ? Visibility.Collapsed : Visibility.Visible;
         if (all.Count == 0)
@@ -122,15 +131,15 @@ internal sealed partial class DevicesPage : UserControl, IMainPage
         }
 
         // Rebuilt only when what the rows show changes, so the selection and focus stay.
-        var key = string.Join("|", all.Select(d => $"{d.Id},{d.Name},{d.Os},{d.State},{d.RttMs},{d.ScreenLocked},{d.LockScreenInput},{d.InputUnavailable},{snapshot.JumpShortcut(d.JumpSlot)}"));
+        var key = string.Join("|", all.Select((d, i) => $"{d.Id},{d.Name},{d.Os},{d.State},{d.ScreenLocked},{d.SharingPaused},{statuses[i]},{Wake.Offered(snapshot, d.Id)},{snapshot.JumpShortcut(d.JumpSlot)}"));
         if (key != shownList)
         {
             shownList = key;
             filling = true;
             list.Items.Clear();
-            foreach (var device in all)
+            for (int i = 0; i < all.Count; i++)
             {
-                list.Items.Add(Row(device, snapshot.JumpShortcut(device.JumpSlot)));
+                list.Items.Add(Row(all[i], snapshot.JumpShortcut(all[i].JumpSlot), statuses[i], Wake.Offered(snapshot, all[i].Id)));
             }
             filling = false;
         }
@@ -144,15 +153,16 @@ internal sealed partial class DevicesPage : UserControl, IMainPage
     {
         if (model is not null && selection is not null)
         {
-            inspector.Update(model, selection);
+            inspector.Update(model, selection, now);
         }
     }
 
     /// <summary>
-    /// A computer: its name and system, and on the right the shortcut that
-    /// jumps to it, if any, and whether it is connected and how fast.
+    /// A computer: its name (and a moon after it when it can be woken) and
+    /// system, and on the right the shortcut that jumps to it, if any, and
+    /// its <paramref name="status"/>: whether it is connected and how fast.
     /// </summary>
-    private static ListViewItem Row(DeviceStatus device, string? jump)
+    private static ListViewItem Row(DeviceStatus device, string? jump, string status, bool moon)
     {
         var grid = new Grid { ColumnSpacing = 12, Padding = new Thickness(4, 10, 4, 10) };
         grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
@@ -167,7 +177,27 @@ internal sealed partial class DevicesPage : UserControl, IMainPage
             VerticalAlignment = VerticalAlignment.Center,
         });
         var words = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
-        words.Children.Add(new TextBlock { Text = device.Name, TextTrimming = TextTrimming.CharacterEllipsis });
+        var nameText = new TextBlock { Text = device.Name, TextTrimming = TextTrimming.CharacterEllipsis };
+        if (moon)
+        {
+            // Left-aligned, the name's column is only as wide as the name
+            // until room runs short: the moon stays beside it, and the name
+            // is cut short first.
+            var line = new Grid { HorizontalAlignment = HorizontalAlignment.Left, ColumnSpacing = 5 };
+            line.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            line.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            line.Children.Add(nameText);
+            var moonIcon = new FontIcon { Glyph = Wake.MoonGlyph, FontSize = 12, VerticalAlignment = VerticalAlignment.Center };
+            // The status says it can be woken; the moon only shows it.
+            AutomationProperties.SetAccessibilityView(moonIcon, Microsoft.UI.Xaml.Automation.Peers.AccessibilityView.Raw);
+            Grid.SetColumn(moonIcon, 1);
+            line.Children.Add(moonIcon);
+            words.Children.Add(line);
+        }
+        else
+        {
+            words.Children.Add(nameText);
+        }
         words.Children.Add(Ui.Secondary(Strings.Text(DeviceText.Os(device.Os))));
         Grid.SetColumn(words, 1);
         grid.Children.Add(words);
@@ -204,7 +234,7 @@ internal sealed partial class DevicesPage : UserControl, IMainPage
         }
         state.Children.Add(new TextBlock
         {
-            Text = Strings.Text(connected ? DeviceText.Connected(device.RttMs, device.ScreenLocked, device.LockScreenInput, device.InputUnavailable, device.SharingPaused) : new UiText(TextKeys.ConnectionOffline)),
+            Text = status,
             Style = Ui.Style("CaptionTextBlockStyle"),
             Foreground = color,
         });
@@ -224,7 +254,7 @@ internal sealed partial class DevicesPage : UserControl, IMainPage
         }
 
         var item = new ListViewItem { Content = grid, Tag = device.Id };
-        AutomationProperties.SetName(item, $"{device.Name}, {Strings.Text(DeviceText.Status(App.Instance.Model.Snapshot, device.Id))}");
+        AutomationProperties.SetName(item, $"{device.Name}, {status}");
         if (jump is not null)
         {
             AutomationProperties.SetAcceleratorKey(item, jump);

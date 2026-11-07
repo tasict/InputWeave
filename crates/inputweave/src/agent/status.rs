@@ -17,6 +17,7 @@ use super::folder_access::FolderAccess;
 use super::license::{LicenseState, LicenseStatus};
 use super::pairing::{PairingPeer, PairingStatus};
 use super::previews::{MAX_ARRANGEMENT_PICTURES, Pictures};
+use super::wake::WakeState;
 use crate::config::Config;
 
 /// The cursor crossed an edge of one of this device's displays, going to
@@ -138,6 +139,8 @@ pub struct Status {
     /// This computer's license; none where the agent keeps none
     /// (`Options::licenses`).
     pub license: Option<LicenseStatus>,
+    /// Pushing the cursor toward an offline device wakes it.
+    pub wake_on_push: bool,
 }
 
 /// Relative mode while it is on: the device and how it started.
@@ -227,6 +230,12 @@ pub struct DeviceState {
     pub input_unavailable: bool,
     /// It paused sharing, as it last said; false while offline.
     pub sharing_paused: bool,
+    /// It is offline and told how to wake it, so it can be woken.
+    pub can_wake: bool,
+    /// Whether it is being woken.
+    pub wake: WakeState,
+    /// When it went offline, while it is, if it told how to wake it.
+    pub offline_since: Option<SystemTime>,
 }
 
 impl DeviceState {
@@ -251,6 +260,9 @@ impl DeviceState {
             pointer_captured: false,
             input_unavailable: false,
             sharing_paused: false,
+            can_wake: false,
+            wake: WakeState::None,
+            offline_since: None,
         }
     }
 }
@@ -303,6 +315,7 @@ impl Status {
             edges_only: false,
             firewall: (Firewall::Unknown, 0),
             license: None,
+            wake_on_push: false,
         }
     }
 
@@ -384,6 +397,9 @@ impl Status {
                     pointer_captured: d.pointer_captured,
                     input_unavailable: d.input_unavailable,
                     sharing_paused: d.sharing_paused,
+                    can_wake: d.can_wake,
+                    wake: wake_state_to_proto(d.wake).into(),
+                    offline_since_unix_ms: d.offline_since.map_or(0, unix_ms),
                 })
                 .collect(),
             locked: self.locked,
@@ -423,7 +439,18 @@ impl Status {
             cursor_leaves_at_edges_only: self.edges_only,
             firewall: crate::convert::firewall_to_proto(self.firewall.0, self.firewall.1),
             license: self.license.as_ref().map(license_to_proto),
+            wake_supported: true,
+            wake_on_push: self.wake_on_push,
         }
+    }
+}
+
+/// Whether a device is being woken, as clients read it.
+pub fn wake_state_to_proto(state: WakeState) -> app::WakeState {
+    match state {
+        WakeState::None => app::WakeState::None,
+        WakeState::Waking => app::WakeState::Waking,
+        WakeState::NotWoken => app::WakeState::NotWoken,
     }
 }
 

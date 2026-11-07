@@ -41,4 +41,13 @@ enum ConnectionText {
         if sharingPaused { return "pause.circle" }
         return screenLocked ? "lock.fill" : "circle.fill"
     }
+
+    /// The symbol after a computer's name on the canvas and the mini map:
+    /// a lock while its screen is locked, a moon while it is offline and
+    /// can be woken (`WakeText.showsMoon`), else none. Only a connected
+    /// computer has a locked screen, and only an offline one can be woken.
+    static func nameSymbol(screenLocked: Bool, wakeable: Bool) -> String? {
+        if screenLocked { return "lock.fill" }
+        return wakeable ? WakeText.moon : nil
+    }
 }

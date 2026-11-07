@@ -11,7 +11,9 @@ use gtk::{gio, glib};
 use inputweave_app_core::agent::{Agent, AgentError, Answer};
 use inputweave_app_core::hud::HudWatch;
 use inputweave_app_core::news::TransferNews;
-use inputweave_app_core::proto::{IdentifyScreens, SetLocked, SetSharing, client_message::Command};
+use inputweave_app_core::proto::{
+    IdentifyScreens, SetLocked, SetSharing, WakeDevice, client_message::Command,
+};
 use inputweave_app_core::service::{
     self, OutdatedWatch, ServiceAction, ServiceNews, ServiceState, ServiceWatch,
 };
@@ -20,7 +22,7 @@ use inputweave_app_core::snapshot::Link;
 use inputweave_app_core::snapshot::Snapshot;
 use inputweave_app_core::status_text::{self, MenuState, TrayState};
 use inputweave_app_core::text::keys;
-use inputweave_app_core::{log, paths, sample};
+use inputweave_app_core::{log, paths, sample, wake};
 
 use crate::overlay::Overlay;
 use crate::setup::Setup;
@@ -74,6 +76,9 @@ pub struct Ui {
     pub license: crate::license::Control,
     /// The About dialogs open, kept up to date with the license.
     abouts: RefCell<Vec<Rc<crate::about::About>>>,
+    /// The devices asked to wake, until the service answers: shared by
+    /// every inspector and arrangement, which leave Wake off meanwhile.
+    wakes: RefCell<wake::Pending>,
 }
 
 /// The SHA-256 of the agent packaged beside the app, read when first
@@ -204,6 +209,7 @@ impl Ui {
             told_stale: Cell::new(false),
             license: crate::license::Control::default(),
             abouts: RefCell::default(),
+            wakes: RefCell::default(),
         });
         UI.with(|cell| *cell.borrow_mut() = Some(ui.clone()));
         let about = gio::SimpleAction::new("about", None);
@@ -567,6 +573,40 @@ impl Ui {
         });
     }
 
+    /// Wakes another computer (WakeDevice), where Wake can be pressed now.
+    /// What comes of it the service's status says (Waking…, the HUD), so a
+    /// refusal is only logged.
+    pub fn wake_device(self: &Rc<Self>, id: &str) {
+        let model = self.snapshot();
+        if wake::offer(&model, id, self.waking_asked(id)) != Some(true) {
+            return;
+        }
+        self.wakes.borrow_mut().begin(id);
+        let (weak, device) = (Rc::downgrade(self), id.to_owned());
+        self.command_then(
+            Command::WakeDevice(WakeDevice {
+                device_id: id.to_owned(),
+            }),
+            move |result| {
+                if let Err(e) = result {
+                    log::info(&format!("waking {device} was refused: {e}"));
+                }
+                if let Some(ui) = weak.upgrade() {
+                    ui.wakes.borrow_mut().end(&device);
+                }
+                true
+            },
+        );
+        // Wake goes off at once.
+        self.refresh();
+    }
+
+    /// Whether this app asked the service to wake `id` and has no answer
+    /// yet.
+    pub fn waking_asked(&self, id: &str) -> bool {
+        self.wakes.borrow().in_flight(id)
+    }
+
     /// Tells the user something did not work: in the main window while it
     /// is shown, otherwise (from the tray menu or a notification) as a
     /// notification of its own, taken back after a while.
@@ -611,6 +651,7 @@ impl Ui {
         let model = self.snapshot();
         let service = self.service();
         let now = SystemTime::now();
+        self.wakes.borrow_mut().prune(&model);
         if let Some(window) = self.window.borrow().clone() {
             window.update(&model, service);
         }

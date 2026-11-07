@@ -103,6 +103,12 @@ pub const CLIPBOARD_KIND_RICH_TEXT: &str = "ClipboardKindRichText";
 pub const CLIPBOARD_KIND_TEXT: &str = "ClipboardKindText";
 pub const RELATIVE_JUST_NOW: &str = "RelativeJustNow";
 pub const RELATIVE_MINUTES_AGO: &str = "RelativeMinutesAgo";
+pub const RELATIVE_MINUTES_ONE: &str = "RelativeMinutesOne";
+pub const RELATIVE_MINUTES_MANY: &str = "RelativeMinutesMany";
+pub const RELATIVE_HOURS_ONE: &str = "RelativeHoursOne";
+pub const RELATIVE_HOURS_MANY: &str = "RelativeHoursMany";
+pub const RELATIVE_DAYS_ONE: &str = "RelativeDaysOne";
+pub const RELATIVE_DAYS_MANY: &str = "RelativeDaysMany";
 pub const SEND_FILES_TITLE: &str = "SendFilesTitle";
 pub const SEND_FILES_TO: &str = "SendFilesTo";
 pub const SEND_FILES_SEND: &str = "SendFilesSend";
@@ -115,6 +121,8 @@ pub const CONNECTION_SCREEN_LOCKED_RTT: &str = "ConnectionScreenLockedRtt";
 pub const CONNECTION_SCREEN_LOCKED_NO_INPUT: &str = "ConnectionScreenLockedNoInput";
 pub const CONNECTION_SCREEN_LOCKED_NO_INPUT_RTT: &str = "ConnectionScreenLockedNoInputRtt";
 pub const CONNECTION_OFFLINE: &str = "ConnectionOffline";
+pub const CONNECTION_OFFLINE_AGO: &str = "ConnectionOfflineAgo";
+pub const CONNECTION_WAKING: &str = "ConnectionWaking";
 pub const CONNECTION_THIS_COMPUTER: &str = "ConnectionThisComputer";
 pub const OS_UNKNOWN: &str = "OsUnknown";
 pub const SCREEN_MAIN: &str = "ScreenMain";
@@ -220,6 +228,11 @@ pub const INSPECTOR_SHARING_HINT: &str = "InspectorSharingHint";
 pub const INSPECTOR_CURSOR_SPEED: &str = "InspectorCursorSpeed";
 pub const INSPECTOR_CURSOR_SPEED_HINT: &str = "InspectorCursorSpeedHint";
 pub const INSPECTOR_CURSOR_SPEED_RESET: &str = "InspectorCursorSpeedReset";
+pub const WAKE: &str = "Wake";
+pub const WAKE_NOT_WOKEN: &str = "WakeNotWoken";
+pub const WAKE_HOW_TO: &str = "WakeHowTo";
+pub const WAKE_HOW_TO_URL: &str = "WakeHowToUrl";
+pub const WAKE_NOT_TOLD_YET: &str = "WakeNotToldYet";
 pub const DEVICE_FILES_OFF: &str = "DeviceFilesOff";
 pub const DEVICE_FILES_OFF_SHORT: &str = "DeviceFilesOffShort";
 pub const TROUBLE_PROBLEMS: &str = "TroubleProblems";
@@ -367,10 +380,15 @@ pub const CONNECTION_NO_INPUT_RTT: &str = "ConnectionNoInputRtt";
 pub const HUD_PEER_PAUSED: &str = "HudPeerPaused";
 pub const HUD_CAPTURE_ENDED: &str = "HudCaptureEnded";
 pub const HUD_INPUT_UNAVAILABLE: &str = "HudInputUnavailable";
+pub const HUD_WAKING: &str = "HudWaking";
+pub const HUD_AWAKE: &str = "HudAwake";
 pub const SUBTITLE_CONTROLLED_WAYLAND: &str = "SubtitleControlledWayland";
 pub const GENERAL_EDGE_GLOW: &str = "GeneralEdgeGlow";
 pub const GENERAL_EDGE_GLOW_HINT: &str = "GeneralEdgeGlowHint";
 pub const GENERAL_EDGE_GLOW_NONE: &str = "GeneralEdgeGlowNone";
+pub const GENERAL_WAKE_ON_PUSH: &str = "GeneralWakeOnPush";
+pub const GENERAL_WAKE_ON_PUSH_HINT: &str = "GeneralWakeOnPushHint";
+pub const GENERAL_WAKE_ON_PUSH_EDGES_ONLY: &str = "GeneralWakeOnPushEdgesOnly";
 pub const EDGES_ONLY: &str = "EdgesOnly";
 pub const TROUBLE_SESSION: &str = "TroubleSession";
 pub const TROUBLE_SESSION_HINT: &str = "TroubleSessionHint";
@@ -568,6 +586,12 @@ pub const ALL: &[&str] = &[
     CLIPBOARD_KIND_TEXT,
     RELATIVE_JUST_NOW,
     RELATIVE_MINUTES_AGO,
+    RELATIVE_MINUTES_ONE,
+    RELATIVE_MINUTES_MANY,
+    RELATIVE_HOURS_ONE,
+    RELATIVE_HOURS_MANY,
+    RELATIVE_DAYS_ONE,
+    RELATIVE_DAYS_MANY,
     SEND_FILES_TITLE,
     SEND_FILES_TO,
     SEND_FILES_SEND,
@@ -580,6 +604,8 @@ pub const ALL: &[&str] = &[
     CONNECTION_SCREEN_LOCKED_NO_INPUT,
     CONNECTION_SCREEN_LOCKED_NO_INPUT_RTT,
     CONNECTION_OFFLINE,
+    CONNECTION_OFFLINE_AGO,
+    CONNECTION_WAKING,
     CONNECTION_THIS_COMPUTER,
     OS_UNKNOWN,
     SCREEN_MAIN,
@@ -685,6 +711,11 @@ pub const ALL: &[&str] = &[
     INSPECTOR_CURSOR_SPEED,
     INSPECTOR_CURSOR_SPEED_HINT,
     INSPECTOR_CURSOR_SPEED_RESET,
+    WAKE,
+    WAKE_NOT_WOKEN,
+    WAKE_HOW_TO,
+    WAKE_HOW_TO_URL,
+    WAKE_NOT_TOLD_YET,
     DEVICE_FILES_OFF,
     DEVICE_FILES_OFF_SHORT,
     TROUBLE_PROBLEMS,
@@ -830,10 +861,15 @@ pub const ALL: &[&str] = &[
     HUD_PEER_PAUSED,
     HUD_CAPTURE_ENDED,
     HUD_INPUT_UNAVAILABLE,
+    HUD_WAKING,
+    HUD_AWAKE,
     SUBTITLE_CONTROLLED_WAYLAND,
     GENERAL_EDGE_GLOW,
     GENERAL_EDGE_GLOW_HINT,
     GENERAL_EDGE_GLOW_NONE,
+    GENERAL_WAKE_ON_PUSH,
+    GENERAL_WAKE_ON_PUSH_HINT,
+    GENERAL_WAKE_ON_PUSH_EDGES_ONLY,
     EDGES_ONLY,
     TROUBLE_SESSION,
     TROUBLE_SESSION_HINT,

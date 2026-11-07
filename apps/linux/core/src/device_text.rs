@@ -1,8 +1,11 @@
 //! The words about devices: connection state, system, screens, the key
 //! swap (the Windows app's `DeviceText`).
 
-use iw_proto::app::v1::{ConnectionState, DeviceStatus, Screen};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
+use iw_proto::app::v1::{ConnectionState, DeviceStatus, Screen, WakeState};
+
+use crate::clipboard_text::{AgoStyle, ago};
 use crate::snapshot::Snapshot;
 use crate::text::{UiText, keys};
 use crate::ui;
@@ -43,14 +46,35 @@ pub fn connected(d: &DeviceStatus) -> UiText {
     with(keys::CONNECTION_CONNECTED, keys::CONNECTION_CONNECTED_RTT)
 }
 
-pub fn status(model: &Snapshot, id: &str) -> UiText {
+/// A device's status: this computer, how another one is connected, or
+/// that it is offline (`offline`).
+pub fn status(model: &Snapshot, id: &str, now: SystemTime) -> UiText {
     if id == model.this_device_id() {
         return ui!(keys::CONNECTION_THIS_COMPUTER);
     }
     match model.device(id) {
         Some(d) if d.state() == ConnectionState::Connected => connected(d),
-        _ => ui!(keys::CONNECTION_OFFLINE),
+        Some(d) => offline(model, d, now),
+        None => ui!(keys::CONNECTION_OFFLINE),
     }
+}
+
+/// "Offline", from a service that can wake devices "Waking…" while one is
+/// being woken, and "Offline · 2 hours ago" for one it can wake that went
+/// offline then (the time it is not told: just "Offline").
+pub fn offline(model: &Snapshot, d: &DeviceStatus, now: SystemTime) -> UiText {
+    if model.status.wake_supported {
+        if d.wake() == WakeState::Waking {
+            return ui!(keys::CONNECTION_WAKING);
+        }
+        if d.can_wake && d.offline_since_unix_ms != 0 {
+            let since =
+                UNIX_EPOCH + Duration::from_millis(d.offline_since_unix_ms.min(u64::MAX / 2));
+            let elapsed = now.duration_since(since).unwrap_or_default();
+            return ui!(keys::CONNECTION_OFFLINE_AGO, ago(elapsed, AgoStyle::Full));
+        }
+    }
+    ui!(keys::CONNECTION_OFFLINE)
 }
 
 /// Whether the device is connected (not this one).
@@ -231,9 +255,10 @@ mod tests {
             },
             ..Default::default()
         };
-        assert_eq!(status(&model, "me").to_string(), "This computer");
-        assert_eq!(status(&model, "mac").to_string(), "Connected · 2 ms");
-        assert_eq!(status(&model, "gone").to_string(), "Offline");
+        let now = SystemTime::now();
+        assert_eq!(status(&model, "me", now).to_string(), "This computer");
+        assert_eq!(status(&model, "mac", now).to_string(), "Connected · 2 ms");
+        assert_eq!(status(&model, "gone", now).to_string(), "Offline");
         assert_eq!(
             cannot_receive(&model, "mac", true).unwrap().to_string(),
             "Files turned off"
@@ -242,6 +267,74 @@ mod tests {
             no_file_receiver(&model).to_string(),
             "Files with “Mac” are turned off."
         );
+    }
+
+    #[test]
+    fn offline_devices_say_since_when_and_being_woken() {
+        use crate::text::{Catalog, Language};
+        let now = UNIX_EPOCH + Duration::from_secs(1_000_000);
+        let two_hours_ago = (1_000_000 - 7_200) * 1000;
+        let mut model = Snapshot {
+            link: Link::Connected,
+            status: Status {
+                this_device_id: "me".into(),
+                wake_supported: true,
+                devices: vec![DeviceStatus {
+                    id: "mini".into(),
+                    name: "Mac mini".into(),
+                    state: ConnectionState::Offline as i32,
+                    can_wake: true,
+                    offline_since_unix_ms: two_hours_ago,
+                    ..Default::default()
+                }],
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        let zh = Catalog::for_language(Language::ChineseTaiwan);
+        let said = |model: &Snapshot| {
+            let text = status(model, "mini", now);
+            (text.to_string(), zh.render(&text))
+        };
+        let pair = |en: &str, zh: &str| (en.to_owned(), zh.to_owned());
+        assert_eq!(
+            said(&model),
+            pair("Offline · 2 hours ago", "離線・2 小時前")
+        );
+        // Gone a moment ago, or later than this computer's clock says.
+        model.status.devices[0].offline_since_unix_ms = 999_990_000;
+        assert_eq!(said(&model), pair("Offline · just now", "離線・剛剛"));
+        model.status.devices[0].offline_since_unix_ms = 1_000_060_000;
+        assert_eq!(said(&model), pair("Offline · just now", "離線・剛剛"));
+        // Since when not known.
+        model.status.devices[0].offline_since_unix_ms = 0;
+        assert_eq!(said(&model), pair("Offline", "離線"));
+        // Being woken, whether or not it says how.
+        model.status.devices[0].offline_since_unix_ms = two_hours_ago;
+        model.status.devices[0].wake = WakeState::Waking as i32;
+        assert_eq!(said(&model), pair("Waking…", "正在喚醒…"));
+        model.status.devices[0].can_wake = false;
+        assert_eq!(said(&model), pair("Waking…", "正在喚醒…"));
+        // Not woken: offline as before.
+        model.status.devices[0].can_wake = true;
+        model.status.devices[0].wake = WakeState::NotWoken as i32;
+        assert_eq!(
+            said(&model),
+            pair("Offline · 2 hours ago", "離線・2 小時前")
+        );
+        // One it cannot wake: just offline.
+        model.status.devices[0].can_wake = false;
+        assert_eq!(said(&model), pair("Offline", "離線"));
+        // Connected: as ever.
+        model.status.devices[0].state = ConnectionState::Connected as i32;
+        model.status.devices[0].rtt_ms = 3;
+        assert_eq!(said(&model), pair("Connected · 3 ms", "已連線・3 ms"));
+        // A service before waking: nothing of it.
+        model.status.devices[0].state = ConnectionState::Offline as i32;
+        model.status.devices[0].can_wake = true;
+        model.status.devices[0].wake = WakeState::Waking as i32;
+        model.status.wake_supported = false;
+        assert_eq!(said(&model), pair("Offline", "離線"));
     }
 
     #[test]

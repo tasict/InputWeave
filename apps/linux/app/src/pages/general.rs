@@ -1,6 +1,7 @@
 //! General: what sharing is doing, this computer's name, opening at login,
 //! the clipboard, desktop pictures, switching (with the edge glow, the
-//! app's own setting) and the shortcuts.
+//! app's own setting, and waking a computer the cursor pushes toward) and
+//! the shortcuts.
 
 use std::cell::{Cell, RefCell};
 use std::rc::Rc;
@@ -10,13 +11,13 @@ use adw::prelude::*;
 use gtk::gio;
 use inputweave_app_core::proto::{
     SetClipboardSync, SetDeviceName, SetEdgeOptions, SetPreviewSharing, SetRelativeAuto,
-    SetSharing, SetSwitchModifier, SwitchModifier, client_message::Command,
+    SetSharing, SetSwitchModifier, SetWakeOnPush, SwitchModifier, client_message::Command,
 };
 use inputweave_app_core::service::ServiceState;
 use inputweave_app_core::snapshot::Snapshot;
 use inputweave_app_core::status_text::{self, ProblemAction};
 use inputweave_app_core::text::keys;
-use inputweave_app_core::{autostart, clipboard_text, edge_glow, log, paths};
+use inputweave_app_core::{autostart, clipboard_text, edge_glow, log, paths, wake};
 
 use super::{EntrySync, Quiet, set_subtitle, set_switch, set_title};
 use crate::strings::{t, tr};
@@ -60,6 +61,10 @@ pub struct General {
     /// connection ends, as on the Windows app.
     relative_auto_failed: Rc<Cell<Option<bool>>>,
     glow: adw::SwitchRow,
+    wake_on_push: adw::SwitchRow,
+    /// SetWakeOnPush was refused while the service reported this: said in
+    /// red, as for the relative mouse switch.
+    wake_on_push_failed: Rc<Cell<Option<bool>>>,
     shortcuts: Rc<super::shortcuts::Shortcuts>,
 }
 
@@ -158,10 +163,16 @@ impl General {
             .title(t(keys::GENERAL_EDGE_GLOW))
             .subtitle(t(keys::GENERAL_EDGE_GLOW_HINT))
             .build();
+        let wake_on_push = adw::SwitchRow::builder()
+            .use_markup(false)
+            .title(t(keys::GENERAL_WAKE_ON_PUSH))
+            .subtitle(t(keys::GENERAL_WAKE_ON_PUSH_HINT))
+            .build();
         switching.add(&wait);
         switching.add(&modifier);
         switching.add(&relative_auto);
         switching.add(&glow);
+        switching.add(&wake_on_push);
         page.add(&switching);
 
         let shortcuts = super::shortcuts::Shortcuts::new(ui);
@@ -218,6 +229,8 @@ impl General {
             relative_auto,
             relative_auto_failed: Rc::default(),
             glow,
+            wake_on_push,
+            wake_on_push_failed: Rc::default(),
             shortcuts,
         };
         general.connect(ui);
@@ -265,6 +278,34 @@ impl General {
             let refresh = Rc::downgrade(&ui);
             ui.command_then(
                 Command::SetRelativeAuto(SetRelativeAuto {
+                    on: row.is_active(),
+                }),
+                move |result| {
+                    if result.is_err() {
+                        failed.set(Some(reported));
+                    }
+                    if let Some(ui) = refresh.upgrade() {
+                        ui.refresh();
+                    }
+                    true
+                },
+            );
+        });
+        let (weak, quiet, failed) = (
+            Rc::downgrade(ui),
+            self.quiet.clone(),
+            self.wake_on_push_failed.clone(),
+        );
+        self.wake_on_push.connect_active_notify(move |row| {
+            if quiet.is_set() {
+                return;
+            }
+            let Some(ui) = weak.upgrade() else { return };
+            let reported = ui.snapshot().status.wake_on_push;
+            let failed = failed.clone();
+            let refresh = Rc::downgrade(&ui);
+            ui.command_then(
+                Command::SetWakeOnPush(SetWakeOnPush {
                     on: row.is_active(),
                 }),
                 move |result| {
@@ -454,7 +495,47 @@ impl General {
                 self.glow.set_subtitle(&hint);
             }
         }
+        self.update_wake_on_push(model);
         self.shortcuts.update(model);
+    }
+
+    /// Waking a computer the cursor pushes toward: from a service that
+    /// wakes devices; a refusal is said as the relative mouse switch's.
+    /// Where the cursor leaves only across edges toward connected computers
+    /// (Wayland), a push never reaches the service: insensitive, saying
+    /// why, as the edge glow's switch where no glow shows.
+    fn update_wake_on_push(&self, model: &Snapshot) {
+        let status = &model.status;
+        self.wake_on_push.set_visible(wake::supported(model));
+        let edges_only = model.edges_only();
+        self.wake_on_push.set_sensitive(!edges_only);
+        set_switch(&self.quiet, &self.wake_on_push, status.wake_on_push);
+        if let Some(when) = self.wake_on_push_failed.get()
+            && (when != status.wake_on_push || !model.connected())
+        {
+            self.wake_on_push_failed.set(None);
+        }
+        let failed = self.wake_on_push_failed.get().is_some();
+        let hint = t(if failed {
+            keys::GENERAL_RELATIVE_AUTO_FAILED
+        } else if edges_only {
+            keys::GENERAL_WAKE_ON_PUSH_EDGES_ONLY
+        } else {
+            keys::GENERAL_WAKE_ON_PUSH_HINT
+        });
+        if self.wake_on_push.subtitle().as_deref() != Some(hint.as_str()) {
+            self.wake_on_push.set_subtitle(&hint);
+        }
+        if failed {
+            self.wake_on_push.add_css_class("iw-failed");
+        } else {
+            self.wake_on_push.remove_css_class("iw-failed");
+        }
+    }
+
+    #[cfg(test)]
+    pub fn wake_on_push_row(&self) -> &adw::SwitchRow {
+        &self.wake_on_push
     }
 
     pub fn shortcuts(&self) -> &Rc<super::shortcuts::Shortcuts> {

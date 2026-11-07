@@ -449,6 +449,48 @@ final class AgentModelTests: XCTestCase {
         XCTAssertTrue(ShortcutText.isDefault(model.hotkeys, relative: true, doublePress: true))
     }
 
+    /// Waking the computer the configuration file trusts, which never said
+    /// how to wake it: refused ("no_wake_data"), and Wake is offered again
+    /// once the service answers. Pushing the cursor to wake goes on and
+    /// off.
+    func testWaking() async throws {
+        let model = AgentModel(socketPath: directory.appending(path: "a.sock").path)
+        model.start()
+        try await eventually("a connection") { model.link == .connected }
+        try await eventually("the trusted computer") { model.device("pc") != nil }
+        XCTAssertEqual(model.wakeOffer("pc"), .hidden)
+
+        let wake = Task { try await model.wakeDevice("pc") }
+        await Task.yield()
+        // On its way until the service answers.
+        XCTAssertTrue(model.wakeRequests.contains("pc"))
+        let refused: String?
+        do {
+            try await wake.value
+            refused = nil
+        } catch {
+            refused = (error as? AgentRefusal)?.code
+        }
+        XCTAssertEqual(refused, "no_wake_data")
+        XCTAssertFalse(model.wakeRequests.contains("pc"))
+
+        // Forgotten with a status no longer listing it, before the answer.
+        let again = Task { try? await model.wakeDevice("pc") }
+        await Task.yield()
+        XCTAssertTrue(model.wakeRequests.contains("pc"))
+        var unlisted = model.status
+        unlisted.devices = []
+        model.handle(.with { $0.event = .with { $0.statusChanged = unlisted } })
+        XCTAssertFalse(model.wakeRequests.contains("pc"))
+        await again.value
+
+        XCTAssertTrue(model.wakeSupported)
+        try await model.setWakeOnPush(true)
+        XCTAssertTrue(model.status.wakeOnPush)
+        try await model.setWakeOnPush(false)
+        XCTAssertFalse(model.status.wakeOnPush)
+    }
+
     /// Setup has the background service list the folders macOS protects,
     /// here in the test's own folder, where macOS asks nothing.
     func testFolderAccess() async throws {

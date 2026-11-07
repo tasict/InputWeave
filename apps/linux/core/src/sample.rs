@@ -8,7 +8,7 @@ use iw_proto::app::v1::{
     ArrangedDevice, Arrangement, BackendRole, ClipboardActivity, ConnectionState, DeviceStatus,
     FailedFile, FileTransfer, FirewallState, FirewallStatus, NearbyDevice, PairingPhase,
     PairingState, Permission, PermissionAsk, PermissionStatus, Screen, SessionBackend, SessionInfo,
-    SessionType, Status, TransferState, Transfers,
+    SessionType, Status, TransferState, Transfers, WakeState,
 };
 
 use crate::shortcut;
@@ -66,17 +66,21 @@ pub fn snapshot(now: SystemTime) -> Snapshot {
         3,
     );
     studio.reported_name = "DESKTOP-4F2K".into();
+    // Asleep, and it said how to wake it before it went.
+    let mut laptop = device(
+        "laptop",
+        "ThinkPad",
+        "linux",
+        ConnectionState::Offline,
+        0,
+        0,
+    );
+    laptop.can_wake = true;
+    laptop.offline_since_unix_ms = ms(now - Duration::from_secs(2 * 3600 + 300));
     let devices = vec![
         device("mac", "Mac mini", "macos", ConnectionState::Connected, 3, 1),
         studio,
-        device(
-            "laptop",
-            "ThinkPad",
-            "linux",
-            ConnectionState::Offline,
-            0,
-            0,
-        ),
+        laptop,
     ];
     let mut hotkeys = shortcut::defaults();
     hotkeys.relative = Some(shortcut::DEFAULT_RELATIVE.into());
@@ -99,6 +103,7 @@ pub fn snapshot(now: SystemTime) -> Snapshot {
         hotkeys: Some(hotkeys),
         relative_auto: true,
         relative_supported: true,
+        wake_supported: true,
         ..Default::default()
     };
     let arranged = |id: &str,
@@ -280,6 +285,36 @@ pub fn snapshot(now: SystemTime) -> Snapshot {
         agent_digest: "3f1c0a9b7e5d2c4f6a8b0c1d2e3f405162738495a6b7c8d9e0f1a2b3c4d5e6f7".into(),
         ..Default::default()
     }
+}
+
+/// The sample with the Mac mini asleep on the arrangement, in `wake`, and
+/// the ThinkPad as one that never said how to wake it.
+pub fn asleep(now: SystemTime, wake: WakeState) -> Snapshot {
+    let mut model = snapshot(now);
+    for device in &mut model.status.devices {
+        match device.id.as_str() {
+            "mac" => {
+                device.state = ConnectionState::Offline as i32;
+                device.rtt_ms = 0;
+                device.can_wake = true;
+                device.wake = wake as i32;
+                device.offline_since_unix_ms = ms(now - Duration::from_secs(26 * 3600));
+            }
+            "laptop" => {
+                device.can_wake = false;
+                device.offline_since_unix_ms = 0;
+            }
+            _ => {}
+        }
+    }
+    let mut arrangement = (*model.arrangement).clone();
+    for device in &mut arrangement.devices {
+        if device.id == "mac" {
+            device.connected = false;
+        }
+    }
+    model.arrangement = Arc::new(arrangement);
+    model
 }
 
 /// The state while this computer shows a pairing code.

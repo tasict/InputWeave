@@ -133,7 +133,8 @@ final class Snapshots: XCTestCase {
         controlling: Bool = false, missing: Bool = false, transfers: Bool = false, locked: Bool = false,
         pictures: Bool = false, folders: Bool = false, renamed: Bool = false, speed: UInt32 = 100,
         hotkeys: Hotkeys = ShortcutText.defaults, switchModifier: SwitchModifier = .none,
-        license: LicenseRecord = LicenseRecord()
+        license: LicenseRecord = LicenseRecord(), wake: MiniWake? = nil, offlineMinutes: Double = 125,
+        wakeOnPush: Bool = false
     ) -> AgentModel {
         var status = AgentStatus()
         status.license = license
@@ -165,6 +166,19 @@ final class Snapshots: XCTestCase {
         mini.reportedName = mini.name
         mini.jumpSlot = 2
         mini.speedPercent = 100
+        if let wake {
+            // A service that wakes computers, and how the Mac mini's waking
+            // goes; it went offline `offlineMinutes` ago.
+            status.wakeSupported = true
+            status.wakeOnPush = wakeOnPush
+            mini.canWake = wake != .cannot
+            mini.wake = switch wake {
+            case .waking: .waking
+            case .notWoken: .notWoken
+            case .asleep, .cannot: WakeState.none
+            }
+            mini.offlineSinceUnixMs = UInt64((Date.now.timeIntervalSince1970 - offlineMinutes * 60) * 1000)
+        }
         status.devices = [pc, mini]
         var accessibility = Inputweave_App_V1_PermissionStatus()
         accessibility.permission = .accessibility
@@ -197,6 +211,17 @@ final class Snapshots: XCTestCase {
         return AgentModel.sample(
             status: status, arrangement: arrangement,
             transfers: folders ? folderTransfers() : transfers ? sampleTransfers() : Transfers())
+    }
+
+    /// How the Mac mini, offline, stands for waking.
+    enum MiniWake {
+        /// It can be woken.
+        case asleep
+        case waking
+        /// It was woken and didn't wake up.
+        case notWoken
+        /// It never said how to wake it.
+        case cannot
     }
 
     func testPanel() throws {
@@ -290,6 +315,49 @@ final class Snapshots: XCTestCase {
         }
         try render("arrangement-speed-dark", size: CGSize(width: 900, height: 760), dark: true) {
             ArrangementPage(selection: "pc").environment(Self.sampleModel(speed: 150)).environment(service)
+        }
+    }
+
+    /// The Mac mini offline and asleep: in the inspector, as it can be woken,
+    /// is being woken, didn't wake up, and can't be woken yet; the moon after
+    /// its name on the canvas, the mini map and the devices list.
+    func testWaking() throws {
+        let service = BackgroundService()
+        // Offline 59 minutes, the longest of the English times.
+        for (name, wake, minutes) in [
+            ("asleep", MiniWake.asleep, 125.0), ("waking", .waking, 125), ("not-woken", .notWoken, 59.5),
+            ("cannot", .cannot, 125),
+        ] {
+            try render("arrangement-wake-\(name)", size: CGSize(width: 900, height: 640)) {
+                ArrangementPage(selection: "mini")
+                    .environment(Self.sampleModel(wake: wake, offlineMinutes: minutes))
+                    .environment(service)
+            }
+        }
+        for (name, wake) in [("asleep", MiniWake.asleep), ("not-woken", .notWoken)] {
+            try render("arrangement-wake-\(name)-dark", size: CGSize(width: 900, height: 640), dark: true) {
+                ArrangementPage(selection: "mini").environment(Self.sampleModel(wake: wake)).environment(service)
+            }
+        }
+        try render("devices-wake", size: CGSize(width: 730, height: 520)) {
+            DevicesPage().environment(Self.sampleModel(wake: .asleep)).environment(service)
+        }
+        try render("devices-wake-dark", size: CGSize(width: 730, height: 520), dark: true) {
+            DevicesPage().environment(Self.sampleModel(wake: .waking)).environment(service)
+        }
+        try render("panel-wake", size: CGSize(width: 340, height: 330)) {
+            MenuPanel().environment(Self.sampleModel(wake: .asleep)).environment(service)
+        }
+        try render("panel-wake-dark", size: CGSize(width: 340, height: 330), dark: true) {
+            MenuPanel().environment(Self.sampleModel(wake: .asleep)).environment(service)
+        }
+        // General › Switching with the switch for waking by pushing the
+        // cursor, on.
+        try render("general-wake", size: CGSize(width: 730, height: 1520)) {
+            GeneralPage(updater: nil).environment(Self.sampleModel(wake: .asleep, wakeOnPush: true)).environment(service)
+        }
+        try render("general-wake-dark", size: CGSize(width: 730, height: 1520), dark: true) {
+            GeneralPage(updater: nil).environment(Self.sampleModel(wake: .asleep, wakeOnPush: true)).environment(service)
         }
     }
 

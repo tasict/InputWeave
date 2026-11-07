@@ -2,7 +2,9 @@
 //! group shares, and the displays each device last reported. Unlike the
 //! configuration file, the agent writes it. Previews of other devices'
 //! desktop pictures are kept beside it, in `previews/` (see
-//! `agent::previews`).
+//! `agent::previews`), and so is how other devices told this one to wake
+//! them, in `wake.toml` (see `wake_file`), a file of its own that agents
+//! from before waking never read.
 //!
 //! Names this device's user gave other devices are in `[aliases]`, how
 //! fast the cursor moves on them (in percent, `iw_core::speed`) in

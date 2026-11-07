@@ -28,6 +28,7 @@ internal sealed partial class ArrangementPage : UserControl, IMainPage
     private readonly DispatcherQueueTimer syncedTimer;
     private readonly Button identifyButton;
     private AgentSnapshot? model;
+    private DateTimeOffset now = DateTimeOffset.UtcNow;
     private ulong version;
 
     public ArrangementPage()
@@ -100,8 +101,11 @@ internal sealed partial class ArrangementPage : UserControl, IMainPage
 
     public void Update(AgentSnapshot snapshot, ServiceState service, DateTimeOffset now)
     {
+        this.now = now;
         if (ReferenceEquals(snapshot, model))
         {
+            // Since when an offline computer is offline moves on.
+            ShowInspector();
             return;
         }
         model = snapshot;
@@ -123,7 +127,7 @@ internal sealed partial class ArrangementPage : UserControl, IMainPage
     {
         if (model is not null)
         {
-            inspector.Update(model, canvas.Selection ?? model.ThisDeviceId);
+            inspector.Update(model, canvas.Selection ?? model.ThisDeviceId, now);
         }
     }
 }

@@ -129,19 +129,7 @@ struct DeviceInspector: View {
                 LabeledContent("System") {
                     Label(OSLabel(os: arranged?.os ?? status?.os ?? "").name, systemImage: OSLabel(os: arranged?.os ?? "").symbol)
                 }
-                LabeledContent("Status") {
-                    if arranged?.thisDevice == true {
-                        Text("This computer")
-                    } else if let status, status.state == .connected {
-                        Text(ConnectionText.connected(
-                            rttMs: status.rttMs, screenLocked: status.screenLocked,
-                            lockScreenInput: status.lockScreenInput, inputUnavailable: status.inputUnavailable,
-                            sharingPaused: status.sharingPaused))
-                            .monospacedDigit()
-                    } else {
-                        Text("Offline")
-                    }
-                }
+                DeviceStatusRow(deviceID: deviceID, thisDevice: arranged?.thisDevice == true)
             }
             Section("Screens") {
                 if let screens = arranged?.screens, !screens.isEmpty {
@@ -195,7 +183,9 @@ struct DevicesPage: View {
             } else {
                 HStack(spacing: 0) {
                     List(model.status.devices, id: \.id, selection: $selection) { device in
-                        DeviceRow(device: device, jump: model.jumpShortcut(slot: device.jumpSlot))
+                        DeviceRow(
+                            device: device, jump: model.jumpShortcut(slot: device.jumpSlot),
+                            wakeSupported: model.wakeSupported)
                     }
                     Divider()
                     DeviceInspector(deviceID: selection ?? model.status.devices.first?.id ?? "")
@@ -216,6 +206,8 @@ private struct DeviceRow: View {
     let device: DeviceStatus
     /// The shortcut that moves the cursor to it, if any.
     var jump: String?
+    /// The service can wake other computers.
+    var wakeSupported = false
 
     var body: some View {
         HStack {
@@ -223,7 +215,15 @@ private struct DeviceRow: View {
                 .foregroundStyle(.secondary)
                 .frame(width: 22)
             VStack(alignment: .leading) {
-                Text(device.name)
+                HStack(spacing: 4) {
+                    Text(device.name)
+                    // The status says it; the moon only marks it.
+                    if WakeText.showsMoon(device, supported: wakeSupported) {
+                        Image(systemName: WakeText.moon)
+                            .imageScale(.small)
+                            .accessibilityHidden(true)
+                    }
+                }
                 Text(OSLabel(os: device.os).name).font(.caption).foregroundStyle(.secondary)
             }
             Spacer()
@@ -245,9 +245,15 @@ private struct DeviceRow: View {
                     .monospacedDigit()
                     .foregroundStyle(.green)
             } else {
-                Label("Offline", systemImage: "circle.dashed")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                // Refreshed twice a minute, for how long it has been offline.
+                TimelineView(.periodic(from: .now, by: 30)) { context in
+                    Label(
+                        WakeText.offlineStatus(device, supported: wakeSupported, now: context.date),
+                        systemImage: "circle.dashed")
+                        .font(.caption)
+                        .monospacedDigit()
+                        .foregroundStyle(.secondary)
+                }
             }
         }
         .padding(.vertical, 2)

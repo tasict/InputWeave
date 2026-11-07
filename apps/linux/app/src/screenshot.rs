@@ -7,6 +7,7 @@ use std::rc::Rc;
 use std::time::{Duration, SystemTime};
 
 use adw::prelude::*;
+use inputweave_app_core::proto::WakeState;
 use inputweave_app_core::service::ServiceState;
 use inputweave_app_core::snapshot::Snapshot;
 use inputweave_app_core::status_text::TrayState;
@@ -473,6 +474,47 @@ pub fn run(ui: Rc<Ui>, dir: PathBuf) {
             shot(page.name(), &window.widget());
         }
 
+        // Waking: the ThinkPad asleep, being woken and not woken; one that
+        // never said how; the Mac mini asleep on the arrangement.
+        let base = (*ui.snapshot()).clone();
+        let asleep = |wake: WakeState| {
+            let mut model = base.clone();
+            for device in &mut model.status.devices {
+                if device.id == "laptop" {
+                    device.wake = wake as i32;
+                }
+            }
+            model
+        };
+        window.show_page(Page::Devices);
+        window.devices().select("laptop");
+        for (name, model) in [
+            ("devices-wake", asleep(WakeState::None)),
+            ("devices-waking", asleep(WakeState::Waking)),
+            ("devices-not-woken", asleep(WakeState::NotWoken)),
+            (
+                "devices-wake-unknown",
+                with_pictures(sample::asleep(SystemTime::now(), WakeState::None)),
+            ),
+        ] {
+            ui.agent.show_fixed(model);
+            window.update(&ui.snapshot(), ServiceState::Running);
+            gtk::glib::timeout_future(SETTLE).await;
+            shot(name, &window.widget());
+        }
+        ui.agent.show_fixed(with_pictures(sample::asleep(
+            SystemTime::now(),
+            WakeState::NotWoken,
+        )));
+        window.show_page(Page::Arrangement);
+        window.arrangement().select("mac");
+        window.update(&ui.snapshot(), ServiceState::Running);
+        gtk::glib::timeout_future(SETTLE).await;
+        shot("arrangement-asleep", &window.widget());
+        window.devices().select("mac");
+        ui.agent.show_fixed(base);
+        window.update(&ui.snapshot(), ServiceState::Running);
+
         // Shortcuts while recording, and after the service refused one.
         window.show_page(Page::General);
         let shortcuts = window.general().shortcuts().clone();
@@ -509,6 +551,7 @@ pub fn run(ui: Rc<Ui>, dir: PathBuf) {
                     ui!(keys::HUD_RELATIVE_ENTERED, "Mac mini", "Ctrl+Alt+Shift+G")
                 )),
             ),
+            ("hud-waking", tr(&ui!(keys::HUD_WAKING, "Mac mini"))),
         ] {
             let path = dir.join(format!("{language}-{name}.png"));
             match paint::hud(&text, &brand, 1)
