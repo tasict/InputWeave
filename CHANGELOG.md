@@ -2,6 +2,12 @@
 
 All notable changes to InputWeave are recorded here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and versions follow [Semantic Versioning](https://semver.org/). Each release's full notes are in [`docs/release-notes/`](docs/release-notes/README.md) and on its [GitHub release](https://github.com/tasict/InputWeave/releases).
 
+## [1.1.2] - 2026-11-11
+
+### Fixed
+
+- Other computers no longer lose a computer's desktop pictures on the Arrangement page and the panel's map while InputWeave starts there (after signing in, updating or restarting): they keep the pictures they have until it has read its own. On a Windows PC that used to last until the signed-in user's helper sent them, sometimes a few minutes after signing in, and for as long as nobody was signed in. It takes the computer whose pictures disappeared running this version.
+
 ## [1.1.1] - 2026-11-11
 
 ### Added
@@ -62,6 +68,7 @@ The first public release.
 - An optional license (US$10, up to 5 computers) that shows "Licensed" instead of "Trial" in Settings and About; every feature works without it.
 - `inputweave ctl`, the command line for the background service.
 
+[1.1.2]: https://github.com/tasict/InputWeave/releases/tag/v1.1.2
 [1.1.1]: https://github.com/tasict/InputWeave/releases/tag/v1.1.1
 [1.1.0]: https://github.com/tasict/InputWeave/releases/tag/v1.1.0
 [1.0.1]: https://github.com/tasict/InputWeave/releases/tag/v1.0.1

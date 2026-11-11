@@ -29,8 +29,8 @@ settings:
     # (major * 10000 + minor * 100 + patch, so 0.1.0 is 100, 1.0.0 10000).
     # scripts/set-version.sh sets both with Cargo.toml; embed-agent.sh
     # refuses a build where they disagree.
-    MARKETING_VERSION: 1.1.1
-    CURRENT_PROJECT_VERSION: 10101
+    MARKETING_VERSION: 1.1.2
+    CURRENT_PROJECT_VERSION: 10102
     SWIFT_VERSION: "6.0"
     SWIFT_STRICT_CONCURRENCY: complete
     ENABLE_USER_SCRIPT_SANDBOXING: NO
