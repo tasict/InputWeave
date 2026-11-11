@@ -1,6 +1,7 @@
 //! In-memory backends for tests and headless runs.
 
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::mpsc::{SendError, Sender};
 use std::sync::{Arc, Mutex};
 
@@ -332,28 +333,68 @@ impl Displays for SharedDisplays {
 /// Desktop pictures a test sets, by display id. None until it sets some.
 /// Clones share them, so a test can change them while the agent runs.
 #[derive(Clone, Debug, Default)]
-pub struct MockDesktopPictures(Arc<Mutex<HashMap<String, Vec<u8>>>>);
+pub struct MockDesktopPictures(Arc<PicturesState>);
+
+#[derive(Debug, Default)]
+struct PicturesState {
+    pictures: Mutex<HashMap<String, Vec<u8>>>,
+    unreadable: AtomicBool,
+    unknown: AtomicBool,
+    /// Moved when they become known, as the broker's is.
+    generation: AtomicU64,
+}
 
 impl MockDesktopPictures {
     /// Shows `jpeg` on the display `display_id`. The bytes are passed on as
     /// they are, without the size limits real backends keep to.
     pub fn set(&self, display_id: &str, jpeg: Vec<u8>) {
-        self.0.lock().unwrap().insert(display_id.to_owned(), jpeg);
+        self.0
+            .pictures
+            .lock()
+            .unwrap()
+            .insert(display_id.to_owned(), jpeg);
     }
 
     /// As if the display showed a solid color.
     pub fn clear(&self, display_id: &str) {
-        self.0.lock().unwrap().remove(display_id);
+        self.0.pictures.lock().unwrap().remove(display_id);
+    }
+
+    /// Whether reading the pictures fails for now.
+    pub fn set_unreadable(&self, unreadable: bool) {
+        self.0.unreadable.store(unreadable, Ordering::SeqCst);
+    }
+
+    /// Whether the pictures are not known yet: none are given, as on
+    /// Windows before the broker sent them ([`DesktopPictures::known`]).
+    pub fn set_unknown(&self, unknown: bool) {
+        if self.0.unknown.swap(unknown, Ordering::SeqCst) && !unknown {
+            self.0.generation.fetch_add(1, Ordering::SeqCst);
+        }
     }
 }
 
 impl DesktopPictures for MockDesktopPictures {
     fn pictures(&self, displays: &[Display]) -> Result<HashMap<String, Vec<u8>>, PlatformError> {
-        let pictures = self.0.lock().unwrap();
+        if self.0.unreadable.load(Ordering::SeqCst) {
+            return Err(PlatformError::Unavailable("the test made them unreadable"));
+        }
+        if !self.known() {
+            return Ok(HashMap::new());
+        }
+        let pictures = self.0.pictures.lock().unwrap();
         Ok(displays
             .iter()
             .filter_map(|d| Some((d.id.clone(), pictures.get(&d.id)?.clone())))
             .collect())
+    }
+
+    fn known(&self) -> bool {
+        !self.0.unknown.load(Ordering::SeqCst)
+    }
+
+    fn generation(&self) -> u64 {
+        self.0.generation.load(Ordering::SeqCst)
     }
 }
 

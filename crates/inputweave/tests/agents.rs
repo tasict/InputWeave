@@ -6012,6 +6012,97 @@ async fn desktop_pictures_outlast_the_connection_until_unpaired() {
     mac.agent.shutdown().await;
 }
 
+#[tokio::test(flavor = "multi_thread")]
+async fn a_device_that_has_not_read_its_pictures_leaves_the_others_theirs() {
+    // The Mac restarts: it dials, so it finds the PC again by the address
+    // it last reached it at. Each time it has another display, so the PC
+    // shows when its Displays arrived.
+    let mac_dir = tempfile::tempdir().unwrap();
+    let win_dir = tempfile::tempdir().unwrap();
+    let mac_file = mac_dir.path().join("devices.toml");
+    let mac_key = mac_dir.path().join("identity");
+    let previews = win_dir.path().join("previews").join("mac");
+    let mac_pictures = MockDesktopPictures::default();
+    mac_pictures.set("builtin", fake_jpeg(5, 4000));
+    let one_display = mac();
+    let mut two_displays = mac();
+    two_displays
+        .displays
+        .push(display("external", 1512.0, 0.0, 1920.0, 1080.0, false));
+    let mac = unpaired_showing(
+        &one_display,
+        Identity::load_or_generate(&mac_key).unwrap(),
+        Some(mac_file.clone()),
+        mac_pictures.clone(),
+    )
+    .await;
+    let win = unpaired(
+        &win(),
+        Identity::generate().unwrap(),
+        Some(win_dir.path().join("devices.toml")),
+    )
+    .await;
+    pair(&mac, &win).await;
+    connected(&win, "mac").await;
+    wait_arrangement(&win, |a| {
+        picture(a, "mac", "builtin") == Some(fake_jpeg(5, 4000))
+    })
+    .await;
+    let mac_displays = |count: usize| {
+        move |a: &inputweave::agent::Arrangement| {
+            a.device("mac").is_some_and(|d| d.displays.len() == count)
+        }
+    };
+
+    // The Mac starts again and has none of its pictures yet, as a PC
+    // before its broker sends them: the PC keeps the ones it has, files
+    // and all.
+    mac.agent.shutdown().await;
+    wait_status(&win, |s| s.device("mac").is_some_and(|d| !d.connected)).await;
+    mac_pictures.set_unknown(true);
+    let mac = unpaired_showing(
+        &two_displays,
+        Identity::load_or_generate(&mac_key).unwrap(),
+        Some(mac_file.clone()),
+        mac_pictures.clone(),
+    )
+    .await;
+    let now = wait_arrangement(&win, mac_displays(2)).await;
+    assert_eq!(picture(&now, "mac", "builtin"), Some(fake_jpeg(5, 4000)));
+    assert_eq!(std::fs::read_dir(&previews).unwrap().count(), 1);
+
+    // Once it has them, they replace the ones the PC had.
+    mac_pictures.set("builtin", fake_jpeg(7, 3000));
+    mac_pictures.set_unknown(false);
+    wait_arrangement(&win, |a| {
+        picture(a, "mac", "builtin") == Some(fake_jpeg(7, 3000))
+    })
+    .await;
+
+    // Starting again, it cannot read them at first; then its first read
+    // finds a solid color, and that still clears them, although its
+    // pictures did not change from the none it starts with.
+    mac.agent.shutdown().await;
+    wait_status(&win, |s| s.device("mac").is_some_and(|d| !d.connected)).await;
+    mac_pictures.set_unreadable(true);
+    mac_pictures.clear("builtin");
+    let mac = unpaired_showing(
+        &one_display,
+        Identity::load_or_generate(&mac_key).unwrap(),
+        Some(mac_file.clone()),
+        mac_pictures.clone(),
+    )
+    .await;
+    let now = wait_arrangement(&win, mac_displays(1)).await;
+    assert_eq!(picture(&now, "mac", "builtin"), Some(fake_jpeg(7, 3000)));
+    mac_pictures.set_unreadable(false);
+    wait_arrangement(&win, |a| picture(a, "mac", "builtin").is_none()).await;
+    assert!(!previews.exists() || std::fs::read_dir(&previews).unwrap().count() == 0);
+
+    mac.agent.shutdown().await;
+    win.agent.shutdown().await;
+}
+
 /// Shakes `node`'s mouse: five quick strokes of 30 back and forth, the
 /// first to the right. Coming after a stroke to the right, or from rest,
 /// the fifth makes the fourth turn, and so a shake. `at` is where local

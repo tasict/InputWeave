@@ -414,6 +414,17 @@ pub trait DesktopPictures: Send + Sync {
     fn generation(&self) -> u64 {
         0
     }
+
+    /// Whether [`pictures`](Self::pictures) gives this device's pictures,
+    /// rather than none only because nothing has read them yet, as on
+    /// Windows before the broker first sends them. Until then other
+    /// devices keep the pictures they have of this one. Once true, it
+    /// stays true, and [`generation`](Self::generation) moves as it
+    /// becomes true: the agent asks this before it reads, and reads again
+    /// only for a new generation.
+    fn known(&self) -> bool {
+        true
+    }
 }
 
 /// No previews, for platforms where nothing reads the desktop picture for

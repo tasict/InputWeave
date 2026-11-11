@@ -48,10 +48,12 @@ message Display {
 // these limits by leaving out the largest pictures.
 message Displays {
   repeated Display displays = 1;
-  // The sender cannot read its desktop pictures now, as at the macOS login
+  // The sender cannot read its desktop pictures now: at the macOS login
   // window, where its agent runs as a user's device without that user's
-  // desktop. The receiver keeps the pictures it has of the displays still
-  // listed, and ignores any in this message.
+  // desktop, or until its agent first reads them after starting (on
+  // Windows, once the logged-on user's broker sent them). The receiver
+  // keeps the pictures it has of the displays still listed, and ignores
+  // any in this message.
   bool previews_unchanged = 2;
 }
 

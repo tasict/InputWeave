@@ -796,6 +796,11 @@ pub(crate) struct PlatformState {
     pub(crate) input_available: bool,
     pub(crate) displays: Vec<Display>,
     pub(crate) pictures: Pictures,
+    /// Whether a read since the agent started succeeded while the backend
+    /// knew the pictures (`DesktopPictures::known`): on Windows, not before
+    /// the broker sent them, although reads succeed with none. Until then
+    /// `pictures` are only the empty set it starts with.
+    pub(crate) pictures_known: bool,
     /// Whether anything reads this device's desktop pictures now: on
     /// Windows, whether the broker is connected.
     pub(crate) pictures_available: bool,
@@ -1121,6 +1126,11 @@ pub(crate) struct Engine {
     local_displays: Vec<Display>,
     /// Previews of this device's desktop pictures, by display id.
     local_pictures: Pictures,
+    /// Whether `local_pictures` were read since the agent started. Until
+    /// then other devices keep the pictures they have of this one, so a
+    /// restart, or a Windows PC whose broker has not sent them yet, does
+    /// not make them forget them.
+    local_pictures_known: bool,
     /// Whether `local_pictures` go to other devices.
     preview_sharing: bool,
     /// Other devices keep the pictures they have of this one.
@@ -1410,6 +1420,7 @@ impl Engine {
             local_displays,
             // Read by the platform poller once the agent is up.
             local_pictures: Pictures::new(),
+            local_pictures_known: false,
             preview_sharing,
             previews_unchanged,
             login_window_access,
@@ -1660,15 +1671,22 @@ impl Engine {
         }
         let displays_changed = state.displays != self.local_displays;
         let pictures_changed = state.pictures != self.local_pictures;
+        // Other devices are told even when the first read found none (a
+        // solid color): until now they kept the pictures they had.
+        let first_known = state.pictures_known && !self.local_pictures_known;
         if displays_changed {
             info!(count = state.displays.len(), "displays changed");
             self.local_displays = state.displays;
+        }
+        if first_known {
+            info!(count = state.pictures.len(), "read the desktop pictures");
+            self.local_pictures_known = true;
         }
         if pictures_changed {
             info!(count = state.pictures.len(), "desktop pictures changed");
             self.local_pictures = state.pictures;
         }
-        if displays_changed || (pictures_changed && self.preview_sharing) {
+        if displays_changed || ((pictures_changed || first_known) && self.preview_sharing) {
             self.send_displays();
         }
         if displays_changed {
@@ -2378,9 +2396,14 @@ impl Engine {
     }
 
     /// This device's displays, with their pictures while they are shared,
-    /// as many as other devices accept.
+    /// as many as other devices accept. While they are shared but not read
+    /// yet, other devices keep the ones they have; not shared, they drop
+    /// them.
     fn displays_message(&self) -> Control {
-        let pictures = if self.preview_sharing {
+        let unchanged =
+            self.previews_unchanged || (self.preview_sharing && !self.local_pictures_known);
+        // Other devices ignore pictures when told to keep theirs.
+        let pictures = if self.preview_sharing && !unchanged {
             let ids = self.local_displays.iter().map(|d| d.id.as_str());
             previews::sendable(&self.local_pictures, ids)
         } else {
@@ -2393,7 +2416,7 @@ impl Engine {
                     .iter()
                     .map(|d| convert::display_to_proto(d, pictures.get(&d.id).map(|p| p.bytes())))
                     .collect(),
-                previews_unchanged: self.previews_unchanged,
+                previews_unchanged: unchanged,
             })),
         }
     }

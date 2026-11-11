@@ -679,7 +679,8 @@ pub async fn start(
     tasks.spawn(watch_network(session.clone(), engine_tx.clone()));
     // The desktop pictures are read by the poller, now that the endpoint
     // and IPC are up: decoding them can take seconds. Sessions that start
-    // before then get Displays without pictures, and again with them.
+    // before then are told to keep the pictures they have of this device,
+    // and get the pictures once they are read.
     tasks.spawn(watch_platform(
         session,
         local_addr.port(),
@@ -688,6 +689,7 @@ pub async fn start(
             backend: pictures,
             schedule: PictureSchedule::default(),
             current: previews::Pictures::new(),
+            known: false,
             errors: PictureErrors::default(),
         },
         engine_tx.clone(),
@@ -1308,6 +1310,10 @@ struct PictureWatch {
     backend: Arc<dyn DesktopPictures>,
     schedule: PictureSchedule,
     current: previews::Pictures,
+    /// Whether a read succeeded since the agent started while the backend
+    /// knew the pictures ([`DesktopPictures::known`]); until then `current`
+    /// is only the empty set it starts with.
+    known: bool,
     errors: PictureErrors,
 }
 
@@ -1431,6 +1437,7 @@ async fn watch_platform(
             input_available: status.input_available(),
             displays,
             pictures: pictures.current.clone(),
+            pictures_known: pictures.known,
             pictures_available: pictures.backend.available(),
             pointer_captured: status.pointer_captured(),
             session: status.session_info(),
@@ -1441,6 +1448,10 @@ async fn watch_platform(
         }
         let now = Instant::now();
         let generation = pictures.backend.generation();
+        // Asked before the read, as the generation is: the backend coming
+        // to know them during the read moves the generation, and they are
+        // read again.
+        let known = pictures.backend.known();
         if !pictures.schedule.due(&state.displays, generation, now) {
             continue;
         }
@@ -1448,14 +1459,18 @@ async fn watch_platform(
         pictures
             .schedule
             .tried(&state.displays, generation, now, read.is_some());
+        let Some(read) = read else { continue };
         // Unchanged pictures keep their shared bytes, which compare
         // without being read.
-        if let Some(read) = read.filter(|read| *read != pictures.current) {
+        if read != pictures.current {
             pictures.current = read;
-            state.pictures = pictures.current.clone();
-            if !report(&engine, &mut last, &state) {
-                break;
-            }
+        }
+        pictures.known |= known;
+        state.pictures = pictures.current.clone();
+        state.pictures_known = pictures.known;
+        // Sent only if something changed, the first known read included.
+        if !report(&engine, &mut last, &state) {
+            break;
         }
     }
 }

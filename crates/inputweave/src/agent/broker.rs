@@ -7,7 +7,9 @@
 //!
 //! - Desktop pictures: [`Broker`] keeps the previews the broker sent and
 //!   is this device's [`DesktopPictures`]: the platform poller reads it
-//!   like any other backend, and each read asks the broker to look again.
+//!   like any other backend, and each read asks a connected broker to look
+//!   again (one that connects sends them by itself). Until a broker sent
+//!   them, they are not known, and other devices keep theirs.
 //! - Clipboard: [`BrokerClipboard`] is this device's [`Clipboard`], so the
 //!   engine moves clipboards as it does on macOS. The engine reads the
 //!   clipboard on its own task, in the middle of moving input, so nothing
@@ -165,6 +167,9 @@ struct State {
     /// Brokers connected now; normally one.
     brokers: usize,
     pictures: Pictures,
+    /// Whether a broker sent the pictures since the agent started, even
+    /// none; until then `pictures` are only empty, not known.
+    pictures_sent: bool,
     /// Bumped whenever `pictures` change.
     generation: u64,
     /// The newest connection, which does the clipboard and files work.
@@ -479,7 +484,12 @@ impl Broker {
             Err(e) => (Pictures::new(), Err(e)),
         };
         let mut state = self.state();
-        if state.pictures != pictures {
+        // The first ones move the generation even when there are none, so
+        // the agent reads them, now known, at once. Refused ones are not
+        // known pictures.
+        let first = result.is_ok() && !state.pictures_sent;
+        state.pictures_sent |= result.is_ok();
+        if first || state.pictures != pictures {
             state.pictures = pictures;
             state.generation += 1;
         }
@@ -1005,12 +1015,20 @@ impl DesktopPictures for Broker {
     /// them again, as the agent calls this when the displays change and
     /// every so often. What it sends then comes with the next call.
     fn pictures(&self, displays: &[Display]) -> Result<HashMap<String, Vec<u8>>, PlatformError> {
-        self.asks.send_modify(|n| *n = n.wrapping_add(1));
-        let state = self.state();
-        Ok(displays
-            .iter()
-            .filter_map(|d| Some((d.id.clone(), state.pictures.get(&d.id)?.bytes().to_vec())))
-            .collect())
+        let (connected, shown) = {
+            let state = self.state();
+            let shown = displays
+                .iter()
+                .filter_map(|d| Some((d.id.clone(), state.pictures.get(&d.id)?.bytes().to_vec())))
+                .collect();
+            (state.brokers > 0, shown)
+        };
+        // Nobody listens while no broker is connected; one that connects
+        // sends the pictures by itself.
+        if connected {
+            self.asks.send_modify(|n| *n = n.wrapping_add(1));
+        }
+        Ok(shown)
     }
 
     fn available(&self) -> bool {
@@ -1019,6 +1037,13 @@ impl DesktopPictures for Broker {
 
     fn generation(&self) -> u64 {
         self.state().generation
+    }
+
+    /// Not until a broker sent the pictures, as while no user is logged on
+    /// or the shell is not ready to tell the broker: other devices keep
+    /// the ones they have of this PC.
+    fn known(&self) -> bool {
+        self.state().pictures_sent
     }
 }
 
@@ -1854,6 +1879,40 @@ mod tests {
     }
 
     #[test]
+    fn the_pictures_are_not_known_until_a_broker_sent_them() {
+        let pictures = Arc::new(Broker::new(1024));
+        let shown = [display(r"\\.\DISPLAY1")];
+        // No user is logged on, or the broker has not read them yet: none,
+        // and other devices keep what they have of this PC.
+        assert!(!pictures.known());
+        assert!(pictures.pictures(&shown).unwrap().is_empty());
+        let link = pictures.connected();
+        assert!(!pictures.known());
+        // Pictures refused for the limits are no answer.
+        assert!(
+            pictures
+                .received(&many(previews::MAX_PICTURES + 1, 10))
+                .is_err()
+        );
+        assert!(!pictures.known());
+        assert_eq!(pictures.generation(), 0);
+        // A solid color is an answer, and is read at once.
+        pictures.received(&sent(&[])).unwrap();
+        assert!(pictures.known());
+        assert_eq!(pictures.generation(), 1);
+        pictures
+            .received(&sent(&[(r"\\.\DISPLAY1", jpeg(1, 100))]))
+            .unwrap();
+        drop(link);
+        // Known for as long as the agent runs, with no broker as well.
+        assert!(pictures.known());
+        assert_eq!(
+            pictures.pictures(&shown).unwrap()[r"\\.\DISPLAY1"],
+            jpeg(1, 100)
+        );
+    }
+
+    #[test]
     fn only_new_pictures_change_the_generation() {
         let pictures = Broker::new(1024);
         assert_eq!(pictures.generation(), 0);
@@ -1914,12 +1973,21 @@ mod tests {
     }
 
     #[test]
-    fn each_read_asks_the_brokers_to_look_again() {
-        let pictures = Broker::new(1024);
+    fn each_read_asks_the_connected_brokers_to_look_again() {
+        let pictures = Arc::new(Broker::new(1024));
+        let shown = [display(r"\\.\DISPLAY1")];
         let mut asks = pictures.watch_asks();
         asks.mark_unchanged();
+        // Nobody to ask.
+        let _ = pictures.pictures(&shown);
         assert!(!asks.has_changed().unwrap());
-        pictures.pictures(&[display(r"\\.\DISPLAY1")]).unwrap();
+        let _link = pictures.connected();
+        // Also before it sent any.
+        assert!(pictures.pictures(&shown).unwrap().is_empty());
+        assert!(asks.has_changed().unwrap());
+        asks.mark_unchanged();
+        pictures.received(&sent(&[])).unwrap();
+        pictures.pictures(&shown).unwrap();
         assert!(asks.has_changed().unwrap());
     }
 
