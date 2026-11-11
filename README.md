@@ -69,7 +69,7 @@ Then pair the computers: on one of them open Settings › Devices › Add Device
 
 ## The license
 
-InputWeave is free software, and every feature works without a license, with no time limit. Until you add a license, Settings and About say **Trial**. A license costs US$10, paid once, and replaces that with a **Licensed** label on up to 5 of your computers; enter the key on one computer and the computers paired with it pick it up by themselves. Nothing else changes. Licenses are sold through [Polar](https://polar.sh/), and the [license page](https://inputweave.ctsite.cc/license.html) has the details. You can also build InputWeave yourself under the GPL.
+InputWeave is free software, and every feature works without a license, with no time limit. Until you add a license, Settings and About say **Trial**. A license costs US$10, paid once, and replaces that with a **Licensed** label on up to 5 of your computers; enter the key on one computer, then on its License page choose which of your paired computers use it. Nothing else changes. Licenses are sold through [Polar](https://polar.sh/), and the [license page](https://inputweave.ctsite.cc/license.html) has the details. You can also build InputWeave yourself under the GPL.
 
 ## Status
 

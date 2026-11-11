@@ -71,7 +71,7 @@ macOS App 的排列頁、選單列面板，以及新電腦顯示的配對碼。�
 
 ## 授權
 
-InputWeave 是自由軟體，沒有授權也能使用全部功能，沒有期限。加入授權之前，設定與「關於」會顯示「**試用中**」。授權是一次付款 US$10，會把它換成「**已授權**」的標籤，最多 5 台電腦使用；在一台輸入授權碼，和它配對的電腦會自動取得。其他都不變。授權由 [Polar](https://polar.sh/) 販售，詳情見[授權說明頁](https://inputweave.ctsite.cc/zh-Hant/license.html)。你也可以依 GPL 自己建置 InputWeave。
+InputWeave 是自由軟體，沒有授權也能使用全部功能，沒有期限。加入授權之前，設定與「關於」會顯示「**試用中**」。授權是一次付款 US$10，會把它換成「**已授權**」的標籤，最多 5 台電腦使用；在一台輸入授權碼，再到它的授權頁選擇哪些已配對的電腦要使用。其他都不變。授權由 [Polar](https://polar.sh/) 販售，詳情見[授權說明頁](https://inputweave.ctsite.cc/zh-Hant/license.html)。你也可以依 GPL 自己建置 InputWeave。
 
 ## 目前狀態
 
