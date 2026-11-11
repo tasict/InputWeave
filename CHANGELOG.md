@@ -2,6 +2,14 @@
 
 All notable changes to InputWeave are recorded here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and versions follow [Semantic Versioning](https://semver.org/). Each release's full notes are in [`docs/release-notes/`](docs/release-notes/README.md) and on its [GitHub release](https://github.com/tasict/InputWeave/releases).
 
+## [1.1.1] - 2026-11-11
+
+### Added
+
+- Mac lock screen and login window: Apple has granted InputWeave the permission for a virtual keyboard and mouse (`com.apple.developer.hid.virtual.device`), so other computers can type and click on a locked Mac, and Settings › General › Lock Screen says so. "Let other computers control this Mac at the login window" can then be turned on there (or `inputweave ctl login-window on`): from the next time the login window appears, other computers can choose a user and type the password. While another computer types on the lock screen, this Mac's own mouse and keyboard don't take control back until it's unlocked.
+
+Windows and Linux are unchanged; their version follows the Mac's.
+
 ## [1.1.0] - 2026-11-07
 
 ### Added
@@ -54,6 +62,7 @@ The first public release.
 - An optional license (US$10, up to 5 computers) that shows "Licensed" instead of "Trial" in Settings and About; every feature works without it.
 - `inputweave ctl`, the command line for the background service.
 
+[1.1.1]: https://github.com/tasict/InputWeave/releases/tag/v1.1.1
 [1.1.0]: https://github.com/tasict/InputWeave/releases/tag/v1.1.0
 [1.0.1]: https://github.com/tasict/InputWeave/releases/tag/v1.0.1
 [1.0.0]: https://github.com/tasict/InputWeave/releases/tag/v1.0.0

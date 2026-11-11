@@ -75,7 +75,7 @@ InputWeave is free software, and every feature works without a license, with no 
 
 The current version has been tested by hand on macOS, Windows and Linux.
 
-- **Mac lock screen and login window:** typing there from another computer needs a virtual keyboard and mouse, which needs a permission Apple grants to the app. That approval is still pending, so while a Mac is locked the pointer does not move onto it.
+- **Mac lock screen and login window:** since 1.1.1, other computers can type and click on a locked Mac, through a virtual keyboard and mouse (Apple has granted the permission this needs), and at the login window when that is turned on in Settings › General › Lock Screen. This is new and hasn't been tested by hand as much as the rest.
 - **Linux:** dragging files across computers isn't supported (use Send Files, drop them on a computer in the app, or copy and paste files in the file manager). On GNOME's Wayland session the screen-edge glow isn't shown, and the desktop asks once per sign-in before this computer's keyboard and mouse can control other computers.
 - **Windows:** the installer isn't code-signed yet.
 
